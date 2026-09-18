@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<com.google.android.material.textfield.TextInputLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/pillInputLayout"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginBottom="8dp"
+    app:boxBackgroundMode="filled"
+    app:boxBackgroundColor="@color/token_bg_card_glass"
+    app:boxCornerRadiusBottomEnd="24dp"
+    app:boxCornerRadiusBottomStart="24dp"
+    app:boxCornerRadiusTopEnd="24dp"
+    app:boxCornerRadiusTopStart="24dp"
+    app:boxStrokeColor="@color/token_neon_cyan"
+    app:boxStrokeWidth="1dp"
+    app:hintTextColor="@color/token_text_secondary">
+
+    <com.google.android.material.textfield.TextInputEditText
+        android:id="@+id/pillEditText"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:digits="ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-"
+        android:hint="ROOM-CODE"
+        android:inputType="textCapCharacters"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:textColor="@color/token_text_primary"
+        android:textSize="14sp" />
+
+</com.google.android.material.textfield.TextInputLayout>

@@ -1,0 +1,14 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Camera Off Outline Icon -->
+    <path
+        android:strokeColor="#EF4444"
+        android:strokeWidth="1.6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000"
+        android:pathData="M1,1l22,22 M21,21H3a2,2 0,0 1,-2 -2V8a2,2 0,0 1,2 -2h1 M9.88,3h4.24l1.88,3H21a2,2 0,0 1,2 2v10a2,2 0,0 1,-0.58,1.42 M14.12,14.12a3,3 0,1 1,-4.24 -4.24" />
+</vector>

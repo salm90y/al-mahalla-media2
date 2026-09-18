@@ -1,0 +1,14 @@
+<resources>
+    <style name="Theme.PS1Netplay.Fullscreen" parent="Theme.MaterialComponents.NoActionBar">
+        <!-- Keep system status bar visible on all screens -->
+        <item name="android:windowFullscreen">false</item>
+        <item name="android:windowContentOverlay">@null</item>
+        <!-- Transparent status bar so header gradient flows directly behind system icons -->
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <!-- Light/white icons (clock, wifi, battery) for dark theme -->
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowBackground">#0F1424</item>
+    </style>
+</resources>

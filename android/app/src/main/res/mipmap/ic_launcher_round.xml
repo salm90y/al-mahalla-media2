@@ -1,0 +1,89 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Circular Background Canvas -->
+    <path
+        android:pathData="M 54,54 m -52,0 a 52,52 0 1,0 104,0 a 52,52 0 1,0 -104,0">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="radial"
+                android:centerX="54"
+                android:centerY="54"
+                android:gradientRadius="54">
+                <item android:offset="0.0" android:color="#0F285C" />
+                <item android:offset="0.7" android:color="#07132D" />
+                <item android:offset="1.0" android:color="#020612" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Outer Glowing Neon Ring -->
+    <path
+        android:pathData="M 54,54 m -34,0 a 34,34 0 1,0 68,0 a 34,34 0 1,0 -68,0">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="20"
+                android:startY="20"
+                android:endX="88"
+                android:endY="88">
+                <item android:offset="0.0" android:color="#00D2D3" />
+                <item android:offset="0.5" android:color="#0984E3" />
+                <item android:offset="1.0" android:color="#6C5CE7" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Inner Dark Circle Core -->
+    <path
+        android:pathData="M 54,54 m -29,0 a 29,29 0 1,0 58,0 a 29,29 0 1,0 -58,0">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="radial"
+                android:centerX="54"
+                android:centerY="54"
+                android:gradientRadius="29">
+                <item android:offset="0.0" android:color="#0C204B" />
+                <item android:offset="0.75" android:color="#050E24" />
+                <item android:offset="1.0" android:color="#01040E" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Top Cyan Crescent Glow -->
+    <path
+        android:pathData="M 33,41 C 41,29 67,29 75,41 C 67,33 41,33 33,41 Z"
+        android:fillColor="#4D00D2D3" />
+
+    <!-- Bottom Purple Crescent Glow -->
+    <path
+        android:pathData="M 33,67 C 41,79 67,79 75,67 C 67,75 41,75 33,67 Z"
+        android:fillColor="#4D6C5CE7" />
+
+    <!-- Stylized Arabic Calligraphy "المحلة" -->
+    <path
+        android:pathData="M 71,38 L 68,38 C 67,46 67,58 67,64 L 71,64 Z"
+        android:fillColor="#FFFFFF" />
+    <path
+        android:pathData="M 64,38 L 61,38 C 60,46 60,58 60,64 L 64,64 Z"
+        android:fillColor="#FFFFFF" />
+
+    <path
+        android:pathData="M 61,62 C 55,62 47,60 43,60 C 39,60 34,62 31,62 C 29,62 28,60 28,58 C 28,53 32,50 37,50 C 42,50 44,53 48,53 C 53,53 57,48 61,48 Z"
+        android:fillColor="#F1F2F6" />
+
+    <path
+        android:pathData="M 37,49 C 41,49 41,43 37,43 C 33,43 33,49 37,49 Z"
+        android:fillColor="#FFFFFF" />
+    <path
+        android:pathData="M 35,39 A 1.5,1.5 0 1,0 38,39 A 1.5,1.5 0 1,0 35,39"
+        android:fillColor="#00D2D3" />
+    <path
+        android:pathData="M 40,39 A 1.5,1.5 0 1,0 43,39 A 1.5,1.5 0 1,0 40,39"
+        android:fillColor="#00D2D3" />
+
+</vector>

@@ -1,0 +1,12 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Luxury cyan Lightning Bolt -->
+    <path
+        android:fillColor="#00E5FF"
+        android:strokeColor="#06B6D4"
+        android:strokeWidth="0.5"
+        android:pathData="M13,2L4,13.5h6L9,22l11-12.5h-7L13,2z" />
+</vector>

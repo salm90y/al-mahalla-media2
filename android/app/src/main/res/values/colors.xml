@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Strict UI Design System 2026 Tokens -->
+    <color name="header_gradient_start">#FF1C2A52</color>
+    <color name="header_gradient_end">#FF3B2B78</color>
+    <color name="accent_purple">#FF6C5CE7</color>
+    <color name="glow_badge">#FF4834DF</color>
+    <color name="edge_highlight">#FF00D2D3</color>
+    <color name="bg_surface">#FFFFFFFF</color>
+    <color name="bg_surface_dark">#FF121212</color>
+    <color name="text_primary">#FF1E272C</color>
+    <color name="text_secondary">#FF8395A7</color>
+    <color name="online_indicator">#FF10AC84</color>
+    <color name="unread_badge">#FF2E86DE</color>
+
+    <!-- Legacy compatibility mappings -->
+    <color name="white">#FFFFFFFF</color>
+    <color name="black">#FF1E272C</color>
+    <color name="bg_dark_obsidian">#FF121212</color>
+    <color name="bg_surface_card">#FFFFFFFF</color>
+    <color name="bg_surface_elevated">#FFF8FAFC</color>
+    <color name="bg_surface_glass">#FFF1F2F6</color>
+    <color name="bg_input_field">#FFF1F2F6</color>
+    <color name="border_subtle">#FFE0E6ED</color>
+    <color name="border_active">#FF6C5CE7</color>
+    <color name="border_focus">#FF4834DF</color>
+    <color name="ps_blue">#FF2E86DE</color>
+    <color name="ps_indigo">#FF6C5CE7</color>
+    <color name="neon_violet">#FF6C5CE7</color>
+    <color name="neon_violet_glow">#FF4834DF</color>
+    <color name="glass_dock_bg">#FFFFFFFF</color>
+    <color name="glass_dock_border">#FFE0E6ED</color>
+    <color name="glass_card_bg">#FFFFFFFF</color>
+    <color name="glass_pill_bg">#FFF1F2F6</color>
+    <color name="ps_cyan">#FF00D2D3</color>
+    <color name="ps_emerald">#FF10AC84</color>
+    <color name="ps_rose">#FFEE5253</color>
+    <color name="ps_amber">#FFFECA57</color>
+    <color name="text_muted">#FF8395A7</color>
+    <color name="text_accent">#FF6C5CE7</color>
+    <color name="slate_900">#FF1E272C</color>
+    <color name="slate_800">#FF2F3542</color>
+    <color name="cyan_400">#FF00D2D3</color>
+    <color name="red_500">#FFEE5253</color>
+    <color name="bg_gaming_dark">#FF121212</color>
+    <color name="gold_primary">#FF6C5CE7</color>
+    <color name="gold_bright">#FF00D2D3</color>
+    <color name="gold_dark">#FF4834DF</color>
+    <color name="gold_glow">#FF6C5CE7</color>
+    <color name="gold_border_subtle">#FFE0E6ED</color>
+    <color name="bg_card_luxury">#FFFFFFFF</color>
+    <color name="bg_input_luxury">#FFF1F2F6</color>
+    <color name="bg_chip_translucent">#FFF1F2F6</color>
+    <color name="text_light_gray">#FF8395A7</color>
+    <color name="neon_purple_border">#FF6C5CE7</color>
+    <color name="purple_trigger_border">#FF4834DF</color>
+    <color name="translucent_trigger_dark">#FFF1F2F6</color>
+    <color name="cyan_inner_glow">#FF00D2D3</color>
+    <color name="action_triangle_green">#FF10AC84</color>
+    <color name="action_square_pink">#FFFF9FF3</color>
+    <color name="action_circle_red">#FFEE5253</color>
+    <color name="action_cross_blue">#FF2E86DE</color>
+</resources>

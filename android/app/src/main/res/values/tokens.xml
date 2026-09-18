@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Design System Colors -->
+    <color name="token_bg_dark">#0A0B10</color>
+    <color name="token_bg_card">#12141D</color>
+    <color name="token_bg_card_glass">#4D1E293B</color>
+    <color name="token_bubble_bg">#1E293B</color>
+    <color name="token_bubble_bg_me">#0D3B52</color>
+    <color name="token_neon_cyan">#00E5FF</color>
+    <color name="token_neon_cyan_dim">#B300E5FF</color>
+    <color name="token_neon_cyan_border">#3300E5FF</color>
+    <color name="token_gold_primary">#D4AF37</color>
+    <color name="token_text_primary">#FFFFFF</color>
+    <color name="token_text_secondary">#99FFFFFF</color>
+    <color name="token_text_faint">#66FFFFFF</color>
+    <color name="token_error">#FF5252</color>
+    <color name="token_online">#00E676</color>
+
+    <!-- Standard Spacing & Dimensions -->
+    <dimen name="token_spacing_4">4dp</dimen>
+    <dimen name="token_spacing_8">8dp</dimen>
+    <dimen name="token_spacing_12">12dp</dimen>
+    <dimen name="token_spacing_16">16dp</dimen>
+    <dimen name="token_spacing_24">24dp</dimen>
+    <dimen name="token_spacing_32">32dp</dimen>
+
+    <!-- Corner Radius -->
+    <dimen name="token_radius_small">8dp</dimen>
+    <dimen name="token_radius_card">16dp</dimen>
+    <dimen name="token_radius_pill">24dp</dimen>
+
+    <!-- Elevated Button & Element Sizes -->
+    <dimen name="token_button_height">48dp</dimen>
+    <dimen name="token_game_center_size">56dp</dimen>
+    <dimen name="token_avatar_size">48dp</dimen>
+
+    <!-- Typography Styles -->
+    <style name="TextAppearance.PS1.Header" parent="TextAppearance.Material3.HeadlineMedium">
+        <item name="android:textSize">22sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textColor">@color/token_neon_cyan</item>
+    </style>
+
+    <style name="TextAppearance.PS1.Title" parent="TextAppearance.Material3.TitleMedium">
+        <item name="android:textSize">16sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textColor">@color/token_text_primary</item>
+    </style>
+
+    <style name="TextAppearance.PS1.Body" parent="TextAppearance.Material3.BodyMedium">
+        <item name="android:textSize">14sp</item>
+        <item name="android:textColor">@color/token_text_primary</item>
+    </style>
+
+    <style name="TextAppearance.PS1.Caption" parent="TextAppearance.Material3.BodySmall">
+        <item name="android:textSize">11sp</item>
+        <item name="android:textColor">@color/token_text_secondary</item>
+    </style>
+</resources>

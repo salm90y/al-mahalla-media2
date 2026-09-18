@@ -1,0 +1,11 @@
+{
+  "name": "Remix PS1 Netplay Combat 3",
+  "description": "تطبيق المحله للدردشة والاتصال والغرف ",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

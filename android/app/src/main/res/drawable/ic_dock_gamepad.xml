@@ -1,0 +1,14 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Gamepad Joystick Outline -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000"
+        android:pathData="M6,12h4 M8,10v4 M15,11h0.01 M18,13h0.01 M17,6H7C4.24,6 2,8.24 2,11c0,3.31 2.69,6 6,6h0.5L10,20h4l1.5,-3H16c3.31,0 6,-2.69 6,-6C22,8.24 19.76,6 17,6z" />
+</vector>
