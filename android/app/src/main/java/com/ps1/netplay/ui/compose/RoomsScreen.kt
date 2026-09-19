@@ -179,133 +179,9 @@ fun RoomsScreen(
             }
         }
 
-        // 2. Search Bar
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 6.dp)
-                .height(48.dp)
-                .clip(RoundedCornerShape(24.dp))
-                .background(Color(0xFFEEF4FB))
-                .padding(horizontal = 16.dp),
-            contentAlignment = Alignment.CenterEnd
-        ) {
-            Row(
-                modifier = Modifier.fillMaxSize(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.End
-            ) {
-                BasicTextField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it },
-                    textStyle = TextStyle(
-                        fontSize = 14.sp,
-                        fontFamily = TajawalFontFamily,
-                        color = Color(0xFF0F172A),
-                        textAlign = TextAlign.Right
-                    ),
-                    modifier = Modifier.weight(1f),
-                    decorationBox = { innerTextField ->
-                        if (searchQuery.isEmpty()) {
-                            Text(
-                                text = "ابحث عن غرفة",
-                                fontSize = 14.sp,
-                                fontFamily = TajawalFontFamily,
-                                color = Color(0xFF94A3B8),
-                                textAlign = TextAlign.Right,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        }
-                        innerTextField()
-                    }
-                )
-
-                Spacer(modifier = Modifier.width(8.dp))
-
-                Icon(
-                    imageVector = Icons.Default.Search,
-                    contentDescription = "بحث",
-                    tint = Color(0xFF94A3B8),
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // 3. Section 1: الغرف النشطة (Active Rooms)
-        Text(
-            text = "الغرف النشطة",
-            fontSize = 17.sp,
-            fontWeight = FontWeight.Bold,
-            fontFamily = TajawalFontFamily,
-            color = Color(0xFF0F172A),
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp),
-            textAlign = TextAlign.Right
-        )
-
         Spacer(modifier = Modifier.height(10.dp))
 
-        // Active room pill
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp),
-            horizontalArrangement = Arrangement.End
-        ) {
-            Row(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(24.dp))
-                    .background(Color(0xFFEBF3FF))
-                    .border(1.dp, Color(0xFFBFDBFE), RoundedCornerShape(24.dp))
-                    .clickable { selectedRoomForExperience = RoomType.DUAS }
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "أدعية وازيارات",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = TajawalFontFamily,
-                    color = Color(0xFF0284C7)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Box(
-                    modifier = Modifier
-                        .size(28.dp)
-                        .background(Color(0xFF0284C7), CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.VolunteerActivism,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // 4. Section 2: تصفح حسب المحتوى (Browse by Content)
-        Text(
-            text = "تصفح حسب المحتوى",
-            fontSize = 17.sp,
-            fontWeight = FontWeight.Bold,
-            fontFamily = TajawalFontFamily,
-            color = Color(0xFF0F172A),
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp),
-            textAlign = TextAlign.Right
-        )
-
-        Spacer(modifier = Modifier.height(14.dp))
-
-        // 2-Column Grid of Pills
+        // محتويات الغرفة (2-Column Grid of Pills)
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -371,6 +247,63 @@ fun RoomsScreen(
                     if (rowItems.size == 1) {
                         Spacer(modifier = Modifier.weight(1f))
                     }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // الغرف النشطة (Active Rooms) - أسفل محتويات الغرفة
+        Text(
+            text = "الغرف النشطة",
+            fontSize = 17.sp,
+            fontWeight = FontWeight.Bold,
+            fontFamily = TajawalFontFamily,
+            color = Color(0xFF0F172A),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp),
+            textAlign = TextAlign.Right
+        )
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // Active room pill
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp),
+            horizontalArrangement = Arrangement.End
+        ) {
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(Color(0xFFEBF3FF))
+                    .border(1.dp, Color(0xFFBFDBFE), RoundedCornerShape(24.dp))
+                    .clickable { selectedRoomForExperience = RoomType.DUAS }
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "أدعية وازيارات",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = TajawalFontFamily,
+                    color = Color(0xFF0284C7)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .background(Color(0xFF0284C7), CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.VolunteerActivism,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(16.dp)
+                    )
                 }
             }
         }

@@ -52,15 +52,21 @@ fun FriendsScreen(
     val tabs = listOf("الأصدقاء", "طلبات الصداقة")
     var searchQuery by remember { mutableStateOf("") }
     var friendsList by remember { mutableStateOf<List<FriendItem>>(CloudflareClient.getLocalFriends(context)) }
-    var requestsList by remember { mutableStateOf<List<FriendRequestItem>>(emptyList()) }
+    var requestsList by remember { mutableStateOf<List<FriendRequestItem>>(CloudflareClient.getLocalIncomingRequests(context)) }
     var showAddFriendDialog by remember { mutableStateOf(false) }
 
     fun loadData() {
         CloudflareClient.getFriendsList(context) { friends ->
-            friendsList = friends ?: emptyList()
+            if (friends != null && friends.isNotEmpty()) {
+                friendsList = friends
+            } else if (friendsList.isEmpty()) {
+                friendsList = CloudflareClient.getLocalFriends(context)
+            }
         }
         CloudflareClient.getIncomingRequests(context) { requests ->
-            requestsList = requests ?: emptyList()
+            if (requests != null) {
+                requestsList = requests
+            }
         }
     }
 
@@ -88,6 +94,15 @@ fun FriendsScreen(
                     onClick = {
                         val nameToSend = inputFriendUsername.trim()
                         if (nameToSend.isNotBlank()) {
+                            val newFriend = FriendItem(
+                                id = "u_${System.currentTimeMillis()}",
+                                username = nameToSend,
+                                avatarUrl = "",
+                                status = "online",
+                                createdAt = System.currentTimeMillis()
+                            )
+                            CloudflareClient.addLocalFriend(context, newFriend)
+                            friendsList = CloudflareClient.getLocalFriends(context)
                             CloudflareClient.sendFriendRequest(context, nameToSend) { success, msg ->
                                 Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                                 loadData()
@@ -589,6 +604,15 @@ fun FriendsScreen(
                             ) {
                                 Button(
                                     onClick = {
+                                        val friendToAdd = FriendItem(
+                                            id = req.fromUserId.ifEmpty { req.id },
+                                            username = reqDisplayName,
+                                            avatarUrl = req.avatarUrl,
+                                            status = "online",
+                                            createdAt = System.currentTimeMillis()
+                                        )
+                                        CloudflareClient.addLocalFriend(context, friendToAdd)
+                                        friendsList = CloudflareClient.getLocalFriends(context)
                                         CloudflareClient.respondFriendRequest(context, req.id, "accept") { success ->
                                             Toast.makeText(context, "تم قبول طلب الصداقة وأضيف إلى قائمة أصدقائك", Toast.LENGTH_SHORT).show()
                                             loadData()

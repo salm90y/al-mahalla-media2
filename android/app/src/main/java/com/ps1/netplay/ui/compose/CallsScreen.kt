@@ -248,59 +248,7 @@ fun CallsScreen(
             }
         }
 
-        // 2. Search Bar
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 6.dp)
-                .height(48.dp)
-                .clip(RoundedCornerShape(24.dp))
-                .background(Color(0xFFEEF4FB))
-                .padding(horizontal = 16.dp),
-            contentAlignment = Alignment.CenterStart
-        ) {
-            Row(
-                modifier = Modifier.fillMaxSize(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Start
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Search,
-                    contentDescription = "بحث",
-                    tint = Color(0xFF94A3B8),
-                    modifier = Modifier.size(20.dp)
-                )
-
-                Spacer(modifier = Modifier.width(8.dp))
-
-                BasicTextField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it },
-                    textStyle = TextStyle(
-                        fontSize = 14.sp,
-                        fontFamily = TajawalFontFamily,
-                        color = Color(0xFF0F172A),
-                        textAlign = TextAlign.Start
-                    ),
-                    modifier = Modifier.weight(1f),
-                    decorationBox = { innerTextField ->
-                        if (searchQuery.isEmpty()) {
-                            Text(
-                                text = "ابحث في المكالمات",
-                                fontSize = 14.sp,
-                                fontFamily = TajawalFontFamily,
-                                color = Color(0xFF94A3B8),
-                                textAlign = TextAlign.Start,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        }
-                        innerTextField()
-                    }
-                )
-            }
-        }
-
-        // 3. Category Tabs (الكل / الفائتة - Starts with الكل on Right)
+        // 2. Category Tabs (الكل / الفائتة - Starts with الكل on Right)
         Row(
             modifier = Modifier
                 .fillMaxWidth()

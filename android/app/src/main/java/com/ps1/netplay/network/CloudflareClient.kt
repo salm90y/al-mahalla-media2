@@ -412,7 +412,10 @@ val list = mutableListOf<FriendItem>()
                                 val item = array.getJSONObject(i)
                                 list.add(parseFriend(item))
                             }
-                            mainHandler.post { callback(list) }
+                            if (list.isNotEmpty()) {
+                                saveLocalFriends(context, list)
+                            }
+                            mainHandler.post { callback(if (list.isNotEmpty()) list else getLocalFriends(context)) }
                             return
                         } catch (_: Exception) {}
                     }
@@ -794,7 +797,7 @@ val list = mutableListOf<FriendItem>()
         }
         return emptyList()
     }
-private fun saveLocalFriends(context: Context, list: List<FriendItem>) {
+    fun saveLocalFriends(context: Context, list: List<FriendItem>) {
         val array = JSONArray()
         list.forEach { item ->
             val obj = JSONObject().apply {
@@ -814,12 +817,24 @@ private fun saveLocalFriends(context: Context, list: List<FriendItem>) {
         }
         getPrefs(context).edit().putString("local_friends_list", array.toString()).apply()
     }
-private fun deleteLocalFriend(context: Context, friendId: String) {
+
+    fun addLocalFriend(context: Context, friend: FriendItem) {
+        val current = getLocalFriends(context).toMutableList()
+        current.removeAll { 
+            it.id == friend.id || 
+            (it.username.isNotBlank() && it.username.equals(friend.username, ignoreCase = true)) 
+        }
+        current.add(0, friend)
+        saveLocalFriends(context, current)
+    }
+
+    fun deleteLocalFriend(context: Context, friendId: String) {
         val current = getLocalFriends(context).toMutableList()
         current.removeAll { it.id == friendId }
         saveLocalFriends(context, current)
     }
-private fun getLocalIncomingRequests(context: Context): List<FriendRequestItem> {
+
+    fun getLocalIncomingRequests(context: Context): List<FriendRequestItem> {
         val prefs = getPrefs(context)
 val raw = prefs.getString("local_incoming_reqs", null)
         if (raw != null) {

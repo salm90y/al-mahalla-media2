@@ -42,7 +42,7 @@ fun RootAppShell() {
         ) { innerPadding ->
             NavHost(
                 navController = navController,
-                startDestination = BottomTab.Rooms.route,
+                startDestination = BottomTab.Chat.route,
                 enterTransition = { EnterTransition.None },
                 exitTransition = { ExitTransition.None },
                 popEnterTransition = { EnterTransition.None },
