@@ -76,9 +76,9 @@ fun ChatDetailScreen(
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
-    val myId = remember { UserManager.getCurrentUser(context)?.id ?: "" }
-    val convId = remember(targetUserId) {
-        listOf(myId, targetUserId).sorted().joinToString("_")
+    val myId = remember { CloudflareClient.getCurrentUserId(context) }
+    val convId = remember(targetUserId, myId) {
+        CloudflareClient.getConversationId(myId, targetUserId)
     }
 
     // Load initial cached messages immediately without delay
@@ -123,12 +123,12 @@ fun ChatDetailScreen(
                             val time = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(m.createdAt))
                             Message(m.id, content, time, m.isOutgoing)
                         }
-                        if (mapped.size != messages.size || mapped != messages) {
-                            messages = mapped
-                        }
+                        // Avoid overriding recent pending outgoing messages
+                        val pending = messages.filter { curr -> curr.isOutgoing && mapped.none { it.id == curr.id } }
+                        messages = mapped + pending
                     }
                 }
-                delay(2500)
+                delay(2000)
             }
         }
     }
@@ -271,6 +271,7 @@ fun ChatDetailScreen(
                     messages = messages + localMsg
 
                     if (targetUserId.isNotEmpty()) {
+                        CloudflareClient.updateLocalConversation(context, targetUserId, userName, avatarUrl, text, System.currentTimeMillis())
                         CloudflareClient.sendCloudflareMessage(
                             context = context,
                             receiverId = targetUserId,

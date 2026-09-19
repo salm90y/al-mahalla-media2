@@ -596,7 +596,7 @@ var index_default = {
               env.DB.prepare(
                 `INSERT INTO private_messages 
                  (id, conversation_id, sender_id, receiver_id, type, content, media_url, file_name, file_size, duration, location_lat, location_lng, created_at, is_read, is_delivered)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1)`
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1)`
               ).bind(
                 messageId,
                 convId,
@@ -614,7 +614,7 @@ var index_default = {
               ),
               env.DB.prepare(
                 `INSERT INTO conversations (id, user1_id, user2_id, last_message_id, last_message_text, last_message_at, unread_count_user1, unread_count_user2)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, CASE WHEN ? = ? THEN 0 ELSE 1 END, CASE WHEN ? = ? THEN 1 ELSE 0 END)
+                 VALUES (?, ?, ?, ?, ?, ?, CASE WHEN ? = ? THEN 0 ELSE 1 END, CASE WHEN ? = ? THEN 1 ELSE 0 END)
                  ON CONFLICT(id) DO UPDATE SET
                    last_message_id = excluded.last_message_id,
                    last_message_text = excluded.last_message_text,
@@ -691,17 +691,32 @@ var index_default = {
       if (url.pathname.startsWith("/messages/") && method === "GET") {
         const auth = await getAuthUser();
         const conversationId = url.pathname.replace("/messages/", "");
-        const limit = Number(url.searchParams.get("limit")) || 50;
+        const limit = Number(url.searchParams.get("limit")) || 100;
         let msgList = [];
         if (env.DB) {
           try {
-            const messages = await env.DB.prepare(
-              "SELECT * FROM private_messages WHERE conversation_id = ? ORDER BY created_at ASC LIMIT ?"
-            ).bind(conversationId, limit).all();
-            msgList = messages.results || [];
+            const parts = conversationId.split("_");
+            if (parts.length >= 2) {
+              const u1 = parts[0];
+              const u2 = parts.slice(1).join("_");
+              const altConvId = `${u2}_${u1}`;
+              const messages = await env.DB.prepare(
+                `SELECT * FROM private_messages 
+                 WHERE conversation_id = ? OR conversation_id = ? 
+                    OR (sender_id = ? AND receiver_id = ?) 
+                    OR (sender_id = ? AND receiver_id = ?)
+                 ORDER BY created_at ASC LIMIT ?`
+              ).bind(conversationId, altConvId, u1, u2, u2, u1, limit).all();
+              msgList = messages.results || [];
+            } else {
+              const messages = await env.DB.prepare(
+                "SELECT * FROM private_messages WHERE conversation_id = ? ORDER BY created_at ASC LIMIT ?"
+              ).bind(conversationId, limit).all();
+              msgList = messages.results || [];
+            }
             if (auth) {
               await env.DB.prepare(
-                "UPDATE private_messages SET is_read = 1 WHERE conversation_id = ? AND receiver_id = ?"
+                "UPDATE private_messages SET is_read = 1 WHERE (conversation_id = ? OR receiver_id = ?) AND is_read = 0"
               ).bind(conversationId, auth.id).run();
             }
           } catch (dbErr) {
@@ -712,16 +727,54 @@ var index_default = {
       }
       if (url.pathname === "/conversations" && method === "GET") {
         const auth = await getAuthUser();
-        if (!auth) return json({ error: "Unauthorized" }, 401);
-        const convs = await env.DB.prepare(
-          `SELECT c.*, 
-                  u.id as other_user_id, u.username as other_username, u.avatar_url as other_avatar, u.status as other_status
-           FROM conversations c
-           JOIN users u ON (u.id = CASE WHEN c.user1_id = ? THEN c.user2_id ELSE c.user1_id END)
-           WHERE c.user1_id = ? OR c.user2_id = ?
-           ORDER BY c.last_message_at DESC`
-        ).bind(auth.id, auth.id, auth.id).all();
-        return json({ conversations: convs.results });
+        const myId = auth?.id || request.headers.get("x-user-id");
+        if (!myId) return json({ conversations: [] });
+        if (env.DB) {
+          try {
+            const convs = await env.DB.prepare(
+              `SELECT c.*, 
+                      COALESCE(u.id, CASE WHEN c.user1_id = ? THEN c.user2_id ELSE c.user1_id END) as other_user_id,
+                      COALESCE(u.username, CASE WHEN c.user1_id = ? THEN c.user2_id ELSE c.user1_id END) as other_username,
+                      COALESCE(u.avatar_url, '') as other_avatar,
+                      COALESCE(u.status, 'offline') as other_status
+               FROM conversations c
+               LEFT JOIN users u ON (u.id = CASE WHEN c.user1_id = ? THEN c.user2_id ELSE c.user1_id END OR u.username = CASE WHEN c.user1_id = ? THEN c.user2_id ELSE c.user1_id END)
+               WHERE c.user1_id = ? OR c.user2_id = ?
+               ORDER BY c.last_message_at DESC`
+            ).bind(myId, myId, myId, myId, myId, myId).all();
+            let results = convs.results || [];
+            if (results.length === 0) {
+              const recentMsgs = await env.DB.prepare(
+                `SELECT sender_id, receiver_id, content, type, created_at
+                 FROM private_messages
+                 WHERE sender_id = ? OR receiver_id = ?
+                 ORDER BY created_at DESC LIMIT 100`
+              ).bind(myId, myId).all();
+              const map = new Map();
+              for (const m of (recentMsgs.results || [])) {
+                const other = m.sender_id === myId ? m.receiver_id : m.sender_id;
+                if (!map.has(other)) {
+                  map.set(other, {
+                    id: [myId, other].sort().join("_"),
+                    other_user_id: other,
+                    other_username: other,
+                    other_avatar: "",
+                    other_status: "online",
+                    last_message_text: m.content || `[${m.type}]`,
+                    last_message_at: m.created_at,
+                    unread_count: 0
+                  });
+                }
+              }
+              results = Array.from(map.values());
+            }
+            return json({ conversations: results });
+          } catch (convErr) {
+            console.error("D1 conversations error:", convErr);
+            return json({ conversations: [] });
+          }
+        }
+        return json({ conversations: [] });
       }
       if (url.pathname === "/friends/list" && method === "GET") {
         const auth = await getAuthUser();

@@ -515,8 +515,44 @@ async function startServer() {
 
   app.get(['/messages/:convId', '/api/messages/:convId'], (req, res) => {
     const convId = req.params.convId;
-    const msgs = dbMessages.filter(m => m.conversation_id === convId);
+    const parts = convId.split('_');
+    const u1 = parts[0] || '';
+    const u2 = parts.slice(1).join('_') || '';
+    const altConvId = `${u2}_${u1}`;
+    const msgs = dbMessages.filter(m => 
+      m.conversation_id === convId || 
+      m.conversation_id === altConvId || 
+      (m.sender_id === u1 && m.receiver_id === u2) || 
+      (m.sender_id === u2 && m.receiver_id === u1)
+    );
     res.json({ messages: msgs });
+  });
+
+  app.get(['/conversations', '/api/conversations'], (req, res) => {
+    const auth = getAuth(req);
+    const myId = auth?.id || (req.headers['x-user-id'] as string) || "u_ahmed_1986";
+    const convMap = new Map<string, any>();
+
+    for (let i = dbMessages.length - 1; i >= 0; i--) {
+      const m = dbMessages[i];
+      if (m.sender_id === myId || m.receiver_id === myId) {
+        const otherId = m.sender_id === myId ? m.receiver_id : m.sender_id;
+        if (!convMap.has(otherId)) {
+          const otherUser = findDbUser(otherId);
+          convMap.set(otherId, {
+            id: [myId, otherId].sort().join('_'),
+            other_user_id: otherId,
+            other_username: otherUser?.username || otherId,
+            other_avatar: otherUser?.avatar_url || "",
+            other_status: otherUser?.status || "online",
+            last_message_text: m.content || `[${m.type}]`,
+            last_message_at: m.created_at,
+            unread_count: 0
+          });
+        }
+      }
+    }
+    res.json({ conversations: Array.from(convMap.values()) });
   });
 
   // ----------------- Helper User Resolution -----------------

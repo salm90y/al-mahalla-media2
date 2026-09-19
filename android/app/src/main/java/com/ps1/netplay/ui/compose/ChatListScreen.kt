@@ -32,6 +32,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.ps1.netplay.SettingsActivity
+import com.ps1.netplay.network.CloudflareClient
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 
 data class ChatConversation(
     val id: String,
@@ -54,25 +57,59 @@ fun ChatListScreen(
     var selectedTab by remember { mutableStateOf(0) } // 0: الكل, 1: المجموعات, 2: القنوات
     val tabs = listOf("الكل", "المجموعات", "القنوات")
     var searchQuery by remember { mutableStateOf("") }
-    var conversations by remember { mutableStateOf<List<ChatConversation>>(emptyList()) }
+    val initialConversations = remember {
+        CloudflareClient.getLocalConversations(context).map { c ->
+            val timeStr = if (c.lastMessageAt > 0) {
+                try {
+                    val diff = System.currentTimeMillis() - c.lastMessageAt
+                    if (diff < 60_000) "الآن"
+                    else if (diff < 3600_000) "${diff / 60_000} د"
+                    else java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault()).format(java.util.Date(c.lastMessageAt))
+                } catch (_: Exception) { "الآن" }
+            } else "الآن"
+            ChatConversation(
+                id = c.otherUserId,
+                name = c.otherUsername.ifBlank { "مستخدم" },
+                lastMsg = c.lastMessageText.ifBlank { "محادثة جديدة" },
+                time = timeStr,
+                avatar = c.otherAvatar,
+                unreadCount = c.unreadCount,
+                isRead = c.unreadCount == 0,
+                category = "All"
+            )
+        }
+    }
+    var conversations by remember { mutableStateOf<List<ChatConversation>>(initialConversations) }
     var showAdminDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
-        try {
-            val response = com.ps1.netplay.network.ApiService.get(context, "/api/conversations")
-            val jsonArray = org.json.JSONObject(response).getJSONArray("conversations")
-            val list = mutableListOf<ChatConversation>()
-            for (i in 0 until jsonArray.length()) {
-                val obj = jsonArray.getJSONObject(i)
-                val targetId = obj.optString("other_user_id", obj.optString("id"))
-                val targetName = obj.optString("other_username", obj.optString("name", "مستخدم"))
-                val avatar = obj.optString("other_avatar", obj.optString("avatar_url", ""))
-                val lastText = obj.optString("last_message_text", "محادثة جديدة")
-                list.add(ChatConversation(targetId, targetName, lastText, "الآن", avatar, unreadCount = 0, isRead = true, category = "All"))
+        while (isActive) {
+            CloudflareClient.fetchConversations(context) { list ->
+                if (list.isNotEmpty()) {
+                    val mapped = list.map { c ->
+                        val timeStr = if (c.lastMessageAt > 0) {
+                            try {
+                                val diff = System.currentTimeMillis() - c.lastMessageAt
+                                if (diff < 60_000) "الآن"
+                                else if (diff < 3600_000) "${diff / 60_000} د"
+                                else java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault()).format(java.util.Date(c.lastMessageAt))
+                            } catch (_: Exception) { "الآن" }
+                        } else "الآن"
+                        ChatConversation(
+                            id = c.otherUserId,
+                            name = c.otherUsername.ifBlank { "مستخدم" },
+                            lastMsg = c.lastMessageText.ifBlank { "محادثة جديدة" },
+                            time = timeStr,
+                            avatar = c.otherAvatar,
+                            unreadCount = c.unreadCount,
+                            isRead = c.unreadCount == 0,
+                            category = "All"
+                        )
+                    }
+                    conversations = mapped
+                }
             }
-            conversations = list
-        } catch(e: Exception) {
-            // Keep empty list to show clean empty state
+            delay(2500)
         }
     }
 

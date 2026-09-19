@@ -9,8 +9,13 @@ import javax.crypto.spec.SecretKeySpec
 object ChatCryptoHelper {
     private const val PREFIX = "ENC::"
 
+    private fun normalizeConvId(convId: String): String {
+        return convId.split("_").map { it.trim().lowercase() }.sorted().joinToString("_")
+    }
+
     private fun deriveKey(convId: String): Pair<SecretKeySpec, IvParameterSpec> {
-        val sha = MessageDigest.getInstance("SHA-256").digest(("ps1_chat_salt_" + convId).toByteArray(Charsets.UTF_8))
+        val norm = normalizeConvId(convId)
+        val sha = MessageDigest.getInstance("SHA-256").digest(("ps1_chat_salt_" + norm).toByteArray(Charsets.UTF_8))
         val keyBytes = sha.copyOfRange(0, 16) // 128-bit key
         val ivBytes = sha.copyOfRange(16, 32)  // 128-bit IV
         return Pair(SecretKeySpec(keyBytes, "AES"), IvParameterSpec(ivBytes))

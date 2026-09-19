@@ -60,10 +60,29 @@ fun setBaseUrl(context: Context, url: String) {
 fun getAuthToken(context: Context): String? {
         return getPrefs(context).getString(KEY_AUTH_TOKEN, null)
     }
-fun getCurrentUserId(context: Context): String {
-        return UserManager.getCurrentUser(context)?.id ?: ""
+    fun getCurrentUserId(context: Context): String {
+        val user = UserManager.getCurrentUser(context)
+        if (user != null && user.id.isNotBlank()) return user.id
+        if (user != null && user.username.isNotBlank()) return user.username
+        val prefs = getPrefs(context)
+        val savedId = prefs.getString("current_user_id", null)
+        if (!savedId.isNullOrBlank()) return savedId
+        val savedName = prefs.getString("current_user_name", null)
+        if (!savedName.isNullOrBlank()) return savedName
+        return "user_me"
     }
-fun saveAuthToken(context: Context, token: String) {
+    fun getCurrentUsername(context: Context): String {
+        val user = UserManager.getCurrentUser(context)
+        if (user != null && user.username.isNotBlank()) return user.username
+        val prefs = getPrefs(context)
+        return prefs.getString("current_user_name", "أنا") ?: "أنا"
+    }
+    fun getConversationId(id1: String, id2: String): String {
+        val clean1 = id1.trim().lowercase().ifEmpty { "user_me" }
+        val clean2 = id2.trim().lowercase().ifEmpty { "user_other" }
+        return listOf(clean1, clean2).sorted().joinToString("_")
+    }
+    fun saveAuthToken(context: Context, token: String) {
         getPrefs(context).edit().putString(KEY_AUTH_TOKEN, token).apply()
     }
 fun clearAuthToken(context: Context) {
@@ -1112,6 +1131,127 @@ override fun onResponse(call: Call, response: Response) {
         val isOutgoing: Boolean
     )
 
+    data class StoredConversation(
+        val otherUserId: String,
+        val otherUsername: String,
+        val otherAvatar: String,
+        val lastMessageText: String,
+        val lastMessageAt: Long,
+        val unreadCount: Int = 0
+    )
+
+    fun getLocalConversations(context: Context): List<StoredConversation> {
+        val prefs = getPrefs(context)
+        val raw = prefs.getString("local_conversations_list", null) ?: return emptyList()
+        val list = mutableListOf<StoredConversation>()
+        try {
+            val arr = JSONArray(raw)
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                list.add(
+                    StoredConversation(
+                        otherUserId = obj.optString("other_user_id"),
+                        otherUsername = obj.optString("other_username", "مستخدم"),
+                        otherAvatar = obj.optString("other_avatar", ""),
+                        lastMessageText = obj.optString("last_message_text", ""),
+                        lastMessageAt = obj.optLong("last_message_at", System.currentTimeMillis()),
+                        unreadCount = obj.optInt("unread_count", 0)
+                    )
+                )
+            }
+        } catch (_: Exception) {}
+        return list.sortedByDescending { it.lastMessageAt }
+    }
+
+    fun updateLocalConversation(
+        context: Context,
+        otherUserId: String,
+        otherUsername: String,
+        otherAvatar: String,
+        lastText: String,
+        timestamp: Long
+    ) {
+        if (otherUserId.isBlank()) return
+        val current = getLocalConversations(context).toMutableList()
+        val existingIndex = current.indexOfFirst { it.otherUserId.equals(otherUserId, ignoreCase = true) }
+        val finalName = if (otherUsername.isNotBlank()) otherUsername else (current.getOrNull(existingIndex)?.otherUsername ?: otherUserId)
+        val finalAvatar = if (otherAvatar.isNotBlank()) otherAvatar else (current.getOrNull(existingIndex)?.otherAvatar ?: "")
+        
+        val updated = StoredConversation(
+            otherUserId = otherUserId,
+            otherUsername = finalName,
+            otherAvatar = finalAvatar,
+            lastMessageText = lastText,
+            lastMessageAt = if (timestamp > 0) timestamp else System.currentTimeMillis(),
+            unreadCount = 0
+        )
+        if (existingIndex >= 0) {
+            current.removeAt(existingIndex)
+        }
+        current.add(0, updated)
+
+        val arr = JSONArray()
+        current.forEach { c ->
+            arr.put(JSONObject().apply {
+                put("other_user_id", c.otherUserId)
+                put("other_username", c.otherUsername)
+                put("other_avatar", c.otherAvatar)
+                put("last_message_text", c.lastMessageText)
+                put("last_message_at", c.lastMessageAt)
+                put("unread_count", c.unreadCount)
+            })
+        }
+        getPrefs(context).edit().putString("local_conversations_list", arr.toString()).apply()
+    }
+
+    fun fetchConversations(context: Context, callback: (List<StoredConversation>) -> Unit) {
+        val myId = getCurrentUserId(context)
+        val myUsername = getCurrentUsername(context)
+        val token = getAuthToken(context)
+        val url = "${getBaseUrl(context)}/conversations"
+
+        val reqBuilder = Request.Builder()
+            .url(url)
+            .addHeader("X-User-Id", myId)
+            .addHeader("X-User-Name", myUsername)
+        if (!token.isNullOrEmpty()) {
+            reqBuilder.addHeader("Authorization", "Bearer $token")
+        }
+
+        httpClient.newCall(reqBuilder.build()).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                mainHandler.post { callback(getLocalConversations(context)) }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                response.use { resp ->
+                    if (resp.isSuccessful) {
+                        try {
+                            val json = JSONObject(resp.body?.string() ?: "{}")
+                            val arr = json.optJSONArray("conversations") ?: JSONArray()
+                            for (i in 0 until arr.length()) {
+                                val obj = arr.getJSONObject(i)
+                                val otherId = obj.optString("other_user_id", obj.optString("id"))
+                                val otherName = obj.optString("other_username", obj.optString("name", otherId))
+                                val avatar = obj.optString("other_avatar", obj.optString("avatar_url", ""))
+                                val rawText = obj.optString("last_message_text", "")
+                                val convId = getConversationId(myId, otherId)
+                                val decryptedText = if (rawText.startsWith("ENC::")) {
+                                    ChatCryptoHelper.decrypt(rawText, convId)
+                                } else {
+                                    rawText
+                                }
+                                val lastAt = obj.optLong("last_message_at", System.currentTimeMillis())
+                                updateLocalConversation(context, otherId, otherName, avatar, decryptedText, lastAt)
+                            }
+                        } catch (_: Exception) {}
+                    }
+                    mainHandler.post { callback(getLocalConversations(context)) }
+                }
+            }
+        })
+    }
+
     fun getLocalChatMessages(context: Context, convId: String): List<ChatMessageItem> {
         val prefs = getPrefs(context)
         val raw = prefs.getString("local_chat_$convId", null) ?: return emptyList()
@@ -1119,9 +1259,13 @@ override fun onResponse(call: Call, response: Response) {
         try {
             val arr = JSONArray(raw)
             val myId = getCurrentUserId(context)
+            val myUsername = getCurrentUsername(context)
             for (i in 0 until arr.length()) {
                 val obj = arr.getJSONObject(i)
                 val senderId = obj.optString("sender_id")
+                val isOut = senderId.equals(myId, ignoreCase = true) || 
+                            senderId.equals(myUsername, ignoreCase = true) || 
+                            obj.optBoolean("is_outgoing", false)
                 list.add(
                     ChatMessageItem(
                         id = obj.optString("id"),
@@ -1133,7 +1277,7 @@ override fun onResponse(call: Call, response: Response) {
                         mediaUrl = obj.optString("media_url"),
                         fileName = obj.optString("file_name"),
                         createdAt = obj.optLong("created_at", System.currentTimeMillis()),
-                        isOutgoing = senderId == myId || obj.optBoolean("is_outgoing", false)
+                        isOutgoing = isOut
                     )
                 )
             }
@@ -1174,11 +1318,15 @@ override fun onResponse(call: Call, response: Response) {
         callback: (List<ChatMessageItem>) -> Unit
     ) {
         val myId = getCurrentUserId(context)
-        val convId = listOf(myId, targetUserId).sorted().joinToString("_")
+        val myUsername = getCurrentUsername(context)
+        val convId = getConversationId(myId, targetUserId)
         val token = getAuthToken(context)
         val url = "${getBaseUrl(context)}/messages/$convId"
 
-        val reqBuilder = Request.Builder().url(url)
+        val reqBuilder = Request.Builder()
+            .url(url)
+            .addHeader("X-User-Id", myId)
+            .addHeader("X-User-Name", myUsername)
         if (!token.isNullOrEmpty()) {
             reqBuilder.addHeader("Authorization", "Bearer $token")
         }
@@ -1201,6 +1349,9 @@ override fun onResponse(call: Call, response: Response) {
                                 val rawContent = m.optString("content", "")
                                 // Decrypt message content if encrypted
                                 val decrypted = ChatCryptoHelper.decrypt(rawContent, convId)
+                                val isOut = senderId.equals(myId, ignoreCase = true) || 
+                                            senderId.equals(myUsername, ignoreCase = true) ||
+                                            (senderId.startsWith("user_me") && myId.startsWith("user_me"))
                                 loaded.add(
                                     ChatMessageItem(
                                         id = m.optString("id"),
@@ -1212,12 +1363,21 @@ override fun onResponse(call: Call, response: Response) {
                                         mediaUrl = m.optString("media_url", ""),
                                         fileName = m.optString("file_name", ""),
                                         createdAt = m.optLong("created_at", System.currentTimeMillis()),
-                                        isOutgoing = senderId == myId
+                                        isOutgoing = isOut
                                     )
                                 )
                             }
                             if (loaded.isNotEmpty()) {
                                 saveLocalChatMessages(context, convId, loaded)
+                                val lastMsg = loaded.last()
+                                updateLocalConversation(
+                                    context,
+                                    targetUserId,
+                                    "",
+                                    "",
+                                    lastMsg.content.ifEmpty { "[${lastMsg.type}]" },
+                                    lastMsg.createdAt
+                                )
                                 mainHandler.post { callback(loaded) }
                                 return
                             }
@@ -1239,7 +1399,8 @@ override fun onResponse(call: Call, response: Response) {
         callback: (Boolean, ChatMessageItem?) -> Unit
     ) {
         val myId = getCurrentUserId(context)
-        val convId = listOf(myId, receiverId).sorted().joinToString("_")
+        val myUsername = getCurrentUsername(context)
+        val convId = getConversationId(myId, receiverId)
         val token = getAuthToken(context)
         val msgId = "msg_${System.currentTimeMillis()}_${(100..999).random()}"
         val now = System.currentTimeMillis()
@@ -1261,9 +1422,13 @@ override fun onResponse(call: Call, response: Response) {
         )
         // Immediately save locally for zero latency
         saveLocalChatMessage(context, convId, localMsg)
+        updateLocalConversation(context, receiverId, "", "", text.ifEmpty { "[$type]" }, now)
 
         val url = "${getBaseUrl(context)}/messages/send"
         val bodyObj = JSONObject().apply {
+            put("sender_id", myId)
+            put("sender_name", myUsername)
+            put("conversation_id", convId)
             put("receiver_id", receiverId)
             put("type", type)
             put("content", encryptedContent)
@@ -1275,6 +1440,8 @@ override fun onResponse(call: Call, response: Response) {
         val reqBuilder = Request.Builder()
             .url(url)
             .post(requestBody)
+            .addHeader("X-User-Id", myId)
+            .addHeader("X-User-Name", myUsername)
         if (!token.isNullOrEmpty()) {
             reqBuilder.addHeader("Authorization", "Bearer $token")
         }
