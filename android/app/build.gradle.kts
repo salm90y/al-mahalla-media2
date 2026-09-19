@@ -69,10 +69,17 @@ android {
 
     packaging {
         resources {
-            excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            excludes += listOf(
+                "/META-INF/{AL2.0,LGPL2.1}",
+                "/META-INF/*.version",
+                "/META-INF/*.md",
+                "/META-INF/NOTICE*",
+                "/META-INF/LICENSE*"
+            )
         }
         jniLibs {
             pickFirsts += listOf("**/libc++_shared.so")
+            useLegacyPackaging = false
         }
     }
 

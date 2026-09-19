@@ -59,19 +59,14 @@ jobs:
         working-directory: ./android
         run: ./gradlew clean --no-daemon --stacktrace
 
-      - name: Build Debug APK
-        working-directory: ./android
-        run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
-
-      - name: Build Release APK
+      - name: Build Lightweight Release APK
         working-directory: ./android
         run: ./gradlew :app:assembleRelease --no-daemon --stacktrace
 
-      - name: Upload APKs to Artifacts
+      - name: Upload Single APK to Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: AlMahalla-APK-${{ github.run_number }}
-          path: |
-            android/app/build/outputs/apk/**/*.apk
+          name: AlMahalla-App-v1.1.0
+          path: android/app/build/outputs/apk/release/*.apk
           if-no-files-found: error
           retention-days: 14
