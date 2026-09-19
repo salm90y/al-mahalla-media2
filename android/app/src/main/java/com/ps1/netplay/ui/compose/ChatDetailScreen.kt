@@ -1,27 +1,25 @@
 package com.ps1.netplay.ui.compose
-import android.widget.*
+
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.provider.OpenableColumns
+import android.webkit.MimeTypeMap
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import android.content.Intent
-import com.ps1.netplay.CallActivity
-import com.ps1.netplay.SettingsActivity
-import com.ps1.netplay.DashboardActivity
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -30,24 +28,42 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.ui.platform.LocalDensity
+import com.ps1.netplay.CallActivity
+import com.ps1.netplay.UserManager
+import com.ps1.netplay.network.CloudflareClient
+import com.ps1.netplay.ui.TajawalFontFamily
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 sealed class MessageContent {
     data class Text(val text: String) : MessageContent()
-data class Photo(val urls: List<String>) : MessageContent()
-data class Document(val name: String, val size: String, val type: String) : MessageContent()
-data class Location(val address: String, val city: String, val country: String) : MessageContent()
-data class Snap(val timer: Int) : MessageContent()}
-data class Message(val id: String, val content: MessageContent, val timestamp: String, val isOutgoing: Boolean)
+    data class Photo(val urls: List<String>) : MessageContent()
+    data class Document(val name: String, val size: String, val type: String) : MessageContent()
+    data class Location(val address: String, val city: String, val country: String) : MessageContent()
+    data class Snap(val timer: Int) : MessageContent()
+}
+
+data class Message(
+    val id: String,
+    val content: MessageContent,
+    val timestamp: String,
+    val isOutgoing: Boolean
+)
+
 @Composable
 fun ChatDetailScreen(
     targetUserId: String = "",
@@ -56,42 +72,64 @@ fun ChatDetailScreen(
     isTyping: Boolean = false,
     avatarUrl: String = "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=100&h=100&fit=crop",
     onNavigateBack: () -> Unit,
-    initialMessages: List<Message> = emptyList()) {
-    
+    onOpenProfile: (userId: String, userName: String) -> Unit = { _, _ -> },
+    initialMessages: List<Message> = emptyList()
+) {
     val context = LocalContext.current
-    var messages by remember { mutableStateOf(initialMessages) }
-    
+    val coroutineScope = rememberCoroutineScope()
+    val myId = remember { UserManager.getCurrentUser(context)?.id ?: "" }
+    val convId = remember(targetUserId) {
+        listOf(myId, targetUserId).sorted().joinToString("_")
+    }
+
+    // Load initial cached messages immediately without delay
+    val initialLocal = remember(convId) {
+        val cached = CloudflareClient.getLocalChatMessages(context, convId)
+        if (cached.isNotEmpty()) {
+            cached.map { m ->
+                val content = when (m.type) {
+                    "image" -> MessageContent.Photo(listOf(m.mediaUrl.ifEmpty { m.content }))
+                    "file", "audio", "video" -> MessageContent.Document(m.fileName.ifEmpty { m.content }, "ملف", m.type)
+                    else -> MessageContent.Text(m.content)
+                }
+                val time = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(m.createdAt))
+                Message(m.id, content, time, m.isOutgoing)
+            }
+        } else {
+            initialMessages
+        }
+    }
+
+    var messages by remember { mutableStateOf(initialLocal) }
     val listState = rememberLazyListState()
     val imeBottom = WindowInsets.ime.getBottom(LocalDensity.current)
-    var showProfileSheet by remember { mutableStateOf(false) }
 
+    // Story viewing state
+    var showStoryDialog by remember { mutableStateOf(false) }
+    var activeStoryToView by remember { mutableStateOf<UserStory?>(null) }
+    var showNoStoryNotice by remember { mutableStateOf(false) }
+
+    // Live bidirectional sync loop from Cloudflare and R2
     LaunchedEffect(targetUserId) {
         if (targetUserId.isNotEmpty()) {
-            try {
-                val myId = com.ps1.netplay.UserManager.getCurrentUser(context)?.id ?: ""
-                val convId = listOf(myId, targetUserId).sorted().joinToString("_")
-                val response = com.ps1.netplay.network.ApiService.get(context, "/api/messages/$convId")
-                val jsonObj = org.json.JSONObject(response)
-                val msgsArray = jsonObj.getJSONArray("messages")
-                val loadedMsgs = mutableListOf<Message>()
-                for (i in 0 until msgsArray.length()) {
-                    val m = msgsArray.getJSONObject(i)
-                    val isOut = m.optString("sender_id") == myId
-                    val type = m.optString("type", "text")
-                    val textContent = m.optString("content", "")
-                    val mediaUrl = m.optString("media_url", "")
-                    
-                    val content = when (type) {
-                        "image" -> MessageContent.Photo(listOf(mediaUrl))
-                        else -> MessageContent.Text(textContent)
+            while (isActive) {
+                CloudflareClient.fetchCloudflareMessages(context, targetUserId) { loaded ->
+                    if (loaded.isNotEmpty()) {
+                        val mapped = loaded.map { m ->
+                            val content = when (m.type) {
+                                "image" -> MessageContent.Photo(listOf(m.mediaUrl.ifEmpty { m.content }))
+                                "file", "audio", "video" -> MessageContent.Document(m.fileName.ifEmpty { m.content }, "ملف", m.type)
+                                else -> MessageContent.Text(m.content)
+                            }
+                            val time = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(m.createdAt))
+                            Message(m.id, content, time, m.isOutgoing)
+                        }
+                        if (mapped.size != messages.size || mapped != messages) {
+                            messages = mapped
+                        }
                     }
-                    loadedMsgs.add(Message(m.optString("id"), content, "الآن", isOut))
                 }
-                if (loadedMsgs.isNotEmpty()) {
-                    messages = loadedMsgs
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
+                delay(2500)
             }
         }
     }
@@ -101,41 +139,102 @@ fun ChatDetailScreen(
             listState.animateScrollToItem(messages.size - 1)
         }
     }
+
     LaunchedEffect(imeBottom) {
         if (imeBottom > 0 && messages.isNotEmpty()) {
             listState.animateScrollToItem(messages.size - 1)
         }
     }
-    if (showProfileSheet) {
-        ContactProfileSheet(
-            userName = userName,
-            avatarUrl = avatarUrl,
-            isOnline = isOnline,
-            onDismiss = { showProfileSheet = false }
+
+    // Story Viewer Dialog
+    if (showStoryDialog && activeStoryToView != null) {
+        StoryViewerDialog(
+            story = activeStoryToView!!,
+            onDismiss = {
+                showStoryDialog = false
+                activeStoryToView = null
+            }
         )
     }
+
+    // Notice when contact has no uploaded story
+    if (showNoStoryNotice) {
+        AlertDialog(
+            onDismissRequest = { showNoStoryNotice = false },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showNoStoryNotice = false
+                        onOpenProfile(targetUserId, userName)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("عرض الحساب", fontFamily = TajawalFontFamily, color = Color.White)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showNoStoryNotice = false }) {
+                    Text("إغلاق", fontFamily = TajawalFontFamily, color = Color(0xFF64748B))
+                }
+            },
+            title = {
+                Text(
+                    text = "الحالة اليومية",
+                    fontFamily = TajawalFontFamily,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF0F172A)
+                )
+            },
+            text = {
+                Text(
+                    text = "المستخدم $userName لم يقم بنشر أي حالة جديدة خلال الـ 24 ساعة الماضية.",
+                    fontFamily = TajawalFontFamily,
+                    color = Color(0xFF64748B),
+                    fontSize = 14.sp
+                )
+            },
+            containerColor = Color.White,
+            shape = RoundedCornerShape(20.dp)
+        )
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFFF8FAFC))
     ) {
-        // 1. FIXED SLIM TOP BAR
+        // 1. TOP BAR (Matching App System: Audio Call, Video Call, Name->Profile, Avatar->Story)
         ChatTopBar(
+            targetUserId = targetUserId,
             userName = userName,
             isOnline = isOnline,
+            isTyping = isTyping,
             avatarUrl = avatarUrl,
-            onAvatarClick = { showProfileSheet = true },
+            onAvatarClick = {
+                val story = StoryManager.getStoryForUser(context, targetUserId, userName)
+                if (story != null) {
+                    activeStoryToView = story
+                    showStoryDialog = true
+                } else {
+                    showNoStoryNotice = true
+                }
+            },
+            onNameClick = {
+                onOpenProfile(targetUserId, userName)
+            },
             onBack = onNavigateBack
         )
-        // 2. DYNAMIC SCROLLABLE MESSAGES
+
+        // 2. SCROLLABLE MESSAGES
         LazyColumn(
             state = listState,
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-            contentPadding = PaddingValues(vertical = 14.dp)
+                .padding(horizontal = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            contentPadding = PaddingValues(vertical = 12.dp)
         ) {
             items(messages) { message ->
                 when (message.content) {
@@ -153,7 +252,8 @@ fun ChatDetailScreen(
                 }
             }
         }
-        // 3. FIXED INPUT BAR WITH IME PADDING
+
+        // 3. UNIFIED INPUT BAR WITH REAL-TIME CLOUDFLARE/R2 SYNC
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -162,33 +262,29 @@ fun ChatDetailScreen(
         ) {
             ChatInputBar(
                 onSendText = { text ->
-                    val newMsg = Message(
-                        id = System.currentTimeMillis().toString(),
+                    val now = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date())
+                    val localMsg = Message(
+                        id = "msg_${System.currentTimeMillis()}",
                         content = MessageContent.Text(text),
-                        timestamp = "الآن",
+                        timestamp = now,
                         isOutgoing = true
                     )
-                    messages = messages + newMsg
-                    
-                    // Send to server
+                    messages = messages + localMsg
+
                     if (targetUserId.isNotEmpty()) {
-                        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-                            try {
-                                val body = org.json.JSONObject().apply {
-                                    put("receiver_id", targetUserId)
-                                    put("type", "text")
-                                    put("content", text)
-                                }
-                                com.ps1.netplay.network.ApiService.post(context, "/api/messages/send", body.toString())
-                            } catch (e: Exception) { e.printStackTrace() }
-                        }
+                        CloudflareClient.sendCloudflareMessage(
+                            context = context,
+                            receiverId = targetUserId,
+                            text = text,
+                            type = "text"
+                        ) { _, _ -> }
                     }
                 },
                 onSendFile = { uri, mimeType ->
                     var displayName = "file_${System.currentTimeMillis()}"
                     try {
                         context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-                            val nameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                            val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
                             if (nameIndex != -1 && cursor.moveToFirst()) {
                                 val n = cursor.getString(nameIndex)
                                 if (!n.isNullOrBlank()) displayName = n
@@ -197,7 +293,7 @@ fun ChatDetailScreen(
                     } catch (e: Exception) { e.printStackTrace() }
 
                     if (!displayName.contains(".")) {
-                        val ext = android.webkit.MimeTypeMap.getSingleton().getExtensionFromMimeType(mimeType)
+                        val ext = MimeTypeMap.getSingleton().getExtensionFromMimeType(mimeType)
                         if (!ext.isNullOrBlank()) displayName = "$displayName.$ext"
                     }
 
@@ -208,82 +304,70 @@ fun ChatDetailScreen(
                         else -> "file"
                     }
 
-                    val newMsg = Message(
-                        id = System.currentTimeMillis().toString(),
+                    val now = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date())
+                    val localMsg = Message(
+                        id = "msg_${System.currentTimeMillis()}",
                         content = when (msgType) {
                             "image" -> MessageContent.Photo(listOf(uri.toString()))
-                            "audio" -> MessageContent.Document(displayName, "ملف صوتي", "audio")
-                            "video" -> MessageContent.Document(displayName, "مقطع فيديو", "video")
-                            else -> MessageContent.Document(displayName, "مستند", "file")
+                            else -> MessageContent.Document(displayName, "مرفق وسائط", msgType)
                         },
-                        timestamp = "الآن",
+                        timestamp = now,
                         isOutgoing = true
                     )
-                    messages = messages + newMsg
-                    
+                    messages = messages + localMsg
+
+                    // Upload to Cloudflare R2 bucket and broadcast
                     if (targetUserId.isNotEmpty()) {
-                        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                        coroutineScope.launch(Dispatchers.IO) {
                             try {
-                                val inputStream = context.contentResolver.openInputStream(uri)
-                                val bytes = inputStream?.readBytes()
+                                val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
                                 if (bytes != null) {
-                                    com.ps1.netplay.network.CloudflareClient.uploadMediaFile(context, bytes, displayName, mimeType) { success, url ->
-                                        if (success && url != null) {
-                                            val body = org.json.JSONObject().apply {
-                                                put("receiver_id", targetUserId)
-                                                put("type", msgType)
-                                                put("media_url", url)
-                                                put("file_name", displayName)
-                                                put("content", displayName)
-                                            }
-                                            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-                                                try {
-                                                    com.ps1.netplay.network.ApiService.post(context, "/api/messages/send", body.toString())
-                                                } catch (e: Exception) { e.printStackTrace() }
-                                            }
+                                    CloudflareClient.uploadMediaFile(context, bytes, displayName, mimeType) { success, r2Url ->
+                                        if (success && !r2Url.isNullOrEmpty()) {
+                                            CloudflareClient.sendCloudflareMessage(
+                                                context = context,
+                                                receiverId = targetUserId,
+                                                text = displayName,
+                                                type = msgType,
+                                                mediaUrl = r2Url,
+                                                fileName = displayName
+                                            ) { _, _ -> }
                                         }
                                     }
                                 }
-                            } catch (e: Exception) { e.printStackTrace() }
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
                         }
                     }
                 },
                 onTyping = {}
             )
         }
-    }}
+    }
+}
+
+/**
+ * Top Bar matching general application design:
+ * - Pure icon for voice call & pure icon for video call
+ * - Clicking name navigates to user profile
+ * - Clicking avatar checks story/status
+ * - Clean white background with subtle border
+ */
 @Composable
 fun ChatTopBar(
+    targetUserId: String = "",
     userName: String = "سامر الأتروني",
     isOnline: Boolean = true,
     isTyping: Boolean = false,
     avatarUrl: String = "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=100&h=100&fit=crop",
     onAvatarClick: () -> Unit = {},
+    onNameClick: () -> Unit = {},
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
-    var showAdminDialog by remember { mutableStateOf(false) }
-
-    if (showAdminDialog) {
-        AlertDialog(
-            onDismissRequest = { showAdminDialog = false },
-            confirmButton = {
-                Button(
-                    onClick = { showAdminDialog = false },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
-                ) {
-                    Text("إغلاق", fontFamily = TajawalFontFamily, color = Color.White)
-                }
-            },
-            title = {
-                Text("لوحة التحكم", fontFamily = TajawalFontFamily, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
-            },
-            text = {
-                Text("لوحة التحكم وإدارة الاتصال الفوري نشطة.", fontFamily = TajawalFontFamily, color = Color(0xFF64748B))
-            },
-            containerColor = Color.White,
-            shape = RoundedCornerShape(20.dp)
-        )
+    val hasStory = remember(targetUserId, userName) {
+        StoryManager.hasActiveStory(context, targetUserId, userName)
     }
 
     Row(
@@ -291,57 +375,76 @@ fun ChatTopBar(
             .fillMaxWidth()
             .background(Color.White)
             .statusBarsPadding()
-            .padding(horizontal = 8.dp, vertical = 8.dp),
+            .border(1.dp, Color(0xFFE2E8F0))
+            .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        // Back Button
         IconButton(
             onClick = onBack,
             modifier = Modifier.size(38.dp)
         ) {
-            Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color(0xFF0F172A), modifier = Modifier.size(20.dp))
+            Icon(
+                imageVector = Icons.Default.ArrowBack,
+                contentDescription = "رجوع",
+                tint = Color(0xFF0F172A),
+                modifier = Modifier.size(20.dp)
+            )
         }
 
         Spacer(modifier = Modifier.width(4.dp))
 
-        // Compact Avatar
+        // Avatar (With green/blue story ring if story exists)
         Box(
             modifier = Modifier
-                .size(38.dp)
+                .size(42.dp)
                 .clip(CircleShape)
                 .clickable { onAvatarClick() }
+                .padding(if (hasStory) 2.dp else 0.dp)
+                .background(
+                    if (hasStory) Brush.sweepGradient(listOf(Color(0xFF2563EB), Color(0xFF10B981), Color(0xFF2563EB)))
+                    else Brush.linearGradient(listOf(Color.Transparent, Color.Transparent)),
+                    CircleShape
+                )
+                .padding(if (hasStory) 2.dp else 0.dp),
+            contentAlignment = Alignment.Center
         ) {
             AsyncImage(
                 model = avatarUrl,
-                contentDescription = "Avatar",
+                contentDescription = "الصورة الشخصية",
                 modifier = Modifier
                     .fillMaxSize()
                     .clip(CircleShape)
-                    .border(1.dp, Color(0xFF2563EB).copy(alpha = 0.3f), CircleShape),
+                    .border(1.dp, Color(0xFFE2E8F0), CircleShape),
                 contentScale = ContentScale.Crop
             )
             if (isOnline) {
                 Box(
                     modifier = Modifier
-                        .size(10.dp)
+                        .size(11.dp)
                         .align(Alignment.BottomEnd)
                         .background(Color(0xFF10B981), CircleShape)
-                        .border(1.5.dp, Color.White, CircleShape)
+                        .border(2.dp, Color.White, CircleShape)
                 )
             }
         }
 
         Spacer(modifier = Modifier.width(10.dp))
 
+        // Clickable User Name & Status Column -> Opens Personal Profile
         Column(
             modifier = Modifier
                 .weight(1f)
-                .clickable { onAvatarClick() }
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) { onNameClick() }
         ) {
             Text(
                 text = userName,
                 color = Color(0xFF0F172A),
                 fontWeight = FontWeight.Bold,
-                fontSize = 15.sp,
+                fontSize = 15.5.sp,
                 fontFamily = TajawalFontFamily,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -350,82 +453,220 @@ fun ChatTopBar(
                 Text(
                     text = "يكتب الآن...",
                     color = Color(0xFF2563EB),
-                    fontSize = 11.sp,
+                    fontSize = 11.5.sp,
                     fontFamily = TajawalFontFamily,
                     maxLines = 1
                 )
             } else if (isOnline) {
                 Text(
-                    text = "متصل",
+                    text = "متصل الآن",
                     color = Color(0xFF10B981),
-                    fontSize = 11.sp,
+                    fontSize = 11.5.sp,
+                    fontFamily = TajawalFontFamily,
+                    maxLines = 1
+                )
+            } else {
+                Text(
+                    text = "نشط مؤخراً",
+                    color = Color(0xFF64748B),
+                    fontSize = 11.5.sp,
                     fontFamily = TajawalFontFamily,
                     maxLines = 1
                 )
             }
         }
 
-        // Icon: Control Panel (Dashboard) - Pure icon, no text
-        IconButton(
-            onClick = { showAdminDialog = true },
-            modifier = Modifier
-                .size(38.dp)
-                .background(Color(0xFFEEF4FB), CircleShape)
-        ) {
-            Icon(
-                Icons.Default.Dashboard,
-                contentDescription = "لوحة التحكم",
-                tint = Color(0xFF2563EB),
-                modifier = Modifier.size(18.dp)
-            )
-        }
-
-        Spacer(modifier = Modifier.width(6.dp))
-
-        // Icon: App Settings - Pure icon, no text
+        // 1. Audio Call Button - Small icon without text
         IconButton(
             onClick = {
-                val intent = Intent(context, SettingsActivity::class.java)
+                val intent = Intent(context, CallActivity::class.java).apply {
+                    putExtra("callID", "call_${System.currentTimeMillis()}")
+                    putExtra("isVideo", false)
+                    putExtra("targetUserName", userName)
+                }
                 context.startActivity(intent)
             },
             modifier = Modifier
                 .size(38.dp)
-                .background(Color(0xFFEEF4FB), CircleShape)
+                .background(Color.White, CircleShape)
+                .border(1.dp, Color(0xFFE2E8F0), CircleShape)
         ) {
             Icon(
-                Icons.Default.Settings,
-                contentDescription = "إعدادات التطبيق",
-                tint = Color(0xFF475569),
-                modifier = Modifier.size(18.dp)
+                imageVector = Icons.Default.Call,
+                contentDescription = "اتصال صوتي",
+                tint = Color(0xFF2563EB),
+                modifier = Modifier.size(19.dp)
+            )
+        }
+
+        Spacer(modifier = Modifier.width(8.dp))
+
+        // 2. Video Call Button - Small icon without text (Same Design)
+        IconButton(
+            onClick = {
+                val intent = Intent(context, CallActivity::class.java).apply {
+                    putExtra("callID", "call_${System.currentTimeMillis()}")
+                    putExtra("isVideo", true)
+                    putExtra("targetUserName", userName)
+                }
+                context.startActivity(intent)
+            },
+            modifier = Modifier
+                .size(38.dp)
+                .background(Color.White, CircleShape)
+                .border(1.dp, Color(0xFFE2E8F0), CircleShape)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Videocam,
+                contentDescription = "اتصال فيديو",
+                tint = Color(0xFF2563EB),
+                modifier = Modifier.size(20.dp)
             )
         }
     }
 }
 
+/**
+ * Story Viewer Dialog
+ */
 @Composable
-fun TextBubble(text: String, timestamp: String, isOutgoing: Boolean, modifier: Modifier = Modifier) {
-    val dynamicFontSize = com.ps1.netplay.AppSettingsManager.chatFontSizeState.value.sp
-    val accentHex = com.ps1.netplay.AppSettingsManager.accentColorState.value
-    val showReceipts = com.ps1.netplay.AppSettingsManager.isReadReceiptsState.value
-    val outgoingColor = try {
-        Color(android.graphics.Color.parseColor(accentHex))
-    } catch (e: Exception) {
-        Color(0xFF6C5CE7)
+fun StoryViewerDialog(
+    story: UserStory,
+    onDismiss: () -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(0.95f)
+                .height(520.dp)
+                .clip(RoundedCornerShape(24.dp))
+                .background(Color(0xFF0F172A))
+        ) {
+            AsyncImage(
+                model = story.mediaUrl.ifEmpty { story.avatarUrl },
+                contentDescription = "Story Media",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+
+            // Top gradient overlay
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(90.dp)
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(Color.Black.copy(alpha = 0.7f), Color.Transparent)
+                        )
+                    )
+            )
+
+            // Bottom gradient overlay
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(130.dp)
+                    .align(Alignment.BottomCenter)
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(Color.Transparent, Color.Black.copy(alpha = 0.85f))
+                        )
+                    )
+            )
+
+            // Header info & close button
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    AsyncImage(
+                        model = story.avatarUrl,
+                        contentDescription = "Avatar",
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .border(1.5.dp, Color.White, CircleShape),
+                        contentScale = ContentScale.Crop
+                    )
+                    Column {
+                        Text(
+                            text = story.userName,
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp,
+                            fontFamily = TajawalFontFamily
+                        )
+                        Text(
+                            text = "الحالة اليومية",
+                            color = Color(0xFFCBD5E1),
+                            fontSize = 11.sp,
+                            fontFamily = TajawalFontFamily
+                        )
+                    }
+                }
+
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier
+                        .size(34.dp)
+                        .background(Color.Black.copy(alpha = 0.4f), CircleShape)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "إغلاق",
+                        tint = Color.White,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+
+            // Caption at bottom
+            if (story.caption.isNotBlank()) {
+                Text(
+                    text = story.caption,
+                    color = Color.White,
+                    fontSize = 15.sp,
+                    fontFamily = TajawalFontFamily,
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(16.dp),
+                    textAlign = TextAlign.Start
+                )
+            }
+        }
     }
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = if (isOutgoing) Arrangement.End else Arrangement.Start) {
+}
+
+// ----------------- Unified Clean Bubbles Matching App Design -----------------
+
+@Composable
+fun TextBubble(text: String, timestamp: String, isOutgoing: Boolean) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = if (isOutgoing) Arrangement.End else Arrangement.Start
+    ) {
         Column(
             modifier = Modifier
                 .widthIn(max = 280.dp)
-                .clip(RoundedCornerShape(
-                    topStart = 16.dp,
-                    topEnd = 16.dp,
-                    bottomStart = if (isOutgoing) 16.dp else 4.dp,
-                    bottomEnd = if (isOutgoing) 4.dp else 16.dp
-                ))
-                .background(if (isOutgoing) outgoingColor else Color(0xFF1B2338))
+                .clip(
+                    RoundedCornerShape(
+                        topStart = 16.dp,
+                        topEnd = 16.dp,
+                        bottomStart = if (isOutgoing) 16.dp else 4.dp,
+                        bottomEnd = if (isOutgoing) 4.dp else 16.dp
+                    )
+                )
+                .background(if (isOutgoing) Color(0xFF2563EB) else Color.White)
                 .border(
                     width = 1.dp,
-                    color = if (isOutgoing) Color(0x33FFFFFF) else Color(0xFF263352),
+                    color = if (isOutgoing) Color(0x22FFFFFF) else Color(0xFFE2E8F0),
                     shape = RoundedCornerShape(
                         topStart = 16.dp,
                         topEnd = 16.dp,
@@ -433,40 +674,51 @@ fun TextBubble(text: String, timestamp: String, isOutgoing: Boolean, modifier: M
                         bottomEnd = if (isOutgoing) 4.dp else 16.dp
                     )
                 )
-                .padding(horizontal = 14.dp, vertical = 10.dp)
+                .padding(horizontal = 14.dp, vertical = 8.dp)
         ) {
             Text(
                 text = text,
-                color = if (isOutgoing) Color.White else Color(0xFFF1F2F6),
-                fontSize = dynamicFontSize
+                color = if (isOutgoing) Color.White else Color(0xFF0F172A),
+                fontFamily = TajawalFontFamily,
+                fontSize = 14.5.sp,
+                lineHeight = 20.sp
             )
             Text(
-                "$timestamp ${if(isOutgoing) (if (showReceipts) "✓✓" else "✓") else ""}",
-                color = if (isOutgoing) Color(0xFFD0D5FF) else Color(0xFF8896A6),
+                text = "$timestamp ${if (isOutgoing) "✓✓" else ""}",
+                color = if (isOutgoing) Color(0xFFDBEAFE) else Color(0xFF64748B),
+                fontFamily = TajawalFontFamily,
                 fontSize = 10.sp,
-                modifier = Modifier.align(Alignment.End).padding(top = 3.dp)
+                modifier = Modifier
+                    .align(Alignment.End)
+                    .padding(top = 2.dp)
             )
         }
-    }}
+    }
+}
+
 @Composable
 fun SinglePhotoBubble(url: String, timestamp: String, isOutgoing: Boolean) {
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = if (isOutgoing) Arrangement.End else Arrangement.Start) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = if (isOutgoing) Arrangement.End else Arrangement.Start
+    ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth(0.75f)
                 .height(200.dp)
                 .clip(RoundedCornerShape(18.dp))
+                .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(18.dp))
         ) {
             AsyncImage(
-                model = android.net.Uri.parse(url),
-                contentDescription = "Photo",
+                model = Uri.parse(url),
+                contentDescription = "صورة",
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop
             )
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(48.dp)
+                    .height(44.dp)
                     .align(Alignment.BottomCenter)
                     .background(
                         Brush.verticalGradient(
@@ -475,614 +727,195 @@ fun SinglePhotoBubble(url: String, timestamp: String, isOutgoing: Boolean) {
                     )
             )
             Text(
-                "$timestamp ${if(isOutgoing) "✓✓" else ""}",
+                text = "$timestamp ${if (isOutgoing) "✓✓" else ""}",
                 color = Color.White,
+                fontFamily = TajawalFontFamily,
                 fontSize = 10.sp,
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(8.dp)
             )
         }
-    }}
+    }
+}
+
 @Composable
 fun MultiPhotoBubble(urls: List<String>, timestamp: String, isOutgoing: Boolean) {
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = if (isOutgoing) Arrangement.End else Arrangement.Start) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = if (isOutgoing) Arrangement.End else Arrangement.Start
+    ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth(0.75f)
-                .clip(RoundedCornerShape(
-                    topStart = 16.dp,
-                    topEnd = 16.dp,
-                    bottomStart = if (isOutgoing) 16.dp else 4.dp,
-                    bottomEnd = if (isOutgoing) 4.dp else 16.dp
-                ))
-                .background(Color.Transparent) // We just show the images without a surrounding box
-) {
+                .clip(RoundedCornerShape(16.dp))
+                .background(Color.White)
+                .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(16.dp))
+        ) {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                // If 5 images: 1 on top, 4 below (2x2) or (2x3)?
-// Let's do 2 top, 3 bottom like a nice grid.
-Row(horizontalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.height(100.dp)) {
-                    AsyncImage(
-                        model = android.net.Uri.parse(urls.getOrNull(0) ?: ""),
-                        contentDescription = "Photo",
-                        modifier = Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(topStart = 16.dp, topEnd = 0.dp, bottomStart = 0.dp, bottomEnd = 0.dp)),
-                        contentScale = ContentScale.Crop
-                    )
-                    AsyncImage(
-                        model = android.net.Uri.parse(urls.getOrNull(1) ?: ""),
-                        contentDescription = "Photo",
-                        modifier = Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(topStart = 0.dp, topEnd = 16.dp, bottomStart = 0.dp, bottomEnd = 0.dp)),
-                        contentScale = ContentScale.Crop
-                    )
-                }
                 Row(horizontalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.height(100.dp)) {
                     AsyncImage(
-                        model = android.net.Uri.parse(urls.getOrNull(2) ?: ""),
-                        contentDescription = "Photo",
-                        modifier = Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(topStart = 0.dp, topEnd = 0.dp, bottomStart = if (isOutgoing) 16.dp else 4.dp, bottomEnd = 0.dp)),
+                        model = Uri.parse(urls.getOrNull(0) ?: ""),
+                        contentDescription = "صورة",
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight(),
                         contentScale = ContentScale.Crop
                     )
                     AsyncImage(
-                        model = android.net.Uri.parse(urls.getOrNull(3) ?: ""),
-                        contentDescription = "Photo",
-                        modifier = Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(0.dp)),
-                        contentScale = ContentScale.Crop
-                    )
-                    AsyncImage(
-                        model = android.net.Uri.parse(urls.getOrNull(4) ?: ""),
-                        contentDescription = "Photo",
-                        modifier = Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(topStart = 0.dp, topEnd = 0.dp, bottomStart = 0.dp, bottomEnd = if (isOutgoing) 4.dp else 16.dp)),
+                        model = Uri.parse(urls.getOrNull(1) ?: ""),
+                        contentDescription = "صورة",
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight(),
                         contentScale = ContentScale.Crop
                     )
                 }
             }
         }
-    }}
+    }
+}
+
 @Composable
 fun DocumentBubble(content: MessageContent.Document, timestamp: String, isOutgoing: Boolean) {
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = if (isOutgoing) Arrangement.End else Arrangement.Start) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = if (isOutgoing) Arrangement.End else Arrangement.Start
+    ) {
         Row(
             modifier = Modifier
-                .fillMaxWidth(0.85f)
-                .background(if (isOutgoing) Color(0xFF282452) else Color(0xFF1B2338), RoundedCornerShape(18.dp))
-                .border(1.dp, if (isOutgoing) Color(0xFF4C428C) else Color(0xFF263352), RoundedCornerShape(18.dp))
+                .fillMaxWidth(0.82f)
+                .background(
+                    if (isOutgoing) Color(0xFF2563EB) else Color.White,
+                    RoundedCornerShape(16.dp)
+                )
+                .border(
+                    1.dp,
+                    if (isOutgoing) Color(0x33FFFFFF) else Color(0xFFE2E8F0),
+                    RoundedCornerShape(16.dp)
+                )
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
                 modifier = Modifier
-                    .size(44.dp)
-                    .background(Color(0xFF00D2D3).copy(alpha = 0.2f), RoundedCornerShape(12.dp))
-                    .border(1.dp, Color(0xFF00D2D3).copy(alpha = 0.5f), RoundedCornerShape(12.dp)),
+                    .size(42.dp)
+                    .background(
+                        if (isOutgoing) Color.White.copy(alpha = 0.2f) else Color(0xFFEFF6FF),
+                        RoundedCornerShape(12.dp)
+                    ),
                 contentAlignment = Alignment.Center
             ) {
-                Text(content.type, color = Color(0xFF00D2D3), fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                Icon(
+                    imageVector = Icons.Default.InsertDriveFile,
+                    contentDescription = null,
+                    tint = if (isOutgoing) Color.White else Color(0xFF2563EB),
+                    modifier = Modifier.size(22.dp)
+                )
             }
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(content.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(content.size, color = Color(0xFF94A3B8), fontSize = 11.sp)
+                Text(
+                    text = content.name,
+                    color = if (isOutgoing) Color.White else Color(0xFF0F172A),
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.5.sp,
+                    fontFamily = TajawalFontFamily,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = "${content.size} • $timestamp",
+                    color = if (isOutgoing) Color(0xFFDBEAFE) else Color(0xFF64748B),
+                    fontSize = 11.sp,
+                    fontFamily = TajawalFontFamily
+                )
             }
-            CircularProgressIndicator(
-                progress = 0.7f,
-                modifier = Modifier.size(24.dp),
-                color = Color(0xFF00D2D3),
-                strokeWidth = 2.5.dp
-            )
         }
-    }}
+    }
+}
+
 @Composable
 fun MapCardBubble(content: MessageContent.Location, timestamp: String, isOutgoing: Boolean) {
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = if (isOutgoing) Arrangement.End else Arrangement.Start) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = if (isOutgoing) Arrangement.End else Arrangement.Start
+    ) {
         Column(
             modifier = Modifier
-                .fillMaxWidth(0.85f)
-                .clip(RoundedCornerShape(
-                    topStart = 16.dp,
-                    topEnd = 16.dp,
-                    bottomStart = if (isOutgoing) 16.dp else 4.dp,
-                    bottomEnd = if (isOutgoing) 4.dp else 16.dp
-                ))
-                .background(Color(0xFF222F3E))
+                .fillMaxWidth(0.82f)
+                .clip(RoundedCornerShape(16.dp))
+                .background(Color.White)
+                .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(16.dp))
         ) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(140.dp)
-                    .background(Color.DarkGray)
+                    .height(130.dp)
+                    .background(Color(0xFFE2E8F0))
             ) {
                 AsyncImage(
                     model = "https://images.unsplash.com/photo-1524661135-423995f22d0b?q=80&w=400&h=300&fit=crop",
-                    contentDescription = "Map",
+                    contentDescription = "خريطة",
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop
                 )
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.5f))
-                )
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .size(32.dp)
-                        .background(Color(0xFF6C5CE7), CircleShape)
-                        .border(2.dp, Color.White, CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(Icons.Default.LocationOn, contentDescription = "Pin", tint = Color.White, modifier = Modifier.size(16.dp))
-                }
-                Column(
-                    modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp),
-                    horizontalAlignment = Alignment.End
-                ) {
-                    Text(content.city, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 11.sp)
-                    Text(content.country, color = Color.White.copy(alpha = 0.7f), fontSize = 9.sp)
-                }
-                Text(
-                    content.address,
-                    color = Color.White,
-                    fontSize = 11.sp,
-                    modifier = Modifier.align(Alignment.BottomStart).padding(12.dp)
-                )
             }
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(Color(0xFF3B4859)) // Lighter dark strip
-.padding(vertical = 10.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text("Open in Google Maps", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+            Column(modifier = Modifier.padding(10.dp)) {
+                Text(
+                    text = content.address,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp,
+                    fontFamily = TajawalFontFamily,
+                    color = Color(0xFF0F172A)
+                )
+                Text(
+                    text = "${content.city} • $timestamp",
+                    fontSize = 11.sp,
+                    fontFamily = TajawalFontFamily,
+                    color = Color(0xFF64748B)
+                )
             }
         }
-    }}
+    }
+}
+
 @Composable
 fun SnapMediaBubble(content: MessageContent.Snap, timestamp: String, isOutgoing: Boolean) {
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = if (isOutgoing) Arrangement.End else Arrangement.Start) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth(0.5f)
-                .background(Color(0xFF1C2A52).copy(alpha = 0.9f), RoundedCornerShape(18.dp))
-                .border(1.dp, Color(0xFF3B2B78), RoundedCornerShape(18.dp))
-                .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(Icons.Default.LocalFireDepartment, contentDescription = "Snap", tint = Color(0xFFFFA502), modifier = Modifier.size(24.dp))
-            Spacer(modifier = Modifier.width(4.dp))
-            Column {
-                Text("Tap to view", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                Text("${content.timer}s timer", color = Color.LightGray, fontSize = 11.sp)
-            }
-        }
-    }
-}
-
-@Preview(showBackground = true)
-@Composable
-fun PreviewChatDetailScreen() {
-    NetPlayTheme(darkTheme = true) {
-        val dummyMessages = listOf(
-            Message("1", MessageContent.Text("مرحباً سامر"), "10:40 AM", false),
-            Message("2", MessageContent.Text("أهلاً بك! جاهز للعب Combat 3؟"), "10:41 AM", true),
-            Message("3", MessageContent.Document("Project_Final_Assets.zip", "120.4 MB", "ZIP"), "10:42 AM", true),
-            Message("4", MessageContent.Location("Al-Jaza'ir St, Basra", "Basra", "Iraq"), "10:42 AM", true),
-            Message("5", MessageContent.Snap(10), "10:43 AM", true)
-        )
-        ChatDetailScreen(onNavigateBack = {}, initialMessages = dummyMessages)
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun ContactProfileSheet(
-    userName: String,
-    avatarUrl: String,
-    isOnline: Boolean,
-    onDismiss: () -> Unit) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-var isMuted by remember { mutableStateOf(false) }
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = Color(0xFF0F1424),
-        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-        dragHandle = null
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .padding(bottom = 32.dp)
-        ) {
-            // Header Bar inside profile sheet
-Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(
-                    onClick = onDismiss,
-                    modifier = Modifier.size(36.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Close",
-                        tint = Color.White
-                    )
-                }
-                Text(
-                    text = "الملف الشخصي",
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 17.sp
-                )
-                IconButton(
-                    onClick = { },
-                    modifier = Modifier.size(36.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.MoreVert,
-                        contentDescription = "Options",
-                        tint = Color.White
-                    )
-                }
-            }
-            // Big Avatar & Contact Identity
-Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 12.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                // Large Avatar with 3D Glowing Neon Ring
-Box(
-                    modifier = Modifier
-                        .size(100.dp)
-                        .shadow(12.dp, CircleShape)
-                        .background(
-                            brush = Brush.linearGradient(
-                                listOf(Color(0xFF00D2D3), Color(0xFF6C5CE7))
-                            ),
-                            shape = CircleShape
-                        )
-                        .padding(3.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    AsyncImage(
-                        model = avatarUrl,
-                        contentDescription = userName,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .clip(CircleShape),
-                        contentScale = ContentScale.Crop
-                    )
-                    if (isOnline) {
-                        Box(
-                            modifier = Modifier
-                                .size(16.dp)
-                                .align(Alignment.BottomEnd)
-                                .background(Color(0xFF00FF88), CircleShape)
-                                .border(2.dp, Color(0xFF0F1424), CircleShape)
-                        )
-                    }
-                }
-                Spacer(modifier = Modifier.height(12.dp))
-                // Name
-Text(
-                    text = userName,
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 20.sp
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                // Handle & Online Status
-Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Text(
-                        text = "@${userName.filter { !it.isWhitespace() }.lowercase()}",
-                        color = Color(0xFF00D2D3),
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                    Text(
-                        text = "•",
-                        color = Color(0xFF64748B),
-                        fontSize = 14.sp
-                    )
-                    Text(
-                        text = if (isOnline) "متصل الآن" else "آخر ظهور اليوم",
-                        color = if (isOnline) Color(0xFF00FF88) else Color(0xFF94A3B8),
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.height(16.dp))
-            // Quick Actions (Call, Video, Mute, Share)
-Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 24.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly
-            ) {
-                ContactQuickActionButton(
-                    icon = Icons.Default.Call,
-                    label = "اتصال",
-                    color = Color(0xFF00D2D3)
-                ) {}
-                ContactQuickActionButton(
-                    icon = Icons.Default.Videocam,
-                    label = "فيديو",
-                    color = Color(0xFF6C5CE7)
-                ) {}
-                ContactQuickActionButton(
-                    icon = if (isMuted) Icons.Default.NotificationsOff else Icons.Default.Notifications,
-                    label = if (isMuted) "مكتوم" else "كتم",
-                    color = if (isMuted) Color(0xFFFFA502) else Color(0xFF70A1FF)
-                ) {
-                    isMuted = !isMuted
-                }
-                ContactQuickActionButton(
-                    icon = Icons.Default.Share,
-                    label = "مشاركة",
-                    color = Color(0xFF2ED573)
-                ) {}
-            }
-            Spacer(modifier = Modifier.height(20.dp))
-            // Details Section Cards
-Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                // Info Card
-ContactInfoCard {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        ContactInfoRow(
-                            icon = Icons.Default.Phone,
-                            title = "رقم الهاتف / المعرف",
-                            subtitle = "+964 770 123 4567"
-                        )
-                        HorizontalDivider(color = Color(0xFF252D4D), thickness = 0.8.dp)
-                        ContactInfoRow(
-                            icon = Icons.Default.Info,
-                            title = "السيرة الذاتية (Bio)",
-                            subtitle = "لاعب ومشارك في شبكة المحلة 🎮 | متاح للدردشة والمباريات 🏆"
-                        )
-                    }
-                }
-                // Shared Media Preview Card
-ContactInfoCard {
-                    Column {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "الوسائط المشتركة",
-                                color = Color.White,
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 14.sp
-                            )
-                            Text(
-                                text = "18 ملف",
-                                color = Color(0xFF00D2D3),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            val samplePhotos = listOf(
-                                "https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=200&h=200&fit=crop",
-                                "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&h=200&fit=crop",
-                                "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=200&h=200&fit=crop",
-                                "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&h=200&fit=crop"
-                            )
-                            samplePhotos.forEach { url ->
-                                AsyncImage(
-                                    model = url,
-                                    contentDescription = null,
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .aspectRatio(1f)
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .border(1.dp, Color(0xFF252D4D), RoundedCornerShape(10.dp)),
-                                    contentScale = ContentScale.Crop
-                                )
-                            }
-                        }
-                    }
-                }
-                // Settings & Privacy
-ContactInfoCard {
-                    Column {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = Icons.Default.Notifications,
-                                    contentDescription = null,
-                                    tint = Color(0xFF00D2D3),
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Text("كتم الإشعارات", color = Color.White, fontSize = 14.sp)
-                            }
-                            Switch(
-                                checked = isMuted,
-                                onCheckedChange = { isMuted = it },
-                                colors = SwitchDefaults.colors(
-                                    checkedThumbColor = Color.White,
-                                    checkedTrackColor = Color(0xFF6C5CE7),
-                                    uncheckedThumbColor = Color(0xFF94A3B8),
-                                    uncheckedTrackColor = Color(0xFF1E2842)
-                                )
-                            )
-                        }
-                        HorizontalDivider(color = Color(0xFF252D4D), thickness = 0.8.dp)
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { }
-                                .padding(vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Search,
-                                contentDescription = null,
-                                tint = Color(0xFF70A1FF),
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Text("البحث في المحادثة", color = Color.White, fontSize = 14.sp)
-                        }
-                        HorizontalDivider(color = Color(0xFF252D4D), thickness = 0.8.dp)
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { }
-                                .padding(vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Block,
-                                contentDescription = null,
-                                tint = Color(0xFFFF4757),
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Text("حظر المستخدم", color = Color(0xFFFF4757), fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                        }
-                        HorizontalDivider(color = Color(0xFF252D4D), thickness = 0.8.dp)
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { }
-                                .padding(vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Delete,
-                                contentDescription = null,
-                                tint = Color(0xFFFF4757),
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Text("حذف سجل المحادثة", color = Color(0xFFFF4757), fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun ContactQuickActionButton(
-    icon: ImageVector,
-    label: String,
-    color: Color,
-    onClick: () -> Unit
-) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.clickable { onClick() }
-    ) {
-        Box(
-            modifier = Modifier
-                .size(48.dp)
-                .background(Color(0xFF161C33), CircleShape)
-                .border(1.dp, color.copy(alpha = 0.5f), CircleShape),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = label,
-                tint = color,
-                modifier = Modifier.size(22.dp)
-            )
-        }
-        Spacer(modifier = Modifier.height(6.dp))
-        Text(
-            text = label,
-            color = Color(0xFFCBD5E1),
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Medium
-        )
-    }
-}
-
-@Composable
-fun ContactInfoCard(
-    modifier: Modifier = Modifier,
-    content: @Composable () -> Unit
-) {
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .shadow(4.dp, RoundedCornerShape(16.dp))
-            .background(Color(0xFF161C33), RoundedCornerShape(16.dp))
-            .border(1.dp, Color(0xFF252D4D), RoundedCornerShape(16.dp))
-            .padding(14.dp)
-    ) {
-        content()
-    }
-}
-
-@Composable
-fun ContactInfoRow(
-    icon: ImageVector,
-    title: String,
-    subtitle: String
-) {
     Row(
         modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically
+        horizontalArrangement = if (isOutgoing) Arrangement.End else Arrangement.Start
     ) {
-        Box(
+        Row(
             modifier = Modifier
-                .size(36.dp)
-                .background(Color(0xFF0F1424), RoundedCornerShape(10.dp))
-                .border(1.dp, Color(0xFF252D4D), RoundedCornerShape(10.dp)),
-            contentAlignment = Alignment.Center
+                .fillMaxWidth(0.6f)
+                .background(Color.White, RoundedCornerShape(16.dp))
+                .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(16.dp))
+                .padding(10.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = Color(0xFF00D2D3),
-                modifier = Modifier.size(18.dp)
+                imageVector = Icons.Default.LocalFireDepartment,
+                contentDescription = "Snap",
+                tint = Color(0xFFF59E0B),
+                modifier = Modifier.size(24.dp)
             )
-        }
-        Spacer(modifier = Modifier.width(12.dp))
-        Column {
-            Text(
-                text = title,
-                color = Color(0xFF94A3B8),
-                fontSize = 11.sp
-            )
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = subtitle,
-                color = Color.White,
-                fontSize = 13.5.sp,
-                fontWeight = FontWeight.Medium
-            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Column {
+                Text(
+                    text = "رسالة مؤقتة",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp,
+                    fontFamily = TajawalFontFamily,
+                    color = Color(0xFF0F172A)
+                )
+                Text(
+                    text = "${content.timer} ثواني",
+                    color = Color(0xFF64748B),
+                    fontSize = 11.sp,
+                    fontFamily = TajawalFontFamily
+                )
+            }
         }
     }
 }

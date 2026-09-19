@@ -79,7 +79,11 @@ fun RootAppShell() {
                     ChatDetailScreen(
                         targetUserId = targetUserId,
                         userName = targetUserId,
-                        onNavigateBack = { navController.popBackStack() }
+                        onNavigateBack = { navController.popBackStack() },
+                        onOpenProfile = { uid, uname ->
+                            val encoded = try { java.net.URLEncoder.encode(uname, "UTF-8") } catch (_: Exception) { uname }
+                            navController.navigate("user_profile/$uid/$encoded")
+                        }
                     )
                 }
                 composable(
@@ -95,7 +99,11 @@ fun RootAppShell() {
                     ChatDetailScreen(
                         targetUserId = targetUserId,
                         userName = chatName,
-                        onNavigateBack = { navController.popBackStack() }
+                        onNavigateBack = { navController.popBackStack() },
+                        onOpenProfile = { uid, uname ->
+                            val encoded = try { java.net.URLEncoder.encode(uname, "UTF-8") } catch (_: Exception) { uname }
+                            navController.navigate("user_profile/$uid/$encoded")
+                        }
                     )
                 }
                 composable(

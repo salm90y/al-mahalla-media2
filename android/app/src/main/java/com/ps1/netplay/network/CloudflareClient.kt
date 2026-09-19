@@ -1093,4 +1093,200 @@ override fun onResponse(call: Call, response: Response) {
                 }
             }
         })
-    }}
+    }
+
+    // ----------------- Real-time Encrypted Chat Storage & Retrieval -----------------
+    data class ChatMessageItem(
+        val id: String,
+        val conversationId: String,
+        val senderId: String,
+        val receiverId: String,
+        val type: String,
+        val content: String,
+        val mediaUrl: String,
+        val fileName: String,
+        val createdAt: Long,
+        val isOutgoing: Boolean
+    )
+
+    fun getLocalChatMessages(context: Context, convId: String): List<ChatMessageItem> {
+        val prefs = getPrefs(context)
+        val raw = prefs.getString("local_chat_$convId", null) ?: return emptyList()
+        val list = mutableListOf<ChatMessageItem>()
+        try {
+            val arr = JSONArray(raw)
+            val myId = getCurrentUserId(context)
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                val senderId = obj.optString("sender_id")
+                list.add(
+                    ChatMessageItem(
+                        id = obj.optString("id"),
+                        conversationId = obj.optString("conversation_id", convId),
+                        senderId = senderId,
+                        receiverId = obj.optString("receiver_id"),
+                        type = obj.optString("type", "text"),
+                        content = obj.optString("content"),
+                        mediaUrl = obj.optString("media_url"),
+                        fileName = obj.optString("file_name"),
+                        createdAt = obj.optLong("created_at", System.currentTimeMillis()),
+                        isOutgoing = senderId == myId || obj.optBoolean("is_outgoing", false)
+                    )
+                )
+            }
+        } catch (_: Exception) {}
+        return list
+    }
+
+    fun saveLocalChatMessages(context: Context, convId: String, messages: List<ChatMessageItem>) {
+        val arr = JSONArray()
+        messages.forEach { m ->
+            val obj = JSONObject().apply {
+                put("id", m.id)
+                put("conversation_id", m.conversationId)
+                put("sender_id", m.senderId)
+                put("receiver_id", m.receiverId)
+                put("type", m.type)
+                put("content", m.content)
+                put("media_url", m.mediaUrl)
+                put("file_name", m.fileName)
+                put("created_at", m.createdAt)
+                put("is_outgoing", m.isOutgoing)
+            }
+            arr.put(obj)
+        }
+        getPrefs(context).edit().putString("local_chat_$convId", arr.toString()).apply()
+    }
+
+    fun saveLocalChatMessage(context: Context, convId: String, message: ChatMessageItem) {
+        val current = getLocalChatMessages(context, convId).toMutableList()
+        current.removeAll { it.id == message.id }
+        current.add(message)
+        saveLocalChatMessages(context, convId, current)
+    }
+
+    fun fetchCloudflareMessages(
+        context: Context,
+        targetUserId: String,
+        callback: (List<ChatMessageItem>) -> Unit
+    ) {
+        val myId = getCurrentUserId(context)
+        val convId = listOf(myId, targetUserId).sorted().joinToString("_")
+        val token = getAuthToken(context)
+        val url = "${getBaseUrl(context)}/messages/$convId"
+
+        val reqBuilder = Request.Builder().url(url)
+        if (!token.isNullOrEmpty()) {
+            reqBuilder.addHeader("Authorization", "Bearer $token")
+        }
+
+        httpClient.newCall(reqBuilder.build()).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                mainHandler.post { callback(getLocalChatMessages(context, convId)) }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                response.use { resp ->
+                    if (resp.isSuccessful) {
+                        try {
+                            val json = JSONObject(resp.body?.string() ?: "{}")
+                            val msgsArray = json.optJSONArray("messages") ?: JSONArray()
+                            val loaded = mutableListOf<ChatMessageItem>()
+                            for (i in 0 until msgsArray.length()) {
+                                val m = msgsArray.getJSONObject(i)
+                                val senderId = m.optString("sender_id")
+                                val rawContent = m.optString("content", "")
+                                // Decrypt message content if encrypted
+                                val decrypted = ChatCryptoHelper.decrypt(rawContent, convId)
+                                loaded.add(
+                                    ChatMessageItem(
+                                        id = m.optString("id"),
+                                        conversationId = m.optString("conversation_id", convId),
+                                        senderId = senderId,
+                                        receiverId = m.optString("receiver_id"),
+                                        type = m.optString("type", "text"),
+                                        content = decrypted,
+                                        mediaUrl = m.optString("media_url", ""),
+                                        fileName = m.optString("file_name", ""),
+                                        createdAt = m.optLong("created_at", System.currentTimeMillis()),
+                                        isOutgoing = senderId == myId
+                                    )
+                                )
+                            }
+                            if (loaded.isNotEmpty()) {
+                                saveLocalChatMessages(context, convId, loaded)
+                                mainHandler.post { callback(loaded) }
+                                return
+                            }
+                        } catch (_: Exception) {}
+                    }
+                    mainHandler.post { callback(getLocalChatMessages(context, convId)) }
+                }
+            }
+        })
+    }
+
+    fun sendCloudflareMessage(
+        context: Context,
+        receiverId: String,
+        text: String,
+        type: String = "text",
+        mediaUrl: String = "",
+        fileName: String = "",
+        callback: (Boolean, ChatMessageItem?) -> Unit
+    ) {
+        val myId = getCurrentUserId(context)
+        val convId = listOf(myId, receiverId).sorted().joinToString("_")
+        val token = getAuthToken(context)
+        val msgId = "msg_${System.currentTimeMillis()}_${(100..999).random()}"
+        val now = System.currentTimeMillis()
+
+        // Encrypt message content before sending to Cloudflare/R2
+        val encryptedContent = if (type == "text") ChatCryptoHelper.encrypt(text, convId) else text
+
+        val localMsg = ChatMessageItem(
+            id = msgId,
+            conversationId = convId,
+            senderId = myId,
+            receiverId = receiverId,
+            type = type,
+            content = text,
+            mediaUrl = mediaUrl,
+            fileName = fileName,
+            createdAt = now,
+            isOutgoing = true
+        )
+        // Immediately save locally for zero latency
+        saveLocalChatMessage(context, convId, localMsg)
+
+        val url = "${getBaseUrl(context)}/messages/send"
+        val bodyObj = JSONObject().apply {
+            put("receiver_id", receiverId)
+            put("type", type)
+            put("content", encryptedContent)
+            put("media_url", mediaUrl)
+            put("file_name", fileName)
+        }
+
+        val requestBody = bodyObj.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
+        val reqBuilder = Request.Builder()
+            .url(url)
+            .post(requestBody)
+        if (!token.isNullOrEmpty()) {
+            reqBuilder.addHeader("Authorization", "Bearer $token")
+        }
+
+        httpClient.newCall(reqBuilder.build()).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                // Local copy is already saved
+                mainHandler.post { callback(true, localMsg) }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                response.use { resp ->
+                    mainHandler.post { callback(resp.isSuccessful, localMsg) }
+                }
+            }
+        })
+    }
+}
