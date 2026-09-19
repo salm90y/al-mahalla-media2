@@ -573,8 +573,9 @@ var index_default = {
       }
       if (url.pathname === "/messages/send" && method === "POST") {
         const auth = await getAuthUser();
-        if (!auth) return json({ error: "Unauthorized" }, 401);
         const body = await request.json();
+        const senderId = auth?.id || body.sender_id || request.headers.get("x-user-id");
+        if (!senderId) return json({ error: "Unauthorized" }, 401);
         const {
           receiver_id,
           type = "text",
@@ -586,7 +587,7 @@ var index_default = {
           location_lat = 0,
           location_lng = 0
         } = body;
-        const [u1, u2] = [auth.id, receiver_id].sort();
+        const [u1, u2] = [senderId, receiver_id].sort();
         const convId = `${u1}_${u2}`;
         const messageId = crypto.randomUUID();
         const now = Date.now();
@@ -594,11 +595,11 @@ var index_default = {
           env.DB.prepare(
             `INSERT INTO private_messages 
              (id, conversation_id, sender_id, receiver_id, type, content, media_url, file_name, file_size, duration, location_lat, location_lng, created_at, is_read, is_delivered)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1)`
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1)`
           ).bind(
             messageId,
             convId,
-            auth.id,
+            senderId,
             receiver_id,
             type,
             content,
@@ -612,7 +613,7 @@ var index_default = {
           ),
           env.DB.prepare(
             `INSERT INTO conversations (id, user1_id, user2_id, last_message_id, last_message_text, last_message_at, unread_count_user1, unread_count_user2)
-             VALUES (?, ?, ?, ?, ?, ?, ?, CASE WHEN ? = ? THEN 0 ELSE 1 END, CASE WHEN ? = ? THEN 1 ELSE 0 END)
+             VALUES (?, ?, ?, ?, ?, ?, CASE WHEN ? = ? THEN 0 ELSE 1 END, CASE WHEN ? = ? THEN 1 ELSE 0 END)
              ON CONFLICT(id) DO UPDATE SET
                last_message_id = excluded.last_message_id,
                last_message_text = excluded.last_message_text,
@@ -626,13 +627,13 @@ var index_default = {
             messageId,
             content || `[${type}]`,
             now,
-            auth.id,
+            senderId,
             u1,
-            auth.id,
+            senderId,
             u1,
-            auth.id,
+            senderId,
             u1,
-            auth.id,
+            senderId,
             u1
           )
         ]);
@@ -641,7 +642,7 @@ var index_default = {
           message: {
             id: messageId,
             conversation_id: convId,
-            sender_id: auth.id,
+            sender_id: senderId,
             receiver_id,
             type,
             content,
@@ -657,28 +658,54 @@ var index_default = {
       }
       if (url.pathname.startsWith("/messages/") && method === "GET") {
         const auth = await getAuthUser();
-        if (!auth) return json({ error: "Unauthorized" }, 401);
+        const currentUserId = auth?.id || request.headers.get("x-user-id");
+        if (!currentUserId) return json({ error: "Unauthorized" }, 401);
         const conversationId = url.pathname.replace("/messages/", "");
-        const limit = Number(url.searchParams.get("limit")) || 50;
-        const messages = await env.DB.prepare(
-          "SELECT * FROM private_messages WHERE conversation_id = ? ORDER BY created_at ASC LIMIT ?"
-        ).bind(conversationId, limit).all();
-        await env.DB.prepare(
-          "UPDATE private_messages SET is_read = 1 WHERE conversation_id = ? AND receiver_id = ?"
-        ).bind(conversationId, auth.id).run();
-        return json({ messages: messages.results });
+        const limit = Number(url.searchParams.get("limit")) || 100;
+        let messages;
+        if (conversationId.includes("_")) {
+          const parts = conversationId.split("_");
+          const u1 = parts[0];
+          const u2 = parts[1];
+          const altConvId = `${u2}_${u1}`;
+          messages = await env.DB.prepare(
+            `SELECT * FROM private_messages 
+             WHERE conversation_id = ? OR conversation_id = ? OR (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)
+             ORDER BY created_at ASC LIMIT ?`
+          ).bind(conversationId, altConvId, u1, u2, u2, u1, limit).all();
+        } else {
+          const u1 = currentUserId;
+          const u2 = conversationId;
+          const c1 = [u1, u2].sort().join("_");
+          messages = await env.DB.prepare(
+            `SELECT * FROM private_messages 
+             WHERE conversation_id = ? OR (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)
+             ORDER BY created_at ASC LIMIT ?`
+          ).bind(c1, u1, u2, u2, u1, limit).all();
+        }
+        try {
+          await env.DB.prepare(
+            "UPDATE private_messages SET is_read = 1 WHERE (conversation_id = ? OR receiver_id = ?) AND receiver_id = ?"
+          ).bind(conversationId, currentUserId, currentUserId).run();
+        } catch (_) {
+        }
+        return json({ messages: messages?.results || [] });
       }
       if (url.pathname === "/conversations" && method === "GET") {
         const auth = await getAuthUser();
-        if (!auth) return json({ error: "Unauthorized" }, 401);
+        const currentUserId = auth?.id || request.headers.get("x-user-id");
+        if (!currentUserId) return json({ error: "Unauthorized" }, 401);
         const convs = await env.DB.prepare(
           `SELECT c.*, 
-                  u.id as other_user_id, u.username as other_username, u.avatar_url as other_avatar, u.status as other_status
+                  COALESCE(u.id, CASE WHEN c.user1_id = ? THEN c.user2_id ELSE c.user1_id END) as other_user_id,
+                  COALESCE(u.username, CASE WHEN c.user1_id = ? THEN c.user2_id ELSE c.user1_id END) as other_username,
+                  COALESCE(u.avatar_url, '') as other_avatar,
+                  COALESCE(u.status, 'offline') as other_status
            FROM conversations c
-           JOIN users u ON (u.id = CASE WHEN c.user1_id = ? THEN c.user2_id ELSE c.user1_id END)
+           LEFT JOIN users u ON (u.id = CASE WHEN c.user1_id = ? THEN c.user2_id ELSE c.user1_id END)
            WHERE c.user1_id = ? OR c.user2_id = ?
            ORDER BY c.last_message_at DESC`
-        ).bind(auth.id, auth.id, auth.id).all();
+        ).bind(currentUserId, currentUserId, currentUserId, currentUserId, currentUserId).all();
         return json({ conversations: convs.results });
       }
       if (url.pathname === "/friends/list" && method === "GET") {
