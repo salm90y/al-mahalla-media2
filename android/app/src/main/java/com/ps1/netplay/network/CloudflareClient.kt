@@ -60,6 +60,9 @@ fun setBaseUrl(context: Context, url: String) {
 fun getAuthToken(context: Context): String? {
         return getPrefs(context).getString(KEY_AUTH_TOKEN, null)
     }
+fun getCurrentUserId(context: Context): String {
+        return UserManager.getCurrentUser(context)?.id ?: ""
+    }
 fun saveAuthToken(context: Context, token: String) {
         getPrefs(context).edit().putString(KEY_AUTH_TOKEN, token).apply()
     }

@@ -40,7 +40,6 @@ import coil.compose.AsyncImage
 import com.ps1.netplay.CallActivity
 import com.ps1.netplay.UserManager
 import com.ps1.netplay.network.CloudflareClient
-import com.ps1.netplay.ui.TajawalFontFamily
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
