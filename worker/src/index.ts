@@ -262,24 +262,44 @@ export default {
       });
 
     async function getAuthUser(): Promise<{ id: string; username: string } | null> {
-      const authHeader = request.headers.get("Authorization");
-      if (!authHeader || !authHeader.startsWith("Bearer ")) return null;
-      const token = authHeader.substring(7);
-      
-      if (env.SESSIONS) {
-        const sessionData = await env.SESSIONS.get(`session:${token}`);
-        if (sessionData) {
-          try {
-            return JSON.parse(sessionData);
-          } catch {}
+      const authHeader = request.headers.get("Authorization") || request.headers.get("authorization");
+      if (authHeader && authHeader.startsWith("Bearer ")) {
+        const token = authHeader.substring(7);
+        if (env.SESSIONS) {
+          const sessionData = await env.SESSIONS.get(`session:${token}`);
+          if (sessionData) {
+            try {
+              const s = JSON.parse(sessionData);
+              if (s && s.id) return s;
+            } catch {}
+          }
+        }
+        const verified = await verifyJwt(token, jwtSecret);
+        if (verified) {
+          if (env.SESSIONS) {
+            await env.SESSIONS.put(`session:${token}`, JSON.stringify(verified), { expirationTtl: 86400 });
+          }
+          return verified;
         }
       }
 
-      const verified = await verifyJwt(token, jwtSecret);
-      if (verified && env.SESSIONS) {
-        await env.SESSIONS.put(`session:${token}`, JSON.stringify(verified), { expirationTtl: 86400 });
+      // Check header fallback
+      const headerUserId = request.headers.get("x-user-id") || request.headers.get("X-User-Id");
+      if (headerUserId && headerUserId !== "null" && headerUserId !== "undefined" && headerUserId.trim() !== "") {
+        const cleanHeaderId = headerUserId.trim();
+        if (env.DB) {
+          try {
+            const user = await env.DB.prepare("SELECT id, username FROM users WHERE id = ? OR LOWER(username) = ?").bind(cleanHeaderId, cleanHeaderId.toLowerCase()).first<any>();
+            if (user) {
+              return { id: user.id, username: user.username };
+            }
+          } catch (_) {}
+        }
+        const headerUserName = request.headers.get("x-user-name") || request.headers.get("X-User-Name") || cleanHeaderId;
+        return { id: cleanHeaderId, username: headerUserName };
       }
-      return verified;
+
+      return null;
     }
 
     try {
@@ -671,8 +691,8 @@ export default {
       if (url.pathname === "/messages/send" && method === "POST") {
         const auth = await getAuthUser();
         const body = await request.json<any>();
-        const senderId = auth?.id || body.sender_id || request.headers.get("x-user-id");
-        if (!senderId) return json({ error: "Unauthorized" }, 401);
+        const rawSender = auth?.id || body.sender_id || request.headers.get("x-user-id");
+        if (!rawSender) return json({ error: "Unauthorized" }, 401);
 
         const {
           receiver_id,
@@ -686,40 +706,54 @@ export default {
           location_lng = 0.0
         } = body;
 
-        const u1 = String(senderId).trim().toLowerCase();
-        const u2 = String(receiver_id).trim().toLowerCase();
-        const calculatedConvId = [u1, u2].sort().join("_");
-        const convId = (body.conversation_id && body.conversation_id.includes("_"))
-          ? body.conversation_id.trim().toLowerCase()
-          : calculatedConvId;
+        if (!receiver_id) return json({ error: "Receiver ID is required" }, 400);
 
-        const messageId = crypto.randomUUID();
-        const now = Date.now();
+        if (env.DB) await ensureAllTables(env.DB);
+
+        // Resolve sender and receiver in DB for accurate IDs and usernames
+        let senderId = String(rawSender).trim();
+        let receiverId = String(receiver_id).trim();
+
+        if (env.DB) {
+          try {
+            const sDb = await env.DB.prepare("SELECT id, username FROM users WHERE id = ? OR LOWER(username) = ?").bind(senderId, senderId.toLowerCase()).first<any>();
+            if (sDb) senderId = sDb.id;
+
+            const rDb = await env.DB.prepare("SELECT id, username FROM users WHERE id = ? OR LOWER(username) = ?").bind(receiverId, receiverId.toLowerCase()).first<any>();
+            if (rDb) receiverId = rDb.id;
+          } catch (_) {}
+        }
+
+        const sortedIds = [senderId.toLowerCase(), receiverId.toLowerCase()].sort();
+        const canonicalConvId = `${sortedIds[0]}_${sortedIds[1]}`;
+        const clientConvId = (body.conversation_id && String(body.conversation_id).trim())
+          ? String(body.conversation_id).trim().toLowerCase()
+          : canonicalConvId;
+
+        const messageId = body.id || crypto.randomUUID();
+        const now = body.created_at || Date.now();
 
         // 1. Store in D1 Database
         if (env.DB) {
           try {
-            await ensureAllTables(env.DB);
             await env.DB.batch([
               env.DB.prepare(
                 `INSERT INTO private_messages 
                  (id, conversation_id, sender_id, receiver_id, type, content, media_url, file_name, file_size, duration, location_lat, location_lng, created_at, is_read, is_delivered)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1)`
               ).bind(
-                messageId, convId, senderId, receiver_id, type, content, media_url, file_name, file_size, duration, location_lat, location_lng, now
+                messageId, canonicalConvId, senderId, receiverId, type, content, media_url, file_name, file_size, duration, location_lat, location_lng, now
               ),
               env.DB.prepare(
                 `INSERT INTO conversations (id, user1_id, user2_id, last_message_id, last_message_text, last_message_at, unread_count_user1, unread_count_user2)
-                 VALUES (?, ?, ?, ?, ?, ?, CASE WHEN ? = ? THEN 0 ELSE 1 END, CASE WHEN ? = ? THEN 1 ELSE 0 END)
+                 VALUES (?, ?, ?, ?, ?, ?, 0, 1)
                  ON CONFLICT(id) DO UPDATE SET
                    last_message_id = excluded.last_message_id,
                    last_message_text = excluded.last_message_text,
                    last_message_at = excluded.last_message_at,
-                   unread_count_user1 = unread_count_user1 + excluded.unread_count_user1,
-                   unread_count_user2 = unread_count_user2 + excluded.unread_count_user2`
+                   unread_count_user2 = unread_count_user2 + 1`
               ).bind(
-                convId, u1, u2, messageId, content || `[${type}]`, now,
-                senderId, u1, senderId, u1
+                canonicalConvId, sortedIds[0], sortedIds[1], messageId, content || `[${type}]`, now
               )
             ]);
           } catch (d1Err) {
@@ -727,14 +761,14 @@ export default {
           }
         }
 
-        // 2. Dual Backup in R2 Bucket (al-mahalla-media)
+        // 2. Dual Backup in R2 Bucket
         if (env.MEDIA_BUCKET) {
           try {
             const r2Payload = JSON.stringify({
               id: messageId,
-              conversation_id: convId,
+              conversation_id: canonicalConvId,
               sender_id: senderId,
-              receiver_id,
+              receiver_id: receiverId,
               type,
               content,
               media_url,
@@ -748,10 +782,17 @@ export default {
               is_delivered: 1
             });
             await env.MEDIA_BUCKET.put(
-              `messages/${convId}/${now}_${messageId}.json`,
+              `messages/${canonicalConvId}/${now}_${messageId}.json`,
               r2Payload,
               { httpMetadata: { contentType: "application/json" } }
             );
+            if (clientConvId !== canonicalConvId) {
+              await env.MEDIA_BUCKET.put(
+                `messages/${clientConvId}/${now}_${messageId}.json`,
+                r2Payload,
+                { httpMetadata: { contentType: "application/json" } }
+              );
+            }
           } catch (r2Err) {
             console.error("R2 message storage error:", r2Err);
           }
@@ -761,9 +802,9 @@ export default {
           success: true,
           message: {
             id: messageId,
-            conversation_id: convId,
+            conversation_id: canonicalConvId,
             sender_id: senderId,
-            receiver_id,
+            receiver_id: receiverId,
             type,
             content,
             media_url,
@@ -781,34 +822,81 @@ export default {
         const auth = await getAuthUser();
         const currentUserId = auth?.id || request.headers.get("x-user-id");
         if (!currentUserId) return json({ error: "Unauthorized" }, 401);
-        const conversationId = url.pathname.replace("/messages/", "").trim().toLowerCase();
-        const limit = Number(url.searchParams.get("limit")) || 100;
+        const reqConvParam = url.pathname.replace("/messages/", "").trim();
+        const limit = Number(url.searchParams.get("limit")) || 200;
 
-        let d1Messages: any[] = [];
+        if (env.DB) await ensureAllTables(env.DB);
+
+        // Collect all identifiers for current user (ID and username)
+        const myIdentifiers: string[] = [String(currentUserId).trim().toLowerCase()];
+        if (auth?.username) myIdentifiers.push(auth.username.trim().toLowerCase());
+
         if (env.DB) {
           try {
-            await ensureAllTables(env.DB);
-            if (conversationId.includes("_")) {
-              const parts = conversationId.split("_");
-              const u1 = parts[0];
-              const u2 = parts[1];
-              const altConvId = `${u2}_${u1}`;
-              const res = await env.DB.prepare(
+            const meDb = await env.DB.prepare(
+              "SELECT id, username FROM users WHERE id = ? OR LOWER(username) = ?"
+            ).bind(currentUserId, String(currentUserId).toLowerCase()).first<any>();
+            if (meDb) {
+              if (!myIdentifiers.includes(meDb.id.toLowerCase())) myIdentifiers.push(meDb.id.toLowerCase());
+              if (!myIdentifiers.includes(meDb.username.toLowerCase())) myIdentifiers.push(meDb.username.toLowerCase());
+            }
+          } catch (_) {}
+        }
+
+        const lowerParam = reqConvParam.toLowerCase();
+        let d1Messages: any[] = [];
+
+        if (env.DB) {
+          try {
+            // 1. Direct match on conversation_id
+            const direct = await env.DB.prepare(
+              `SELECT * FROM private_messages 
+               WHERE LOWER(conversation_id) = ? 
+               ORDER BY created_at ASC LIMIT ?`
+            ).bind(lowerParam, limit).all();
+            d1Messages = direct.results || [];
+
+            // 2. Identify the other user from param or users table
+            const allUsersRes = await env.DB.prepare("SELECT id, username FROM users").all();
+            const allUsers = (allUsersRes.results || []) as { id: string; username: string }[];
+
+            let otherUser: { id: string; username: string } | null = null;
+            for (const u of allUsers) {
+              const uid = u.id.toLowerCase();
+              const uname = u.username.toLowerCase();
+              if (myIdentifiers.includes(uid) || myIdentifiers.includes(uname)) continue;
+              if (lowerParam === uid || lowerParam === uname || lowerParam.includes(uid) || lowerParam.includes(uname)) {
+                otherUser = u;
+                break;
+              }
+            }
+
+            if (otherUser) {
+              const otherIds = [otherUser.id.toLowerCase(), otherUser.username.toLowerCase()];
+              const sortedPair = [myIdentifiers[0], otherIds[0]].sort();
+              const canonicalKey = `${sortedPair[0]}_${sortedPair[1]}`;
+
+              const paired = await env.DB.prepare(
                 `SELECT * FROM private_messages 
-                 WHERE conversation_id = ? OR conversation_id = ? OR (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)
+                 WHERE LOWER(conversation_id) = ? 
+                    OR LOWER(conversation_id) = ?
+                    OR (LOWER(sender_id) IN (${myIdentifiers.map(() => '?').join(',')}) AND LOWER(receiver_id) IN (${otherIds.map(() => '?').join(',')}))
+                    OR (LOWER(sender_id) IN (${otherIds.map(() => '?').join(',')}) AND LOWER(receiver_id) IN (${myIdentifiers.map(() => '?').join(',')}))
                  ORDER BY created_at ASC LIMIT ?`
-              ).bind(conversationId, altConvId, u1, u2, u2, u1, limit).all();
-              d1Messages = res.results || [];
-            } else {
-              const u1 = String(currentUserId).trim().toLowerCase();
-              const u2 = conversationId;
-              const c1 = [u1, u2].sort().join("_");
-              const res = await env.DB.prepare(
-                `SELECT * FROM private_messages 
-                 WHERE conversation_id = ? OR (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)
-                 ORDER BY created_at ASC LIMIT ?`
-              ).bind(c1, u1, u2, u2, u1, limit).all();
-              d1Messages = res.results || [];
+              ).bind(
+                canonicalKey,
+                lowerParam,
+                ...myIdentifiers,
+                ...otherIds,
+                ...otherIds,
+                ...myIdentifiers,
+                limit
+              ).all();
+
+              const pairedMsgs = paired.results || [];
+              if (pairedMsgs.length >= d1Messages.length) {
+                d1Messages = pairedMsgs;
+              }
             }
           } catch (e) {
             console.error("D1 read messages error:", e);
@@ -824,7 +912,7 @@ export default {
         if (env.MEDIA_BUCKET && combined.size < limit) {
           try {
             const list = await env.MEDIA_BUCKET.list({
-              prefix: `messages/${conversationId}/`,
+              prefix: `messages/${lowerParam}/`,
               limit: limit
             });
             for (const obj of list.objects) {
@@ -847,8 +935,8 @@ export default {
         try {
           if (env.DB) {
             await env.DB.prepare(
-              "UPDATE private_messages SET is_read = 1 WHERE (conversation_id = ? OR receiver_id = ?) AND receiver_id = ?"
-            ).bind(conversationId, currentUserId, currentUserId).run();
+              "UPDATE private_messages SET is_read = 1 WHERE (LOWER(conversation_id) = ? OR LOWER(receiver_id) = ?) AND LOWER(receiver_id) = ?"
+            ).bind(lowerParam, String(currentUserId).toLowerCase(), String(currentUserId).toLowerCase()).run();
           }
         } catch (_) {}
 
@@ -860,19 +948,33 @@ export default {
         const currentUserId = auth?.id || request.headers.get("x-user-id");
         if (!currentUserId) return json({ error: "Unauthorized" }, 401);
 
+        if (env.DB) await ensureAllTables(env.DB);
+
+        let userIds = [String(currentUserId).trim().toLowerCase()];
+        if (auth?.username) userIds.push(auth.username.trim().toLowerCase());
+        try {
+          const uDb = await env.DB.prepare("SELECT id, username FROM users WHERE id = ? OR LOWER(username) = ?").bind(currentUserId, String(currentUserId).toLowerCase()).first<any>();
+          if (uDb) {
+            if (!userIds.includes(uDb.id.toLowerCase())) userIds.push(uDb.id.toLowerCase());
+            if (!userIds.includes(uDb.username.toLowerCase())) userIds.push(uDb.username.toLowerCase());
+          }
+        } catch (_) {}
+
+        const placeholders = userIds.map(() => '?').join(',');
         const convs = await env.DB.prepare(
           `SELECT c.*, 
-                  COALESCE(u.id, CASE WHEN c.user1_id = ? THEN c.user2_id ELSE c.user1_id END) as other_user_id,
-                  COALESCE(u.username, CASE WHEN c.user1_id = ? THEN c.user2_id ELSE c.user1_id END) as other_username,
+                  COALESCE(u.id, CASE WHEN LOWER(c.user1_id) IN (${placeholders}) THEN c.user2_id ELSE c.user1_id END) as other_user_id,
+                  COALESCE(u.username, CASE WHEN LOWER(c.user1_id) IN (${placeholders}) THEN c.user2_id ELSE c.user1_id END) as other_username,
                   COALESCE(u.avatar_url, '') as other_avatar,
                   COALESCE(u.status, 'offline') as other_status
            FROM conversations c
-           LEFT JOIN users u ON (u.id = CASE WHEN c.user1_id = ? THEN c.user2_id ELSE c.user1_id END)
-           WHERE c.user1_id = ? OR c.user2_id = ?
+           LEFT JOIN users u ON (LOWER(u.id) = LOWER(CASE WHEN LOWER(c.user1_id) IN (${placeholders}) THEN c.user2_id ELSE c.user1_id END)
+                                 OR LOWER(u.username) = LOWER(CASE WHEN LOWER(c.user1_id) IN (${placeholders}) THEN c.user2_id ELSE c.user1_id END))
+           WHERE LOWER(c.user1_id) IN (${placeholders}) OR LOWER(c.user2_id) IN (${placeholders})
            ORDER BY c.last_message_at DESC`
-        ).bind(currentUserId, currentUserId, currentUserId, currentUserId, currentUserId).all();
+        ).bind(...userIds, ...userIds, ...userIds, ...userIds, ...userIds, ...userIds).all();
 
-        return json({ conversations: convs.results });
+        return json({ conversations: convs.results || [] });
       }
 
       if (url.pathname === "/friends/list" && method === "GET") {

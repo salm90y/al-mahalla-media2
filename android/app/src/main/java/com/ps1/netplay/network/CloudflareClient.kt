@@ -58,7 +58,15 @@ fun setBaseUrl(context: Context, url: String) {
         getPrefs(context).edit().putString(KEY_BASE_URL, url.trimEnd('/')).apply()
     }
 fun getAuthToken(context: Context): String? {
-        return getPrefs(context).getString(KEY_AUTH_TOKEN, null)
+        val direct = getPrefs(context).getString(KEY_AUTH_TOKEN, null)
+        if (!direct.isNullOrEmpty()) return direct
+        val sessionPrefs = context.getSharedPreferences("ps1_cloudflare_session", Context.MODE_PRIVATE)
+        val sessionToken = sessionPrefs.getString("jwt_token", null)
+        if (!sessionToken.isNullOrEmpty()) {
+            saveAuthToken(context, sessionToken)
+            return sessionToken
+        }
+        return null
     }
     fun getCurrentUserId(context: Context): String {
         val user = UserManager.getCurrentUser(context)
@@ -69,13 +77,35 @@ fun getAuthToken(context: Context): String? {
         if (!savedId.isNullOrBlank()) return savedId
         val savedName = prefs.getString("current_user_name", null)
         if (!savedName.isNullOrBlank()) return savedName
+        val sessionPrefs = context.getSharedPreferences("ps1_cloudflare_session", Context.MODE_PRIVATE)
+        val sessionJson = sessionPrefs.getString("auth_user_json", null)
+        if (!sessionJson.isNullOrBlank()) {
+            try {
+                val obj = JSONObject(sessionJson)
+                val id = obj.optString("id")
+                if (id.isNotBlank()) return id
+                val username = obj.optString("username")
+                if (username.isNotBlank()) return username
+            } catch (_: Exception) {}
+        }
         return "user_me"
     }
     fun getCurrentUsername(context: Context): String {
         val user = UserManager.getCurrentUser(context)
         if (user != null && user.username.isNotBlank()) return user.username
         val prefs = getPrefs(context)
-        return prefs.getString("current_user_name", "أنا") ?: "أنا"
+        val savedName = prefs.getString("current_user_name", null)
+        if (!savedName.isNullOrBlank()) return savedName
+        val sessionPrefs = context.getSharedPreferences("ps1_cloudflare_session", Context.MODE_PRIVATE)
+        val sessionJson = sessionPrefs.getString("auth_user_json", null)
+        if (!sessionJson.isNullOrBlank()) {
+            try {
+                val obj = JSONObject(sessionJson)
+                val username = obj.optString("username")
+                if (username.isNotBlank()) return username
+            } catch (_: Exception) {}
+        }
+        return "أنا"
     }
     fun getConversationId(id1: String, id2: String): String {
         val clean1 = id1.trim().lowercase().ifEmpty { "user_me" }
@@ -1346,18 +1376,25 @@ override fun onResponse(call: Call, response: Response) {
                             for (i in 0 until msgsArray.length()) {
                                 val m = msgsArray.getJSONObject(i)
                                 val senderId = m.optString("sender_id")
+                                val receiverId = m.optString("receiver_id")
                                 val rawContent = m.optString("content", "")
                                 // Decrypt message content if encrypted
                                 val decrypted = ChatCryptoHelper.decrypt(rawContent, convId)
-                                val isOut = senderId.equals(myId, ignoreCase = true) || 
-                                            senderId.equals(myUsername, ignoreCase = true) ||
-                                            (senderId.startsWith("user_me") && myId.startsWith("user_me"))
+                                val isOut = if (senderId.equals(myId, ignoreCase = true) || 
+                                                senderId.equals(myUsername, ignoreCase = true) ||
+                                                (senderId.startsWith("user_me") && myId.startsWith("user_me"))) {
+                                    true
+                                } else if (receiverId.equals(myId, ignoreCase = true) || receiverId.equals(myUsername, ignoreCase = true)) {
+                                    false
+                                } else {
+                                    !senderId.equals(targetUserId, ignoreCase = true)
+                                }
                                 loaded.add(
                                     ChatMessageItem(
                                         id = m.optString("id"),
                                         conversationId = m.optString("conversation_id", convId),
                                         senderId = senderId,
-                                        receiverId = m.optString("receiver_id"),
+                                        receiverId = receiverId,
                                         type = m.optString("type", "text"),
                                         content = decrypted,
                                         mediaUrl = m.optString("media_url", ""),
@@ -1367,8 +1404,8 @@ override fun onResponse(call: Call, response: Response) {
                                     )
                                 )
                             }
+                            saveLocalChatMessages(context, convId, loaded)
                             if (loaded.isNotEmpty()) {
-                                saveLocalChatMessages(context, convId, loaded)
                                 val lastMsg = loaded.last()
                                 updateLocalConversation(
                                     context,
@@ -1378,9 +1415,9 @@ override fun onResponse(call: Call, response: Response) {
                                     lastMsg.content.ifEmpty { "[${lastMsg.type}]" },
                                     lastMsg.createdAt
                                 )
-                                mainHandler.post { callback(loaded) }
-                                return
                             }
+                            mainHandler.post { callback(loaded) }
+                            return
                         } catch (_: Exception) {}
                     }
                     mainHandler.post { callback(getLocalChatMessages(context, convId)) }
@@ -1396,13 +1433,14 @@ override fun onResponse(call: Call, response: Response) {
         type: String = "text",
         mediaUrl: String = "",
         fileName: String = "",
+        messageId: String = "msg_${System.currentTimeMillis()}_${(100..999).random()}",
         callback: (Boolean, ChatMessageItem?) -> Unit
     ) {
         val myId = getCurrentUserId(context)
         val myUsername = getCurrentUsername(context)
         val convId = getConversationId(myId, receiverId)
         val token = getAuthToken(context)
-        val msgId = "msg_${System.currentTimeMillis()}_${(100..999).random()}"
+        val msgId = messageId
         val now = System.currentTimeMillis()
 
         // Encrypt message content before sending to Cloudflare/R2
@@ -1426,6 +1464,7 @@ override fun onResponse(call: Call, response: Response) {
 
         val url = "${getBaseUrl(context)}/messages/send"
         val bodyObj = JSONObject().apply {
+            put("id", msgId)
             put("sender_id", myId)
             put("sender_name", myUsername)
             put("conversation_id", convId)
@@ -1434,6 +1473,7 @@ override fun onResponse(call: Call, response: Response) {
             put("content", encryptedContent)
             put("media_url", mediaUrl)
             put("file_name", fileName)
+            put("created_at", now)
         }
 
         val requestBody = bodyObj.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())

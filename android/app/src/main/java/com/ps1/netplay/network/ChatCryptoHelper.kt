@@ -21,19 +21,34 @@ object ChatCryptoHelper {
         return Pair(SecretKeySpec(keyBytes, "AES"), IvParameterSpec(ivBytes))
     }
 
+    private fun deriveUniversalKey(): Pair<SecretKeySpec, IvParameterSpec> {
+        val sha = MessageDigest.getInstance("SHA-256").digest("ps1_chat_universal_v1_salt".toByteArray(Charsets.UTF_8))
+        val keyBytes = sha.copyOfRange(0, 16)
+        val ivBytes = sha.copyOfRange(16, 32)
+        return Pair(SecretKeySpec(keyBytes, "AES"), IvParameterSpec(ivBytes))
+    }
+
     /**
      * Encrypts plain text message for Cloudflare D1/R2 storage
      */
     fun encrypt(plainText: String, convId: String): String {
         if (plainText.isEmpty()) return ""
         return try {
-            val (key, iv) = deriveKey(convId)
+            val (key, iv) = deriveUniversalKey()
             val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
             cipher.init(Cipher.ENCRYPT_MODE, key, iv)
             val encryptedBytes = cipher.doFinal(plainText.toByteArray(Charsets.UTF_8))
             PREFIX + Base64.encodeToString(encryptedBytes, Base64.NO_WRAP)
         } catch (e: Exception) {
-            plainText
+            try {
+                val (key, iv) = deriveKey(convId)
+                val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
+                cipher.init(Cipher.ENCRYPT_MODE, key, iv)
+                val encryptedBytes = cipher.doFinal(plainText.toByteArray(Charsets.UTF_8))
+                PREFIX + Base64.encodeToString(encryptedBytes, Base64.NO_WRAP)
+            } catch (e2: Exception) {
+                plainText
+            }
         }
     }
 
@@ -42,16 +57,31 @@ object ChatCryptoHelper {
      */
     fun decrypt(cipherText: String, convId: String): String {
         if (!cipherText.startsWith(PREFIX)) return cipherText
-        return try {
-            val clean = cipherText.removePrefix(PREFIX)
-            val decodedBytes = Base64.decode(clean, Base64.DEFAULT)
+        val clean = cipherText.removePrefix(PREFIX)
+        val decodedBytes = try {
+            Base64.decode(clean, Base64.DEFAULT)
+        } catch (e: Exception) {
+            return cipherText
+        }
+
+        // 1. Try Universal Key first
+        try {
+            val (key, iv) = deriveUniversalKey()
+            val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
+            cipher.init(Cipher.DECRYPT_MODE, key, iv)
+            val decryptedBytes = cipher.doFinal(decodedBytes)
+            return String(decryptedBytes, Charsets.UTF_8)
+        } catch (_: Exception) {}
+
+        // 2. Try Conversation-specific key
+        try {
             val (key, iv) = deriveKey(convId)
             val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
             cipher.init(Cipher.DECRYPT_MODE, key, iv)
             val decryptedBytes = cipher.doFinal(decodedBytes)
-            String(decryptedBytes, Charsets.UTF_8)
-        } catch (e: Exception) {
-            cipherText
-        }
+            return String(decryptedBytes, Charsets.UTF_8)
+        } catch (_: Exception) {}
+
+        return cipherText
     }
 }

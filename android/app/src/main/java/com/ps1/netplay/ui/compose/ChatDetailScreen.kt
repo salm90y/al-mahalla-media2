@@ -30,6 +30,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -123,9 +125,10 @@ fun ChatDetailScreen(
                             val time = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(m.createdAt))
                             Message(m.id, content, time, m.isOutgoing)
                         }
-                        // Avoid overriding recent pending outgoing messages
-                        val pending = messages.filter { curr -> curr.isOutgoing && mapped.none { it.id == curr.id } }
-                        messages = mapped + pending
+                        // Avoid duplicate IDs and preserve pending local outgoing messages
+                        val loadedIds = mapped.map { it.id }.toSet()
+                        val pending = messages.filter { curr -> curr.isOutgoing && !loadedIds.contains(curr.id) }
+                        messages = (mapped + pending).distinctBy { it.id }
                     }
                 }
                 delay(2000)
@@ -225,29 +228,31 @@ fun ChatDetailScreen(
             onBack = onNavigateBack
         )
 
-        // 2. SCROLLABLE MESSAGES
-        LazyColumn(
-            state = listState,
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-                .padding(horizontal = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            contentPadding = PaddingValues(vertical = 12.dp)
-        ) {
-            items(messages) { message ->
-                when (message.content) {
-                    is MessageContent.Text -> TextBubble(message.content.text, message.timestamp, message.isOutgoing)
-                    is MessageContent.Photo -> {
-                        if (message.content.urls.size == 1) {
-                            SinglePhotoBubble(message.content.urls.first(), message.timestamp, message.isOutgoing)
-                        } else {
-                            MultiPhotoBubble(message.content.urls, message.timestamp, message.isOutgoing)
+        // 2. SCROLLABLE MESSAGES (Always strictly Left-to-Right for chat bubbles: outgoing on Right, incoming on Left)
+        CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .padding(horizontal = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                contentPadding = PaddingValues(vertical = 12.dp)
+            ) {
+                items(messages, key = { it.id }) { message ->
+                    when (message.content) {
+                        is MessageContent.Text -> TextBubble(message.content.text, message.timestamp, message.isOutgoing)
+                        is MessageContent.Photo -> {
+                            if (message.content.urls.size == 1) {
+                                SinglePhotoBubble(message.content.urls.first(), message.timestamp, message.isOutgoing)
+                            } else {
+                                MultiPhotoBubble(message.content.urls, message.timestamp, message.isOutgoing)
+                            }
                         }
+                        is MessageContent.Document -> DocumentBubble(message.content, message.timestamp, message.isOutgoing)
+                        is MessageContent.Location -> MapCardBubble(message.content, message.timestamp, message.isOutgoing)
+                        is MessageContent.Snap -> SnapMediaBubble(message.content, message.timestamp, message.isOutgoing)
                     }
-                    is MessageContent.Document -> DocumentBubble(message.content, message.timestamp, message.isOutgoing)
-                    is MessageContent.Location -> MapCardBubble(message.content, message.timestamp, message.isOutgoing)
-                    is MessageContent.Snap -> SnapMediaBubble(message.content, message.timestamp, message.isOutgoing)
                 }
             }
         }
@@ -262,8 +267,9 @@ fun ChatDetailScreen(
             ChatInputBar(
                 onSendText = { text ->
                     val now = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date())
+                    val msgId = "msg_${System.currentTimeMillis()}_${(100..999).random()}"
                     val localMsg = Message(
-                        id = "msg_${System.currentTimeMillis()}",
+                        id = msgId,
                         content = MessageContent.Text(text),
                         timestamp = now,
                         isOutgoing = true
@@ -276,7 +282,8 @@ fun ChatDetailScreen(
                             context = context,
                             receiverId = targetUserId,
                             text = text,
-                            type = "text"
+                            type = "text",
+                            messageId = msgId
                         ) { _, _ -> }
                     }
                 },
@@ -305,8 +312,9 @@ fun ChatDetailScreen(
                     }
 
                     val now = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date())
+                    val msgId = "msg_${System.currentTimeMillis()}_${(100..999).random()}"
                     val localMsg = Message(
-                        id = "msg_${System.currentTimeMillis()}",
+                        id = msgId,
                         content = when (msgType) {
                             "image" -> MessageContent.Photo(listOf(uri.toString()))
                             else -> MessageContent.Document(displayName, "مرفق وسائط", msgType)
@@ -330,7 +338,8 @@ fun ChatDetailScreen(
                                                 text = displayName,
                                                 type = msgType,
                                                 mediaUrl = r2Url,
-                                                fileName = displayName
+                                                fileName = displayName,
+                                                messageId = msgId
                                             ) { _, _ -> }
                                         }
                                     }
