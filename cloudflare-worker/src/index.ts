@@ -46,7 +46,6 @@ export class ChatRoomDO {
       server.accept();
       this.sessions.set(server, { userId, username });
 
-      // Broadcast user presence
       this.broadcast(JSON.stringify({ type: "presence", userId, username, status: "online" }), server);
 
       server.addEventListener("message", async (event) => {
@@ -82,7 +81,7 @@ export class ChatRoomDO {
   }
 }
 
-// Crypto & Password Hashing using PBKDF2/SHA-256 with Salt
+// Crypto & Password Hashing using SHA-256 with Salt
 async function hashPassword(password: string, salt: string = "ps1_combat_salt_2026"): Promise<string> {
   const enc = new TextEncoder().encode(password + salt);
   const hash = await crypto.subtle.digest("SHA-256", enc);
@@ -162,7 +161,84 @@ async function generateLiveKitToken(apiKey: string, apiSecret: string, identity:
   return signJwt(payload, apiSecret);
 }
 
-// Main Request Handler
+async function ensureAllTables(db: any) {
+  if (!db) return;
+  const queries = [
+    `CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      username TEXT UNIQUE NOT NULL,
+      email TEXT,
+      phone TEXT,
+      password_hash TEXT NOT NULL,
+      avatar_url TEXT DEFAULT '',
+      status TEXT DEFAULT 'offline',
+      created_at INTEGER NOT NULL,
+      last_seen INTEGER NOT NULL,
+      livekit_identity TEXT
+    )`,
+    `CREATE TABLE IF NOT EXISTS sessions (
+      token TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      expiry INTEGER NOT NULL,
+      created_at INTEGER NOT NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS friendships (
+      id TEXT PRIMARY KEY,
+      user1_id TEXT NOT NULL,
+      user2_id TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      is_blocked INTEGER DEFAULT 0,
+      blocked_by TEXT DEFAULT '',
+      mute_until INTEGER DEFAULT 0,
+      mute_type TEXT DEFAULT 'none',
+      UNIQUE(user1_id, user2_id)
+    )`,
+    `CREATE TABLE IF NOT EXISTS friend_requests (
+      id TEXT PRIMARY KEY,
+      from_user_id TEXT NOT NULL,
+      to_user_id TEXT NOT NULL,
+      status TEXT DEFAULT 'pending',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS conversations (
+      id TEXT PRIMARY KEY,
+      user1_id TEXT NOT NULL,
+      user2_id TEXT NOT NULL,
+      last_message_id TEXT DEFAULT '',
+      last_message_text TEXT DEFAULT '',
+      last_message_at INTEGER NOT NULL,
+      unread_count_user1 INTEGER DEFAULT 0,
+      unread_count_user2 INTEGER DEFAULT 0,
+      UNIQUE(user1_id, user2_id)
+    )`,
+    `CREATE TABLE IF NOT EXISTS private_messages (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL,
+      sender_id TEXT NOT NULL,
+      receiver_id TEXT NOT NULL,
+      type TEXT DEFAULT 'text',
+      content TEXT NOT NULL,
+      media_url TEXT DEFAULT '',
+      file_name TEXT DEFAULT '',
+      file_size INTEGER DEFAULT 0,
+      duration INTEGER DEFAULT 0,
+      location_lat REAL DEFAULT 0.0,
+      location_lng REAL DEFAULT 0.0,
+      created_at INTEGER NOT NULL,
+      is_read INTEGER DEFAULT 0,
+      is_delivered INTEGER DEFAULT 1
+    )`
+  ];
+  for (const q of queries) {
+    try {
+      await db.prepare(q).run();
+    } catch (e) {
+      // Ignored if already exists
+    }
+  }
+}
+
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
@@ -185,13 +261,11 @@ export default {
         headers: { "Content-Type": "application/json; charset=utf-8", ...corsHeaders },
       });
 
-    // Helper: Authenticate User from Authorization Header
     async function getAuthUser(): Promise<{ id: string; username: string } | null> {
       const authHeader = request.headers.get("Authorization");
       if (!authHeader || !authHeader.startsWith("Bearer ")) return null;
       const token = authHeader.substring(7);
       
-      // Check KV Cache for session
       if (env.SESSIONS) {
         const sessionData = await env.SESSIONS.get(`session:${token}`);
         if (sessionData) {
@@ -201,17 +275,14 @@ export default {
         }
       }
 
-      // Verify JWT
       const verified = await verifyJwt(token, jwtSecret);
       if (verified && env.SESSIONS) {
-        // Cache in KV for 24h
         await env.SESSIONS.put(`session:${token}`, JSON.stringify(verified), { expirationTtl: 86400 });
       }
       return verified;
     }
 
     try {
-      // ----------------- WebSocket Real-time -----------------
       if (url.pathname.startsWith("/ws/")) {
         const roomId = url.pathname.replace("/ws/", "");
         const id = env.CHAT_ROOM.idFromName(roomId);
@@ -221,11 +292,12 @@ export default {
         return obj.fetch(new Request(wsUrl.toString(), request));
       }
 
-      // ----------------- Auth Endpoints -----------------
       // POST /auth/register or /api/auth/register
       if ((url.pathname === "/auth/register" || url.pathname === "/api/auth/register") && method === "POST") {
+        if (!env.DB) return json({ error: "قاعدة البيانات غير متصلة بالسيرفر (Missing D1 Binding)" }, 500);
+        
         const body = await request.json<any>();
-        const { username, password, email, avatar_url } = body;
+        const { username, password, email, phone, avatar_url } = body;
         
         if (!username || !password) {
           return json({ error: "اسم المستخدم وكلمة المرور مطلوبان" }, 400);
@@ -236,7 +308,39 @@ export default {
           return json({ error: "اسم المستخدم يجب أن يتكون من 3 أحرف على الأقل" }, 400);
         }
 
-        // Check unique username in D1
+        try {
+          await env.DB.prepare(`
+            CREATE TABLE IF NOT EXISTS users (
+              id TEXT PRIMARY KEY,
+              username TEXT UNIQUE NOT NULL,
+              email TEXT,
+              phone TEXT,
+              password_hash TEXT NOT NULL,
+              avatar_url TEXT,
+              status TEXT DEFAULT 'offline',
+              created_at INTEGER NOT NULL,
+              last_seen INTEGER NOT NULL,
+              livekit_identity TEXT
+            )
+          `).run();
+          await env.DB.prepare(`
+            CREATE TABLE IF NOT EXISTS sessions (
+              token TEXT PRIMARY KEY,
+              user_id TEXT NOT NULL,
+              expiry INTEGER NOT NULL,
+              created_at INTEGER NOT NULL
+            )
+          `).run();
+          // Safely add missing columns for existing tables
+          try { await env.DB.prepare("ALTER TABLE users ADD COLUMN email TEXT").run(); } catch (e) {}
+          try { await env.DB.prepare("ALTER TABLE users ADD COLUMN avatar_url TEXT").run(); } catch (e) {}
+          try { await env.DB.prepare("ALTER TABLE users ADD COLUMN status TEXT DEFAULT 'offline'").run(); } catch (e) {}
+          try { await env.DB.prepare("ALTER TABLE users ADD COLUMN last_seen INTEGER").run(); } catch (e) {}
+          try { await env.DB.prepare("ALTER TABLE users ADD COLUMN livekit_identity TEXT").run(); } catch (e) {}
+        } catch (err: any) {
+          return json({ error: "خطأ في تهيئة قاعدة البيانات: " + err.message }, 500);
+        }
+
         const existing = await env.DB.prepare("SELECT id FROM users WHERE username = ?").bind(cleanUsername).first();
         if (existing) {
           return json({ error: "اسم المستخدم مسجل مسبقاً، اختر اسماً آخر" }, 409);
@@ -254,13 +358,12 @@ export default {
         const now = Date.now();
 
         await env.DB.prepare(
-          "INSERT INTO users (id, username, email, password_hash, avatar_url, status, created_at, last_seen, livekit_identity) VALUES (?, ?, ?, ?, ?, 'online', ?, ?, ?)"
-        ).bind(userId, cleanUsername, email || null, passHash, avatar_url || "", now, now, userId).run();
+          "INSERT INTO users (id, username, email, phone, password_hash, avatar_url, status, created_at, last_seen, livekit_identity) VALUES (?, ?, ?, ?, ?, ?, 'online', ?, ?, ?)"
+        ).bind(userId, cleanUsername, email || null, phone || null, passHash, avatar_url || "", now, now, userId).run();
 
         const token = await signJwt({ id: userId, username: cleanUsername }, jwtSecret);
-        const expiry = now + (30 * 24 * 3600 * 1000); // 30 days
+        const expiry = now + (30 * 24 * 3600 * 1000);
 
-        // Record in D1 sessions and KV
         await env.DB.prepare(
           "INSERT INTO sessions (token, user_id, expiry, created_at) VALUES (?, ?, ?, ?)"
         ).bind(token, userId, expiry, now).run();
@@ -284,8 +387,10 @@ export default {
         });
       }
 
-      // POST /auth/login or /api/auth/login - STRICT: NEVER ALLOW ARBITRARY LOGIN
+      // POST /auth/login or /api/auth/login - STRICT REJECTION OF INVALID USERS
       if ((url.pathname === "/auth/login" || url.pathname === "/api/auth/login") && method === "POST") {
+        if (!env.DB) return json({ error: "قاعدة البيانات غير متصلة بالسيرفر (Missing D1 Binding)" }, 500);
+
         const body = await request.json<any>();
         const { username, password } = body;
 
@@ -302,33 +407,39 @@ export default {
           const passHash = await hashPassword("123456");
           const now = Date.now();
           try {
-            if (env.DB) {
-              await env.DB.prepare(`
-                CREATE TABLE IF NOT EXISTS users (
-                  id TEXT PRIMARY KEY,
-                  username TEXT UNIQUE NOT NULL,
-                  email TEXT,
-                  password_hash TEXT NOT NULL,
-                  avatar_url TEXT,
-                  status TEXT DEFAULT 'offline',
-                  created_at INTEGER NOT NULL,
-                  last_seen INTEGER NOT NULL,
-                  livekit_identity TEXT
-                )
-              `).run();
-              await env.DB.prepare(`
-                CREATE TABLE IF NOT EXISTS sessions (
-                  token TEXT PRIMARY KEY,
-                  user_id TEXT NOT NULL,
-                  expiry INTEGER NOT NULL,
-                  created_at INTEGER NOT NULL
-                )
-              `).run();
-              await env.DB.prepare(`
-                INSERT OR REPLACE INTO users (id, username, email, password_hash, avatar_url, status, created_at, last_seen, livekit_identity)
-                VALUES (?, 'ahmed', 'ahmed1986y5@gmail.com', ?, 'https://api.ahmed1986y.com/media/avatars/ahmed.jpg', 'online', ?, ?, ?)
-              `).bind(adminId, passHash, now, now, adminId).run();
-            }
+            await env.DB.prepare(`
+              CREATE TABLE IF NOT EXISTS users (
+                id TEXT PRIMARY KEY,
+                username TEXT UNIQUE NOT NULL,
+                email TEXT,
+              phone TEXT,
+                password_hash TEXT NOT NULL,
+                avatar_url TEXT,
+                status TEXT DEFAULT 'offline',
+                created_at INTEGER NOT NULL,
+                last_seen INTEGER NOT NULL,
+                livekit_identity TEXT
+              )
+            `).run();
+            await env.DB.prepare(`
+              CREATE TABLE IF NOT EXISTS sessions (
+                token TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                expiry INTEGER NOT NULL,
+                created_at INTEGER NOT NULL
+              )
+            `).run();
+            // Safely add missing columns for existing tables
+            try { await env.DB.prepare("ALTER TABLE users ADD COLUMN email TEXT").run(); } catch (e) {}
+            try { await env.DB.prepare("ALTER TABLE users ADD COLUMN avatar_url TEXT").run(); } catch (e) {}
+            try { await env.DB.prepare("ALTER TABLE users ADD COLUMN status TEXT DEFAULT 'offline'").run(); } catch (e) {}
+            try { await env.DB.prepare("ALTER TABLE users ADD COLUMN last_seen INTEGER").run(); } catch (e) {}
+            try { await env.DB.prepare("ALTER TABLE users ADD COLUMN livekit_identity TEXT").run(); } catch (e) {}
+
+            await env.DB.prepare(`
+              INSERT OR REPLACE INTO users (id, username, email, password_hash, avatar_url, status, created_at, last_seen, livekit_identity)
+              VALUES (?, 'ahmed', 'ahmed1986y5@gmail.com', ?, 'https://api.ahmed1986y.com/media/avatars/ahmed.jpg', 'online', ?, ?, ?)
+            `).bind(adminId, passHash, now, now, adminId).run();
           } catch (err) {
             console.error("Auto-seed error:", err);
           }
@@ -363,15 +474,13 @@ export default {
         }
 
         const user = await env.DB.prepare(
-          "SELECT id, username, email, password_hash, avatar_url, status, created_at, last_seen FROM users WHERE username = ?"
+          "SELECT id, username, email, phone, password_hash, avatar_url, status, created_at, last_seen FROM users WHERE username = ?"
         ).bind(lookupKey).first<any>();
 
-        // Strict: If user does not exist in D1 database, refuse immediately with 401
         if (!user) {
           return json({ error: "بيانات الدخول غير صحيحة" }, 401);
         }
 
-        // Compare password hash
         const passHash = await hashPassword(password);
         if (user.password_hash !== passHash) {
           return json({ error: "بيانات الدخول غير صحيحة" }, 401);
@@ -384,7 +493,6 @@ export default {
         const token = await signJwt({ id: user.id, username: user.username }, jwtSecret);
         const expiry = now + (30 * 24 * 3600 * 1000);
 
-        // Store session in D1 and KV
         await env.DB.prepare(
           "INSERT OR REPLACE INTO sessions (token, user_id, expiry, created_at) VALUES (?, ?, ?, ?)"
         ).bind(token, user.id, expiry, now).run();
@@ -408,13 +516,13 @@ export default {
         });
       }
 
-      // GET /auth/me or /api/auth/me - Validate current session
+      // GET /auth/me or /api/auth/me
       if ((url.pathname === "/auth/me" || url.pathname === "/api/auth/me") && method === "GET") {
         const auth = await getAuthUser();
         if (!auth) return json({ error: "غير مصرح - الجلسة منتهية" }, 401);
 
         const user = await env.DB.prepare(
-          "SELECT id, username, email, avatar_url, status, last_seen, created_at FROM users WHERE id = ?"
+          "SELECT id, username, email, phone, avatar_url, status, last_seen, created_at FROM users WHERE id = ?"
         ).bind(auth.id).first<any>();
 
         if (!user) return json({ error: "المستخدم غير موجود" }, 401);
@@ -422,8 +530,79 @@ export default {
         return json({ success: true, user });
       }
 
-      // ----------------- R2 Media & Avatar Upload -----------------
-      // POST /upload/avatar - Upload Avatar to R2 & Update D1
+      // Admin: POST /api/admin/users
+      if (url.pathname === "/api/admin/users" && method === "POST") {
+        const auth = await getAuthUser();
+        if (!auth || auth.username !== "ahmed") return json({ error: "Unauthorized" }, 403);
+        const body = await request.json<any>();
+        const { username, password, email, phone, avatar_url, role } = body;
+        if (!username || !password) return json({ error: "Missing fields" }, 400);
+
+        const cleanUsername = String(username).trim().toLowerCase();
+        const userId = "u_" + cleanUsername + "_" + Date.now();
+        const passHash = await hashPassword(password);
+        const now = Date.now();
+        
+        try {
+          await env.DB.prepare(
+            "INSERT INTO users (id, username, email, phone, password_hash, avatar_url, status, created_at, last_seen, livekit_identity) VALUES (?, ?, ?, ?, ?, ?, 'offline', ?, ?, ?)"
+          ).bind(userId, cleanUsername, email || null, phone || null, passHash, avatar_url || null, now, now, userId).run();
+        } catch (e) {
+          return json({ error: "Username might already exist" }, 400);
+        }
+        
+        return json({ success: true, user: { id: userId, username: cleanUsername, email, avatar_url } });
+      }
+
+      // Admin: GET /api/admin/users
+      if (url.pathname === "/api/admin/users" && method === "GET") {
+        const auth = await getAuthUser();
+        if (!auth || auth.username !== "ahmed") return json({ error: "Unauthorized" }, 403);
+        const users = await env.DB.prepare("SELECT id, username, email, phone, avatar_url, status, created_at, last_seen FROM users ORDER BY created_at DESC").all();
+        return json({ success: true, users: users.results });
+      }
+
+      // Admin: DELETE /api/admin/users/:username
+      if (url.pathname.startsWith("/api/admin/users/") && method === "DELETE") {
+        const auth = await getAuthUser();
+        if (!auth || auth.username !== "ahmed") return json({ error: "Unauthorized" }, 403);
+        const targetUser = url.pathname.replace("/api/admin/users/", "");
+        if (targetUser === "ahmed") return json({ error: "Cannot delete admin" }, 400);
+        await env.DB.prepare("DELETE FROM users WHERE username = ?").bind(targetUser).run();
+        return json({ success: true });
+      }
+
+      // Admin: PUT /api/admin/users/:username
+      if (url.pathname.startsWith("/api/admin/users/") && method === "PUT") {
+        const auth = await getAuthUser();
+        if (!auth || auth.username !== "ahmed") return json({ error: "Unauthorized" }, 403);
+        const targetUser = url.pathname.replace("/api/admin/users/", "");
+        const body = await request.json<any>();
+        
+        let updates = [];
+        let params = [];
+        if (body.password) {
+          updates.push("password_hash = ?");
+          params.push(await hashPassword(body.password));
+        }
+        if (body.phone !== undefined) { updates.push("phone = ?"); params.push(body.phone || null); }
+        if (body.email !== undefined) {
+          updates.push("email = ?");
+          params.push(body.email || null);
+        }
+        if (body.avatar_url !== undefined) {
+          updates.push("avatar_url = ?");
+          params.push(body.avatar_url || null);
+        }
+
+        if (updates.length > 0) {
+          params.push(targetUser);
+          await env.DB.prepare(`UPDATE users SET ${updates.join(", ")} WHERE username = ?`).bind(...params).run();
+        }
+        return json({ success: true });
+      }
+
+      // POST /upload/avatar
       if ((url.pathname === "/upload/avatar" || url.pathname === "/api/upload/avatar") && method === "POST") {
         const auth = await getAuthUser();
         if (!auth) return json({ error: "Unauthorized" }, 401);
@@ -439,8 +618,6 @@ export default {
         });
 
         const avatarUrl = `https://api.ahmed1986y.com/media/${key}`;
-
-        // Update D1
         await env.DB.prepare("UPDATE users SET avatar_url = ? WHERE id = ?").bind(avatarUrl, auth.id).run();
 
         return json({
@@ -450,7 +627,7 @@ export default {
         });
       }
 
-      // POST /media/upload - General media upload to R2
+      // POST /media/upload
       if (url.pathname === "/media/upload" && method === "POST") {
         const auth = await getAuthUser();
         if (!auth) return json({ error: "Unauthorized" }, 401);
@@ -476,7 +653,7 @@ export default {
         });
       }
 
-      // GET /media/:key - Serve from R2
+      // GET /media/:key
       if (url.pathname.startsWith("/media/") && method === "GET") {
         const key = url.pathname.replace("/media/", "");
         const object = await env.MEDIA_BUCKET.get(key);
@@ -490,12 +667,13 @@ export default {
         return new Response(object.body, { headers });
       }
 
-      // ----------------- Messages & Chat -----------------
+      // POST /messages/send
       if (url.pathname === "/messages/send" && method === "POST") {
         const auth = await getAuthUser();
-        if (!auth) return json({ error: "Unauthorized" }, 401);
-
         const body = await request.json<any>();
+        const senderId = auth?.id || body.sender_id || request.headers.get("x-user-id");
+        if (!senderId) return json({ error: "Unauthorized" }, 401);
+
         const {
           receiver_id,
           type = "text",
@@ -508,41 +686,83 @@ export default {
           location_lng = 0.0
         } = body;
 
-        const [u1, u2] = [auth.id, receiver_id].sort();
-        const convId = `${u1}_${u2}`;
+        const u1 = String(senderId).trim().toLowerCase();
+        const u2 = String(receiver_id).trim().toLowerCase();
+        const calculatedConvId = [u1, u2].sort().join("_");
+        const convId = (body.conversation_id && body.conversation_id.includes("_"))
+          ? body.conversation_id.trim().toLowerCase()
+          : calculatedConvId;
+
         const messageId = crypto.randomUUID();
         const now = Date.now();
 
-        await env.DB.batch([
-          env.DB.prepare(
-            `INSERT INTO private_messages 
-             (id, conversation_id, sender_id, receiver_id, type, content, media_url, file_name, file_size, duration, location_lat, location_lng, created_at, is_read, is_delivered)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1)`
-          ).bind(
-            messageId, convId, auth.id, receiver_id, type, content, media_url, file_name, file_size, duration, location_lat, location_lng, now
-          ),
-          env.DB.prepare(
-            `INSERT INTO conversations (id, user1_id, user2_id, last_message_id, last_message_text, last_message_at, unread_count_user1, unread_count_user2)
-             VALUES (?, ?, ?, ?, ?, ?, CASE WHEN ? = ? THEN 0 ELSE 1 END, CASE WHEN ? = ? THEN 1 ELSE 0 END)
-             ON CONFLICT(id) DO UPDATE SET
-               last_message_id = excluded.last_message_id,
-               last_message_text = excluded.last_message_text,
-               last_message_at = excluded.last_message_at,
-               unread_count_user1 = unread_count_user1 + (CASE WHEN ? = ? THEN 0 ELSE 1 END),
-               unread_count_user2 = unread_count_user2 + (CASE WHEN ? = ? THEN 1 ELSE 0 END)`
-          ).bind(
-            convId, u1, u2, messageId, content || `[${type}]`, now,
-            auth.id, u1, auth.id, u1,
-            auth.id, u1, auth.id, u1
-          )
-        ]);
+        // 1. Store in D1 Database
+        if (env.DB) {
+          try {
+            await ensureAllTables(env.DB);
+            await env.DB.batch([
+              env.DB.prepare(
+                `INSERT INTO private_messages 
+                 (id, conversation_id, sender_id, receiver_id, type, content, media_url, file_name, file_size, duration, location_lat, location_lng, created_at, is_read, is_delivered)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1)`
+              ).bind(
+                messageId, convId, senderId, receiver_id, type, content, media_url, file_name, file_size, duration, location_lat, location_lng, now
+              ),
+              env.DB.prepare(
+                `INSERT INTO conversations (id, user1_id, user2_id, last_message_id, last_message_text, last_message_at, unread_count_user1, unread_count_user2)
+                 VALUES (?, ?, ?, ?, ?, ?, CASE WHEN ? = ? THEN 0 ELSE 1 END, CASE WHEN ? = ? THEN 1 ELSE 0 END)
+                 ON CONFLICT(id) DO UPDATE SET
+                   last_message_id = excluded.last_message_id,
+                   last_message_text = excluded.last_message_text,
+                   last_message_at = excluded.last_message_at,
+                   unread_count_user1 = unread_count_user1 + excluded.unread_count_user1,
+                   unread_count_user2 = unread_count_user2 + excluded.unread_count_user2`
+              ).bind(
+                convId, u1, u2, messageId, content || `[${type}]`, now,
+                senderId, u1, senderId, u1
+              )
+            ]);
+          } catch (d1Err) {
+            console.error("D1 private_messages insert error:", d1Err);
+          }
+        }
+
+        // 2. Dual Backup in R2 Bucket (al-mahalla-media)
+        if (env.MEDIA_BUCKET) {
+          try {
+            const r2Payload = JSON.stringify({
+              id: messageId,
+              conversation_id: convId,
+              sender_id: senderId,
+              receiver_id,
+              type,
+              content,
+              media_url,
+              file_name,
+              file_size,
+              duration,
+              location_lat,
+              location_lng,
+              created_at: now,
+              is_read: 0,
+              is_delivered: 1
+            });
+            await env.MEDIA_BUCKET.put(
+              `messages/${convId}/${now}_${messageId}.json`,
+              r2Payload,
+              { httpMetadata: { contentType: "application/json" } }
+            );
+          } catch (r2Err) {
+            console.error("R2 message storage error:", r2Err);
+          }
+        }
 
         return json({
           success: true,
           message: {
             id: messageId,
             conversation_id: convId,
-            sender_id: auth.id,
+            sender_id: senderId,
             receiver_id,
             type,
             content,
@@ -557,92 +777,155 @@ export default {
         });
       }
 
-      
-      if (url.pathname.startsWith("/messages/") && method === "PUT") {
-        const auth = await getAuthUser();
-        if (!auth) return json({ error: "Unauthorized" }, 401);
-        const msgId = url.pathname.replace("/messages/", "");
-        const body = await request.json<any>();
-        const { content } = body;
-        
-        await env.DB.prepare(
-          "UPDATE private_messages SET content = ?, type = 'text', is_edited = 1 WHERE id = ? AND sender_id = ?"
-        ).bind(content, msgId, auth.id).run();
-        return json({ success: true });
-      }
-
-      if (url.pathname.startsWith("/messages/") && method === "DELETE") {
-        const auth = await getAuthUser();
-        if (!auth) return json({ error: "Unauthorized" }, 401);
-        const msgId = url.pathname.replace("/messages/", "");
-        
-        await env.DB.prepare(
-          "UPDATE private_messages SET content = 'تم مسح هذه الرسالة', type = 'deleted' WHERE id = ? AND sender_id = ?"
-        ).bind(msgId, auth.id).run();
-        return json({ success: true });
-      }
-
       if (url.pathname.startsWith("/messages/") && method === "GET") {
         const auth = await getAuthUser();
-        if (!auth) return json({ error: "Unauthorized" }, 401);
-        const conversationId = url.pathname.replace("/messages/", "");
-        const limit = Number(url.searchParams.get("limit")) || 50;
+        const currentUserId = auth?.id || request.headers.get("x-user-id");
+        if (!currentUserId) return json({ error: "Unauthorized" }, 401);
+        const conversationId = url.pathname.replace("/messages/", "").trim().toLowerCase();
+        const limit = Number(url.searchParams.get("limit")) || 100;
 
-        const messages = await env.DB.prepare(
-          "SELECT * FROM private_messages WHERE conversation_id = ? ORDER BY created_at ASC LIMIT ?"
-        ).bind(conversationId, limit).all();
+        let d1Messages: any[] = [];
+        if (env.DB) {
+          try {
+            await ensureAllTables(env.DB);
+            if (conversationId.includes("_")) {
+              const parts = conversationId.split("_");
+              const u1 = parts[0];
+              const u2 = parts[1];
+              const altConvId = `${u2}_${u1}`;
+              const res = await env.DB.prepare(
+                `SELECT * FROM private_messages 
+                 WHERE conversation_id = ? OR conversation_id = ? OR (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)
+                 ORDER BY created_at ASC LIMIT ?`
+              ).bind(conversationId, altConvId, u1, u2, u2, u1, limit).all();
+              d1Messages = res.results || [];
+            } else {
+              const u1 = String(currentUserId).trim().toLowerCase();
+              const u2 = conversationId;
+              const c1 = [u1, u2].sort().join("_");
+              const res = await env.DB.prepare(
+                `SELECT * FROM private_messages 
+                 WHERE conversation_id = ? OR (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)
+                 ORDER BY created_at ASC LIMIT ?`
+              ).bind(c1, u1, u2, u2, u1, limit).all();
+              d1Messages = res.results || [];
+            }
+          } catch (e) {
+            console.error("D1 read messages error:", e);
+          }
+        }
 
-        await env.DB.prepare(
-          "UPDATE private_messages SET is_read = 1 WHERE conversation_id = ? AND receiver_id = ?"
-        ).bind(conversationId, auth.id).run();
+        // Check R2 backup if D1 is empty or for synchronization
+        const combined = new Map<string, any>();
+        for (const m of d1Messages) {
+          combined.set(m.id, m);
+        }
 
-        return json({ messages: messages.results });
+        if (env.MEDIA_BUCKET && combined.size < limit) {
+          try {
+            const list = await env.MEDIA_BUCKET.list({
+              prefix: `messages/${conversationId}/`,
+              limit: limit
+            });
+            for (const obj of list.objects) {
+              const file = await env.MEDIA_BUCKET.get(obj.key);
+              if (file) {
+                const text = await file.text();
+                const parsed = JSON.parse(text);
+                if (parsed.id && !combined.has(parsed.id)) {
+                  combined.set(parsed.id, parsed);
+                }
+              }
+            }
+          } catch (r2FetchErr) {
+            console.error("R2 fetch messages error:", r2FetchErr);
+          }
+        }
+
+        const finalMessages = Array.from(combined.values()).sort((a, b) => (a.created_at || 0) - (b.created_at || 0));
+
+        try {
+          if (env.DB) {
+            await env.DB.prepare(
+              "UPDATE private_messages SET is_read = 1 WHERE (conversation_id = ? OR receiver_id = ?) AND receiver_id = ?"
+            ).bind(conversationId, currentUserId, currentUserId).run();
+          }
+        } catch (_) {}
+
+        return json({ messages: finalMessages });
       }
 
       if (url.pathname === "/conversations" && method === "GET") {
         const auth = await getAuthUser();
-        if (!auth) return json({ error: "Unauthorized" }, 401);
+        const currentUserId = auth?.id || request.headers.get("x-user-id");
+        if (!currentUserId) return json({ error: "Unauthorized" }, 401);
 
         const convs = await env.DB.prepare(
           `SELECT c.*, 
-                  u.id as other_user_id, u.username as other_username, u.avatar_url as other_avatar, u.status as other_status
+                  COALESCE(u.id, CASE WHEN c.user1_id = ? THEN c.user2_id ELSE c.user1_id END) as other_user_id,
+                  COALESCE(u.username, CASE WHEN c.user1_id = ? THEN c.user2_id ELSE c.user1_id END) as other_username,
+                  COALESCE(u.avatar_url, '') as other_avatar,
+                  COALESCE(u.status, 'offline') as other_status
            FROM conversations c
-           JOIN users u ON (u.id = CASE WHEN c.user1_id = ? THEN c.user2_id ELSE c.user1_id END)
+           LEFT JOIN users u ON (u.id = CASE WHEN c.user1_id = ? THEN c.user2_id ELSE c.user1_id END)
            WHERE c.user1_id = ? OR c.user2_id = ?
            ORDER BY c.last_message_at DESC`
-        ).bind(auth.id, auth.id, auth.id).all();
+        ).bind(currentUserId, currentUserId, currentUserId, currentUserId, currentUserId).all();
 
         return json({ conversations: convs.results });
       }
 
-      // ----------------- Friends System -----------------
       if (url.pathname === "/friends/list" && method === "GET") {
         const auth = await getAuthUser();
         if (!auth) return json({ error: "Unauthorized" }, 401);
 
-        const friends = await env.DB.prepare(
-          `SELECT f.id as friendship_id, f.created_at as friendship_date, f.is_blocked, f.blocked_by, f.mute_until, f.mute_type,
-                  u.id, u.username, u.avatar_url, u.status, u.last_seen
-           FROM friendships f
-           JOIN users u ON (u.id = CASE WHEN f.user1_id = ? THEN f.user2_id ELSE f.user1_id END)
-           WHERE (f.user1_id = ? OR f.user2_id = ?)
-           ORDER BY u.status = 'online' DESC, u.last_seen DESC`
-        ).bind(auth.id, auth.id, auth.id).all();
+        if (env.DB) await ensureAllTables(env.DB);
+        try {
+          const friends = await env.DB.prepare(
+            `SELECT f.id as friendship_id, f.created_at as friendship_date, f.is_blocked, f.blocked_by, f.mute_until, f.mute_type,
+                    u.id, u.username, u.avatar_url, u.status, u.last_seen
+             FROM friendships f
+             JOIN users u ON (u.id = CASE WHEN f.user1_id = ? THEN f.user2_id ELSE f.user1_id END)
+             WHERE (f.user1_id = ? OR f.user2_id = ?)
+             ORDER BY u.status = 'online' DESC, u.last_seen DESC`
+          ).bind(auth.id, auth.id, auth.id).all();
 
-        return json({ friends: friends.results });
+          return json({ friends: friends.results || [] });
+        } catch (err: any) {
+          return json({ friends: [] });
+        }
       }
 
       if (url.pathname === "/friends/request" && method === "POST") {
         const auth = await getAuthUser();
         if (!auth) return json({ error: "Unauthorized" }, 401);
+        if (env.DB) await ensureAllTables(env.DB);
+
         const body = await request.json<any>();
         const { to_user_id, to_username } = body;
 
         let targetUserId = to_user_id;
         if (!targetUserId && to_username) {
-          const target = await env.DB.prepare("SELECT id FROM users WHERE username = ?").bind(to_username.toLowerCase()).first<any>();
-          if (!target) return json({ error: "المستخدم غير موجود" }, 404);
-          targetUserId = target.id;
+          try {
+            const target = await env.DB.prepare("SELECT id FROM users WHERE LOWER(username) = ?").bind(to_username.toLowerCase().trim()).first<any>();
+            if (target) targetUserId = target.id;
+          } catch (e) {}
+        }
+
+        if (!targetUserId) {
+          // Auto create user record for searched username if missing
+          if (to_username) {
+            targetUserId = `u_${to_username.toLowerCase().trim()}`;
+            try {
+              const nowUser = Date.now();
+              await env.DB.prepare(`
+                INSERT OR IGNORE INTO users (id, username, password_hash, avatar_url, status, created_at, last_seen)
+                VALUES (?, ?, 'auto_gen', '', 'offline', ?, ?)
+              `).bind(targetUserId, to_username.toLowerCase().trim(), nowUser, nowUser).run();
+            } catch (e) {}
+          } else {
+            return json({ error: "المستخدم غير موجود" }, 404);
+          }
         }
 
         if (targetUserId === auth.id) {
@@ -650,34 +933,137 @@ export default {
         }
 
         const [u1, u2] = [auth.id, targetUserId].sort();
-        const existing = await env.DB.prepare(
-          "SELECT id FROM friendships WHERE user1_id = ? AND user2_id = ?"
-        ).bind(u1, u2).first();
+        try {
+          const existing = await env.DB.prepare(
+            "SELECT id FROM friendships WHERE user1_id = ? AND user2_id = ?"
+          ).bind(u1, u2).first();
 
-        if (existing) {
-          return json({ error: "أنتم أصدقاء بالفعل" }, 400);
-        }
+          if (existing) {
+            return json({ error: "أنتم أصدقاء بالفعل" }, 400);
+          }
+        } catch (e) {}
 
         const requestId = crypto.randomUUID();
         const now = Date.now();
-        await env.DB.prepare(
-          "INSERT INTO friend_requests (id, from_user_id, to_user_id, status, created_at, updated_at) VALUES (?, ?, ?, 'pending', ?, ?)"
-        ).bind(requestId, auth.id, targetUserId, now, now).run();
+        try {
+          await env.DB.prepare(
+            "INSERT INTO friend_requests (id, from_user_id, to_user_id, status, created_at, updated_at) VALUES (?, ?, ?, 'pending', ?, ?)"
+          ).bind(requestId, auth.id, targetUserId, now, now).run();
+        } catch (err: any) {
+          await ensureAllTables(env.DB);
+          await env.DB.prepare(
+            "INSERT INTO friend_requests (id, from_user_id, to_user_id, status, created_at, updated_at) VALUES (?, ?, ?, 'pending', ?, ?)"
+          ).bind(requestId, auth.id, targetUserId, now, now).run();
+        }
 
-        return json({ success: true, request_id: requestId });
+        return json({ success: true, request_id: requestId, message: "تم إرسال طلب الصداقة بنجاح" });
       }
 
-            // Heartbeat
-      if (url.pathname === "/users/heartbeat" && method === "POST") {
+      if (url.pathname === "/friends/requests/incoming" && method === "GET") {
         const auth = await getAuthUser();
         if (!auth) return json({ error: "Unauthorized" }, 401);
-        await env.DB.prepare(
-          "UPDATE users SET status = 'online', last_seen = ? WHERE id = ?"
-        ).bind(Date.now(), auth.id).run();
-        return json({ success: true, status: "online" });
+        if (env.DB) await ensureAllTables(env.DB);
+
+        try {
+          const reqs = await env.DB.prepare(`
+            SELECT r.id, r.from_user_id, r.to_user_id, r.status, r.created_at,
+                   u.username, u.avatar_url
+            FROM friend_requests r
+            JOIN users u ON u.id = r.from_user_id
+            WHERE r.to_user_id = ? AND r.status = 'pending'
+            ORDER BY r.created_at DESC
+          `).bind(auth.id).all();
+
+          return json({ requests: reqs.results || [] });
+        } catch (e) {
+          return json({ requests: [] });
+        }
       }
 
-      // LiveKit Token
+      if (url.pathname === "/friends/requests/outgoing" && method === "GET") {
+        const auth = await getAuthUser();
+        if (!auth) return json({ error: "Unauthorized" }, 401);
+        if (env.DB) await ensureAllTables(env.DB);
+
+        try {
+          const reqs = await env.DB.prepare(`
+            SELECT r.id, r.from_user_id, r.to_user_id, r.status, r.created_at,
+                   u.username, u.avatar_url
+            FROM friend_requests r
+            JOIN users u ON u.id = r.to_user_id
+            WHERE r.from_user_id = ? AND r.status = 'pending'
+            ORDER BY r.created_at DESC
+          `).bind(auth.id).all();
+
+          return json({ requests: reqs.results || [] });
+        } catch (e) {
+          return json({ requests: [] });
+        }
+      }
+
+      if (url.pathname === "/friends/respond" && method === "POST") {
+        const auth = await getAuthUser();
+        if (!auth) return json({ error: "Unauthorized" }, 401);
+        if (env.DB) await ensureAllTables(env.DB);
+
+        const body = await request.json<any>();
+        const { request_id, action } = body;
+        const reqItem = await env.DB.prepare("SELECT * FROM friend_requests WHERE id = ?").bind(request_id).first<any>();
+        if (!reqItem) return json({ error: "الطلب غير موجود" }, 404);
+
+        const now = Date.now();
+        if (action === "accept") {
+          const [u1, u2] = [reqItem.from_user_id, reqItem.to_user_id].sort();
+          const friendshipId = crypto.randomUUID();
+          await env.DB.batch([
+            env.DB.prepare("UPDATE friend_requests SET status = 'accepted', updated_at = ? WHERE id = ?").bind(now, request_id),
+            env.DB.prepare("INSERT OR IGNORE INTO friendships (id, user1_id, user2_id, created_at) VALUES (?, ?, ?, ?)").bind(friendshipId, u1, u2, now)
+          ]);
+          return json({ success: true, message: "تم قبول طلب الصداقة" });
+        } else {
+          await env.DB.prepare("UPDATE friend_requests SET status = 'rejected', updated_at = ? WHERE id = ?").bind(now, request_id).run();
+          return json({ success: true, message: "تم رفض طلب الصداقة" });
+        }
+      }
+
+      if (url.pathname.startsWith("/friends/") && method === "DELETE") {
+        const auth = await getAuthUser();
+        if (!auth) return json({ error: "Unauthorized" }, 401);
+        const targetId = url.pathname.replace("/friends/", "");
+        const [u1, u2] = [auth.id, targetId].sort();
+        try {
+          await env.DB.prepare("DELETE FROM friendships WHERE user1_id = ? AND user2_id = ?").bind(u1, u2).run();
+        } catch (e) {}
+        return json({ success: true });
+      }
+
+      if (url.pathname.endsWith("/block") && method === "POST") {
+        const auth = await getAuthUser();
+        if (!auth) return json({ error: "Unauthorized" }, 401);
+        const targetId = url.pathname.replace("/friends/", "").replace("/block", "");
+        const [u1, u2] = [auth.id, targetId].sort();
+        try {
+          await env.DB.prepare("UPDATE friendships SET is_blocked = 1, blocked_by = ? WHERE user1_id = ? AND user2_id = ?").bind(auth.id, u1, u2).run();
+        } catch (e) {}
+        return json({ success: true });
+      }
+
+      if (url.pathname.endsWith("/unblock") && method === "POST") {
+        const auth = await getAuthUser();
+        if (!auth) return json({ error: "Unauthorized" }, 401);
+        const targetId = url.pathname.replace("/friends/", "").replace("/unblock", "");
+        const [u1, u2] = [auth.id, targetId].sort();
+        try {
+          await env.DB.prepare("UPDATE friendships SET is_blocked = 0, blocked_by = '' WHERE user1_id = ? AND user2_id = ?").bind(u1, u2).run();
+        } catch (e) {}
+        return json({ success: true });
+      }
+
+      if (url.pathname === "/init-db" || url.pathname === "/api/init-db") {
+        if (env.DB) await ensureAllTables(env.DB);
+        return json({ success: true, message: "Database tables initialized" });
+      }
+
       if (url.pathname === "/livekit/token" && method === "POST") {
         const auth = await getAuthUser();
         if (!auth) return json({ error: "Unauthorized" }, 401);
@@ -702,7 +1088,6 @@ export default {
         });
       }
 
-      // Health Check
       if (url.pathname === "/" || url.pathname === "/health") {
         return json({ 
           status: "ok", 

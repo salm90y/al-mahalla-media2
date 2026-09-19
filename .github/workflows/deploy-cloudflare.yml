@@ -1,0 +1,48 @@
+name: Deploy Cloudflare Worker
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - 'worker/**'
+      - 'cloudflare-worker/**'
+      - 'worker.js'
+      - 'wrangler.toml'
+      - 'package.json'
+      - '.github/workflows/deploy-cloudflare.yml'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy to Cloudflare Workers
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci || npm install
+
+      - name: Build Worker Bundle
+        run: |
+          npx esbuild worker/src/index.ts --bundle --outfile=worker.js --platform=browser --target=es2022 --format=esm
+          mkdir -p dist public
+          cp worker.js dist/worker.bundle.js
+          cp worker.js public/worker.js
+
+      - name: Deploy Worker to Cloudflare
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID }}
+          command: deploy

@@ -686,34 +686,76 @@ export default {
           location_lng = 0.0
         } = body;
 
-        const [u1, u2] = [senderId, receiver_id].sort();
-        const convId = `${u1}_${u2}`;
+        const u1 = String(senderId).trim().toLowerCase();
+        const u2 = String(receiver_id).trim().toLowerCase();
+        const calculatedConvId = [u1, u2].sort().join("_");
+        const convId = (body.conversation_id && body.conversation_id.includes("_"))
+          ? body.conversation_id.trim().toLowerCase()
+          : calculatedConvId;
+
         const messageId = crypto.randomUUID();
         const now = Date.now();
 
-        await env.DB.batch([
-          env.DB.prepare(
-            `INSERT INTO private_messages 
-             (id, conversation_id, sender_id, receiver_id, type, content, media_url, file_name, file_size, duration, location_lat, location_lng, created_at, is_read, is_delivered)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1)`
-          ).bind(
-            messageId, convId, senderId, receiver_id, type, content, media_url, file_name, file_size, duration, location_lat, location_lng, now
-          ),
-          env.DB.prepare(
-            `INSERT INTO conversations (id, user1_id, user2_id, last_message_id, last_message_text, last_message_at, unread_count_user1, unread_count_user2)
-             VALUES (?, ?, ?, ?, ?, ?, CASE WHEN ? = ? THEN 0 ELSE 1 END, CASE WHEN ? = ? THEN 1 ELSE 0 END)
-             ON CONFLICT(id) DO UPDATE SET
-               last_message_id = excluded.last_message_id,
-               last_message_text = excluded.last_message_text,
-               last_message_at = excluded.last_message_at,
-               unread_count_user1 = unread_count_user1 + (CASE WHEN ? = ? THEN 0 ELSE 1 END),
-               unread_count_user2 = unread_count_user2 + (CASE WHEN ? = ? THEN 1 ELSE 0 END)`
-          ).bind(
-            convId, u1, u2, messageId, content || `[${type}]`, now,
-            senderId, u1, senderId, u1,
-            senderId, u1, senderId, u1
-          )
-        ]);
+        // 1. Store in D1 Database
+        if (env.DB) {
+          try {
+            await ensureAllTables(env.DB);
+            await env.DB.batch([
+              env.DB.prepare(
+                `INSERT INTO private_messages 
+                 (id, conversation_id, sender_id, receiver_id, type, content, media_url, file_name, file_size, duration, location_lat, location_lng, created_at, is_read, is_delivered)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1)`
+              ).bind(
+                messageId, convId, senderId, receiver_id, type, content, media_url, file_name, file_size, duration, location_lat, location_lng, now
+              ),
+              env.DB.prepare(
+                `INSERT INTO conversations (id, user1_id, user2_id, last_message_id, last_message_text, last_message_at, unread_count_user1, unread_count_user2)
+                 VALUES (?, ?, ?, ?, ?, ?, CASE WHEN ? = ? THEN 0 ELSE 1 END, CASE WHEN ? = ? THEN 1 ELSE 0 END)
+                 ON CONFLICT(id) DO UPDATE SET
+                   last_message_id = excluded.last_message_id,
+                   last_message_text = excluded.last_message_text,
+                   last_message_at = excluded.last_message_at,
+                   unread_count_user1 = unread_count_user1 + excluded.unread_count_user1,
+                   unread_count_user2 = unread_count_user2 + excluded.unread_count_user2`
+              ).bind(
+                convId, u1, u2, messageId, content || `[${type}]`, now,
+                senderId, u1, senderId, u1
+              )
+            ]);
+          } catch (d1Err) {
+            console.error("D1 private_messages insert error:", d1Err);
+          }
+        }
+
+        // 2. Dual Backup in R2 Bucket (al-mahalla-media)
+        if (env.MEDIA_BUCKET) {
+          try {
+            const r2Payload = JSON.stringify({
+              id: messageId,
+              conversation_id: convId,
+              sender_id: senderId,
+              receiver_id,
+              type,
+              content,
+              media_url,
+              file_name,
+              file_size,
+              duration,
+              location_lat,
+              location_lng,
+              created_at: now,
+              is_read: 0,
+              is_delivered: 1
+            });
+            await env.MEDIA_BUCKET.put(
+              `messages/${convId}/${now}_${messageId}.json`,
+              r2Payload,
+              { httpMetadata: { contentType: "application/json" } }
+            );
+          } catch (r2Err) {
+            console.error("R2 message storage error:", r2Err);
+          }
+        }
 
         return json({
           success: true,
@@ -739,38 +781,78 @@ export default {
         const auth = await getAuthUser();
         const currentUserId = auth?.id || request.headers.get("x-user-id");
         if (!currentUserId) return json({ error: "Unauthorized" }, 401);
-        const conversationId = url.pathname.replace("/messages/", "");
+        const conversationId = url.pathname.replace("/messages/", "").trim().toLowerCase();
         const limit = Number(url.searchParams.get("limit")) || 100;
 
-        let messages;
-        if (conversationId.includes("_")) {
-          const parts = conversationId.split("_");
-          const u1 = parts[0];
-          const u2 = parts[1];
-          const altConvId = `${u2}_${u1}`;
-          messages = await env.DB.prepare(
-            `SELECT * FROM private_messages 
-             WHERE conversation_id = ? OR conversation_id = ? OR (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)
-             ORDER BY created_at ASC LIMIT ?`
-          ).bind(conversationId, altConvId, u1, u2, u2, u1, limit).all();
-        } else {
-          const u1 = currentUserId;
-          const u2 = conversationId;
-          const c1 = [u1, u2].sort().join("_");
-          messages = await env.DB.prepare(
-            `SELECT * FROM private_messages 
-             WHERE conversation_id = ? OR (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)
-             ORDER BY created_at ASC LIMIT ?`
-          ).bind(c1, u1, u2, u2, u1, limit).all();
+        let d1Messages: any[] = [];
+        if (env.DB) {
+          try {
+            await ensureAllTables(env.DB);
+            if (conversationId.includes("_")) {
+              const parts = conversationId.split("_");
+              const u1 = parts[0];
+              const u2 = parts[1];
+              const altConvId = `${u2}_${u1}`;
+              const res = await env.DB.prepare(
+                `SELECT * FROM private_messages 
+                 WHERE conversation_id = ? OR conversation_id = ? OR (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)
+                 ORDER BY created_at ASC LIMIT ?`
+              ).bind(conversationId, altConvId, u1, u2, u2, u1, limit).all();
+              d1Messages = res.results || [];
+            } else {
+              const u1 = String(currentUserId).trim().toLowerCase();
+              const u2 = conversationId;
+              const c1 = [u1, u2].sort().join("_");
+              const res = await env.DB.prepare(
+                `SELECT * FROM private_messages 
+                 WHERE conversation_id = ? OR (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)
+                 ORDER BY created_at ASC LIMIT ?`
+              ).bind(c1, u1, u2, u2, u1, limit).all();
+              d1Messages = res.results || [];
+            }
+          } catch (e) {
+            console.error("D1 read messages error:", e);
+          }
         }
 
+        // Check R2 backup if D1 is empty or for synchronization
+        const combined = new Map<string, any>();
+        for (const m of d1Messages) {
+          combined.set(m.id, m);
+        }
+
+        if (env.MEDIA_BUCKET && combined.size < limit) {
+          try {
+            const list = await env.MEDIA_BUCKET.list({
+              prefix: `messages/${conversationId}/`,
+              limit: limit
+            });
+            for (const obj of list.objects) {
+              const file = await env.MEDIA_BUCKET.get(obj.key);
+              if (file) {
+                const text = await file.text();
+                const parsed = JSON.parse(text);
+                if (parsed.id && !combined.has(parsed.id)) {
+                  combined.set(parsed.id, parsed);
+                }
+              }
+            }
+          } catch (r2FetchErr) {
+            console.error("R2 fetch messages error:", r2FetchErr);
+          }
+        }
+
+        const finalMessages = Array.from(combined.values()).sort((a, b) => (a.created_at || 0) - (b.created_at || 0));
+
         try {
-          await env.DB.prepare(
-            "UPDATE private_messages SET is_read = 1 WHERE (conversation_id = ? OR receiver_id = ?) AND receiver_id = ?"
-          ).bind(conversationId, currentUserId, currentUserId).run();
+          if (env.DB) {
+            await env.DB.prepare(
+              "UPDATE private_messages SET is_read = 1 WHERE (conversation_id = ? OR receiver_id = ?) AND receiver_id = ?"
+            ).bind(conversationId, currentUserId, currentUserId).run();
+          }
         } catch (_) {}
 
-        return json({ messages: messages?.results || [] });
+        return json({ messages: finalMessages });
       }
 
       if (url.pathname === "/conversations" && method === "GET") {
