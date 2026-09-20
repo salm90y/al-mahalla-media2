@@ -140,7 +140,7 @@ fun FriendsScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFFF8FAFC))
+            .background(Color.White)
             .statusBarsPadding()
     ) {
         // 1. Top Bar: Title "الأصدقاء"
@@ -168,7 +168,7 @@ fun FriendsScreen(
                 .padding(horizontal = 20.dp, vertical = 6.dp)
                 .height(48.dp)
                 .clip(RoundedCornerShape(24.dp))
-                .background(Color(0xFFEEF4FB))
+                .background(Color(0xFFF1F5F9))
                 .padding(horizontal = 16.dp),
             contentAlignment = Alignment.CenterStart
         ) {
@@ -253,12 +253,12 @@ fun FriendsScreen(
 
         // Quick action card when searching for a user not in the friends list
         if (selectedTab == 0 && searchQuery.isNotBlank() && filteredFriends.isEmpty()) {
-            Card(
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFFEEF4FB))
+                    .padding(horizontal = 20.dp, vertical = 8.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color(0xFFEEF4FB))
             ) {
                 Row(
                     modifier = Modifier
@@ -393,209 +393,226 @@ fun FriendsScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 if (selectedTab == 0) {
                     items(filteredFriends) { friend ->
                         val encodedName = try { java.net.URLEncoder.encode(friend.name.ifEmpty { friend.username }, "UTF-8") } catch (_: Exception) { friend.name }
-                        Row(
+                        Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(16.dp))
-                                .background(Color.White)
-                                .border(1.dp, Color(0xFFF1F5F9), RoundedCornerShape(16.dp))
-                                .padding(14.dp),
-                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // 1. Right Side (Start in RTL): Avatar + Name & Online Status
                             Row(
                                 modifier = Modifier
-                                    .weight(1f)
+                                    .fillMaxWidth()
                                     .clickable {
-                                        navController.navigate("user_profile/${friend.id}/$encodedName")
-                                    },
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(44.dp)
-                                        .background(Color(0xFFEEF4FB), CircleShape),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = friend.name.take(1).uppercase().ifEmpty { "ص" },
-                                        fontSize = 16.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF2563EB),
-                                        fontFamily = TajawalFontFamily
-                                    )
-                                }
-
-                                Spacer(modifier = Modifier.width(12.dp))
-
-                                Column {
-                                    Text(
-                                        text = friend.name,
-                                        fontSize = 15.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF0F172A),
-                                        fontFamily = TajawalFontFamily
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = "متصل",
-                                        fontSize = 12.sp,
-                                        color = Color(0xFF10B981),
-                                        fontFamily = TajawalFontFamily
-                                    )
-                                }
-                            }
-
-                            // 2. Left Side (End in RTL): Actions (Call icon button + Message button)
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                // Small Call Icon Button
-                                IconButton(
-                                    onClick = {
-                                        try {
-                                            val intent = Intent(context, CallActivity::class.java).apply {
-                                                putExtra("callID", "call_${friend.id}_${System.currentTimeMillis()}")
-                                                putExtra("isVideo", false)
-                                                putExtra("targetUserName", friend.name)
-                                            }
-                                            context.startActivity(intent)
-                                        } catch (e: Exception) {
-                                            Toast.makeText(context, "جارٍ الاتصال بـ ${friend.name}...", Toast.LENGTH_SHORT).show()
-                                        }
-                                    },
-                                    modifier = Modifier
-                                        .size(36.dp)
-                                        .background(Color(0xFFEEF4FB), CircleShape)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Call,
-                                        contentDescription = "اتصال",
-                                        tint = Color(0xFF2563EB),
-                                        modifier = Modifier.size(17.dp)
-                                    )
-                                }
-
-                                // Message Button
-                                Button(
-                                    onClick = {
                                         navController.navigate("chat_detail/${friend.id}/$encodedName")
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEEF4FB)),
-                                    shape = RoundedCornerShape(12.dp),
-                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                                    }
+                                    .padding(horizontal = 20.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                // 1. Right Side (Start in RTL): Avatar + Name & Online Status
+                                Row(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clickable {
+                                            navController.navigate("user_profile/${friend.id}/$encodedName")
+                                        },
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text("مراسلة", color = Color(0xFF2563EB), fontFamily = TajawalFontFamily, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    Box(
+                                        modifier = Modifier
+                                            .size(48.dp)
+                                            .background(Color(0xFFEEF4FB), CircleShape),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = friend.name.take(1).uppercase().ifEmpty { "ص" },
+                                            fontSize = 18.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFF2563EB),
+                                            fontFamily = TajawalFontFamily
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.width(14.dp))
+
+                                    Column {
+                                        Text(
+                                            text = friend.name,
+                                            fontSize = 16.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFF0F172A),
+                                            fontFamily = TajawalFontFamily
+                                        )
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                            text = "متصل",
+                                            fontSize = 12.sp,
+                                            color = Color(0xFF10B981),
+                                            fontFamily = TajawalFontFamily
+                                        )
+                                    }
+                                }
+
+                                // 2. Left Side (End in RTL): Actions (Call icon button + Message button)
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    // Small Call Icon Button
+                                    IconButton(
+                                        onClick = {
+                                            try {
+                                                val intent = Intent(context, CallActivity::class.java).apply {
+                                                    putExtra("callID", "call_${friend.id}_${System.currentTimeMillis()}")
+                                                    putExtra("isVideo", false)
+                                                    putExtra("targetUserName", friend.name)
+                                                }
+                                                context.startActivity(intent)
+                                            } catch (e: Exception) {
+                                                Toast.makeText(context, "جارٍ الاتصال بـ ${friend.name}...", Toast.LENGTH_SHORT).show()
+                                            }
+                                        },
+                                        modifier = Modifier
+                                            .size(38.dp)
+                                            .background(Color(0xFFEEF4FB), CircleShape)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Call,
+                                            contentDescription = "اتصال",
+                                            tint = Color(0xFF2563EB),
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+
+                                    // Message Button
+                                    Button(
+                                        onClick = {
+                                            navController.navigate("chat_detail/${friend.id}/$encodedName")
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEEF4FB)),
+                                        shape = RoundedCornerShape(12.dp),
+                                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                                    ) {
+                                        Text("مراسلة", color = Color(0xFF2563EB), fontFamily = TajawalFontFamily, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    }
                                 }
                             }
+
+                            HorizontalDivider(
+                                modifier = Modifier.padding(start = 82.dp, end = 20.dp),
+                                thickness = 0.6.dp,
+                                color = Color(0xFFF1F5F9)
+                            )
                         }
                     }
                 } else {
                     items(requestsList) { req ->
                         val reqDisplayName = req.fromUsername.ifEmpty { req.username }.ifEmpty { req.name }
                         val encodedReqName = try { java.net.URLEncoder.encode(reqDisplayName, "UTF-8") } catch (_: Exception) { reqDisplayName }
-                        Row(
+                        Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(16.dp))
-                                .background(Color.White)
-                                .border(1.dp, Color(0xFFF1F5F9), RoundedCornerShape(16.dp))
-                                .padding(14.dp),
-                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // 1. Right Side (Start in RTL): Avatar + Name & Request Subtitle
                             Row(
                                 modifier = Modifier
-                                    .weight(1f)
-                                    .clickable {
-                                        navController.navigate("user_profile/${req.fromUserId}/$encodedReqName")
-                                    },
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 20.dp, vertical = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Box(
+                                // 1. Right Side (Start in RTL): Avatar + Name & Request Subtitle
+                                Row(
                                     modifier = Modifier
-                                        .size(44.dp)
-                                        .background(Color(0xFFEEF4FB), CircleShape),
-                                    contentAlignment = Alignment.Center
+                                        .weight(1f)
+                                        .clickable {
+                                            navController.navigate("user_profile/${req.fromUserId}/$encodedReqName")
+                                        },
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text(
-                                        text = reqDisplayName.take(1).uppercase().ifEmpty { "ص" },
-                                        fontSize = 16.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF2563EB),
-                                        fontFamily = TajawalFontFamily
-                                    )
-                                }
-
-                                Spacer(modifier = Modifier.width(12.dp))
-
-                                Column {
-                                    Text(
-                                        text = reqDisplayName,
-                                        fontSize = 15.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF0F172A),
-                                        fontFamily = TajawalFontFamily
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = "يريد إضافتك كصديق",
-                                        fontSize = 12.sp,
-                                        color = Color(0xFF64748B),
-                                        fontFamily = TajawalFontFamily
-                                    )
-                                }
-                            }
-
-                            // 2. Left Side (End in RTL): Accept / Reject Buttons
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Button(
-                                    onClick = {
-                                        val friendToAdd = FriendItem(
-                                            id = req.fromUserId.ifEmpty { req.id },
-                                            username = reqDisplayName,
-                                            avatarUrl = req.avatarUrl,
-                                            status = "online",
-                                            createdAt = System.currentTimeMillis()
+                                    Box(
+                                        modifier = Modifier
+                                            .size(48.dp)
+                                            .background(Color(0xFFEEF4FB), CircleShape),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = reqDisplayName.take(1).uppercase().ifEmpty { "ص" },
+                                            fontSize = 18.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFF2563EB),
+                                            fontFamily = TajawalFontFamily
                                         )
-                                        CloudflareClient.addLocalFriend(context, friendToAdd)
-                                        friendsList = CloudflareClient.getLocalFriends(context)
-                                        CloudflareClient.respondFriendRequest(context, req.id, "accept") { success ->
-                                            Toast.makeText(context, "تم قبول طلب الصداقة وأضيف إلى قائمة أصدقائك", Toast.LENGTH_SHORT).show()
-                                            loadData()
-                                        }
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
-                                    shape = RoundedCornerShape(12.dp),
-                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
-                                ) {
-                                    Text("قبول", color = Color.White, fontFamily = TajawalFontFamily, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                    }
+
+                                    Spacer(modifier = Modifier.width(14.dp))
+
+                                    Column {
+                                        Text(
+                                            text = reqDisplayName,
+                                            fontSize = 16.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFF0F172A),
+                                            fontFamily = TajawalFontFamily
+                                        )
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                            text = "يريد إضافتك كصديق",
+                                            fontSize = 12.sp,
+                                            color = Color(0xFF64748B),
+                                            fontFamily = TajawalFontFamily
+                                        )
+                                    }
                                 }
 
-                                OutlinedButton(
-                                    onClick = {
-                                        CloudflareClient.respondFriendRequest(context, req.id, "reject") { success ->
-                                            Toast.makeText(context, "تم رفض طلب الصداقة", Toast.LENGTH_SHORT).show()
-                                            loadData()
-                                        }
-                                    },
-                                    shape = RoundedCornerShape(12.dp),
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                                    border = BorderStroke(1.dp, Color(0xFFE2E8F0))
+                                // 2. Left Side (End in RTL): Accept / Reject Buttons
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text("رفض", color = Color(0xFF64748B), fontFamily = TajawalFontFamily, fontSize = 13.sp)
+                                    Button(
+                                        onClick = {
+                                            val friendToAdd = FriendItem(
+                                                id = req.fromUserId.ifEmpty { req.id },
+                                                username = reqDisplayName,
+                                                avatarUrl = req.avatarUrl,
+                                                status = "online",
+                                                createdAt = System.currentTimeMillis()
+                                            )
+                                            CloudflareClient.addLocalFriend(context, friendToAdd)
+                                            friendsList = CloudflareClient.getLocalFriends(context)
+                                            CloudflareClient.respondFriendRequest(context, req.id, "accept") { success ->
+                                                Toast.makeText(context, "تم قبول طلب الصداقة وأضيف إلى قائمة أصدقائك", Toast.LENGTH_SHORT).show()
+                                                loadData()
+                                            }
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
+                                        shape = RoundedCornerShape(12.dp),
+                                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                                    ) {
+                                        Text("قبول", color = Color.White, fontFamily = TajawalFontFamily, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                    }
+
+                                    OutlinedButton(
+                                        onClick = {
+                                            CloudflareClient.respondFriendRequest(context, req.id, "reject") { success ->
+                                                Toast.makeText(context, "تم رفض طلب الصداقة", Toast.LENGTH_SHORT).show()
+                                                loadData()
+                                            }
+                                        },
+                                        shape = RoundedCornerShape(12.dp),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                        border = BorderStroke(1.dp, Color(0xFFE2E8F0))
+                                    ) {
+                                        Text("رفض", color = Color(0xFF64748B), fontFamily = TajawalFontFamily, fontSize = 13.sp)
+                                    }
                                 }
                             }
+
+                            HorizontalDivider(
+                                modifier = Modifier.padding(start = 82.dp, end = 20.dp),
+                                thickness = 0.6.dp,
+                                color = Color(0xFFF1F5F9)
+                            )
                         }
                     }
                 }

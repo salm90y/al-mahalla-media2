@@ -144,7 +144,7 @@ fun ChatListScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFFF8FAFC))
+            .background(Color.White)
             .statusBarsPadding()
     ) {
         // 1. Top Bar: Title "الدردشات" on Right (Start in RTL), Action Icons on Left (End in RTL)
@@ -176,7 +176,7 @@ fun ChatListScreen(
                     },
                     modifier = Modifier
                         .size(42.dp)
-                        .background(Color.White, CircleShape)
+                        .background(Color(0xFFF8FAFC), CircleShape)
                         .border(1.dp, Color(0xFFE2E8F0), CircleShape)
                 ) {
                     Icon(
@@ -195,7 +195,7 @@ fun ChatListScreen(
                     },
                     modifier = Modifier
                         .size(42.dp)
-                        .background(Color.White, CircleShape)
+                        .background(Color(0xFFF8FAFC), CircleShape)
                         .border(1.dp, Color(0xFFE2E8F0), CircleShape)
                 ) {
                     Icon(
@@ -215,7 +215,7 @@ fun ChatListScreen(
                 .padding(horizontal = 20.dp, vertical = 6.dp)
                 .height(48.dp)
                 .clip(RoundedCornerShape(24.dp))
-                .background(Color(0xFFEEF4FB))
+                .background(Color(0xFFF1F5F9))
                 .padding(horizontal = 16.dp),
             contentAlignment = Alignment.CenterStart
         ) {
@@ -246,7 +246,7 @@ fun ChatListScreen(
                     decorationBox = { innerTextField ->
                         if (searchQuery.isEmpty()) {
                             Text(
-                                text = "ابحث في الدردشات",
+                                text = "ابحث عن محادثة",
                                 fontSize = 14.sp,
                                 fontFamily = TajawalFontFamily,
                                 color = Color(0xFF94A3B8),
@@ -298,7 +298,7 @@ fun ChatListScreen(
             }
         }
 
-        // 4. Content (Empty State or Conversations List)
+        // 4. Content (Empty State or Free-form Conversations List)
         if (filteredConversations.isEmpty()) {
             Box(
                 modifier = Modifier
@@ -384,73 +384,85 @@ fun ChatListScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(filteredConversations) { conv ->
                     val encodedName = try { java.net.URLEncoder.encode(conv.name, "UTF-8") } catch (_: Exception) { conv.name }
-                    Row(
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(Color.White)
-                            .border(1.dp, Color(0xFFF1F5F9), RoundedCornerShape(16.dp))
                             .clickable {
                                 navController.navigate("chat_detail/${conv.id}/$encodedName")
                             }
-                            .padding(14.dp),
-                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // 1. Right Side (Start in RTL): Avatar + Name and Last Message
                         Row(
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 20.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(46.dp)
-                                    .background(Color(0xFFEEF4FB), CircleShape)
-                                    .clickable {
-                                        navController.navigate("user_profile/${conv.id}/$encodedName")
-                                    },
-                                contentAlignment = Alignment.Center
+                            // 1. Right Side (Start in RTL): Avatar + Name and Last Message
+                            Row(
+                                modifier = Modifier.weight(1f),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(
-                                    text = conv.name.take(1).uppercase().ifEmpty { "ص" },
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF2563EB),
-                                    fontFamily = TajawalFontFamily
-                                )
+                                Box(
+                                    modifier = Modifier
+                                        .size(50.dp)
+                                        .background(Color(0xFFEEF4FB), CircleShape)
+                                        .clickable {
+                                            navController.navigate("user_profile/${conv.id}/$encodedName")
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = conv.name.take(1).uppercase().ifEmpty { "ص" },
+                                        fontSize = 18.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF2563EB),
+                                        fontFamily = TajawalFontFamily
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.width(14.dp))
+
+                                Column {
+                                    Text(
+                                        text = conv.name,
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF0F172A),
+                                        fontFamily = TajawalFontFamily
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = conv.lastMsg,
+                                        fontSize = 13.5.sp,
+                                        color = Color(0xFF64748B),
+                                        fontFamily = TajawalFontFamily,
+                                        maxLines = 1
+                                    )
+                                }
                             }
 
-                            Spacer(modifier = Modifier.width(12.dp))
-
-                            Column {
+                            // 2. Left Side (End in RTL): Time & Indicator
+                            Column(
+                                horizontalAlignment = Alignment.End,
+                                verticalArrangement = Arrangement.Center
+                            ) {
                                 Text(
-                                    text = conv.name,
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF0F172A),
+                                    text = conv.time,
+                                    fontSize = 12.sp,
+                                    color = Color(0xFF94A3B8),
                                     fontFamily = TajawalFontFamily
-                                )
-                                Spacer(modifier = Modifier.height(3.dp))
-                                Text(
-                                    text = conv.lastMsg,
-                                    fontSize = 13.sp,
-                                    color = Color(0xFF64748B),
-                                    fontFamily = TajawalFontFamily,
-                                    maxLines = 1
                                 )
                             }
                         }
 
-                        // 2. Left Side (End in RTL): Time
-                        Text(
-                            text = conv.time,
-                            fontSize = 12.sp,
-                            color = Color(0xFF94A3B8),
-                            fontFamily = TajawalFontFamily
+                        // Hairline subtle divider for clean free-form layout
+                        HorizontalDivider(
+                            modifier = Modifier.padding(start = 84.dp, end = 20.dp),
+                            thickness = 0.6.dp,
+                            color = Color(0xFFF1F5F9)
                         )
                     }
                 }

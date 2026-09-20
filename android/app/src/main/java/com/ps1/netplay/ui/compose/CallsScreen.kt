@@ -180,7 +180,7 @@ fun CallsScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFFF8FAFC))
+            .background(Color.White)
             .statusBarsPadding()
     ) {
         // 1. Top Bar: Title "المكالمات"
@@ -267,7 +267,7 @@ fun CallsScreen(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Call,
-                                contentDescription = "Call",
+                                contentDescription = "Calls",
                                 tint = Color.White,
                                 modifier = Modifier.size(38.dp)
                             )
@@ -326,72 +326,85 @@ fun CallsScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(filteredCalls) { call ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(Color.White)
-                            .border(1.dp, Color(0xFFF1F5F9), RoundedCornerShape(16.dp))
-                            .padding(14.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    Column(
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        IconButton(
-                            onClick = {
-                                val intent = Intent(context, CallActivity::class.java).apply {
-                                    putExtra("callID", "call_${call.name.hashCode()}")
-                                    putExtra("isVideo", call.isVideo)
-                                    putExtra("targetUserName", call.name)
-                                }
-                                context.startActivity(intent)
-                            }
-                        ) {
-                            Icon(
-                                imageVector = if (call.isVideo) Icons.Default.Videocam else Icons.Default.Call,
-                                contentDescription = "اتصال",
-                                tint = Color(0xFF2563EB),
-                                modifier = Modifier.size(22.dp)
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.weight(1f))
-
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text(
-                                text = call.name,
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFF0F172A),
-                                fontFamily = TajawalFontFamily
-                            )
-                            Spacer(modifier = Modifier.height(3.dp))
-                            Text(
-                                text = "${call.status.label} • ${call.time}",
-                                fontSize = 12.sp,
-                                color = if (call.status == CallStatus.MISSED) Color(0xFFEF4444) else Color(0xFF64748B),
-                                fontFamily = TajawalFontFamily
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.width(12.dp))
-
-                        Box(
+                        Row(
                             modifier = Modifier
-                                .size(44.dp)
-                                .background(Color(0xFFEEF4FB), CircleShape),
-                            contentAlignment = Alignment.Center
+                                .fillMaxWidth()
+                                .padding(horizontal = 20.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                text = call.name.take(1),
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFF2563EB),
-                                fontFamily = TajawalFontFamily
-                            )
+                            // Right Side (Start in RTL): Avatar + Name & Subtitle
+                            Row(
+                                modifier = Modifier.weight(1f),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(48.dp)
+                                        .background(Color(0xFFEEF4FB), CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = call.name.take(1).uppercase().ifEmpty { "ص" },
+                                        fontSize = 18.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF2563EB),
+                                        fontFamily = TajawalFontFamily
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.width(14.dp))
+
+                                Column {
+                                    Text(
+                                        text = call.name,
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF0F172A),
+                                        fontFamily = TajawalFontFamily
+                                    )
+                                    Spacer(modifier = Modifier.height(3.dp))
+                                    Text(
+                                        text = "${call.status.label} • ${call.time}",
+                                        fontSize = 12.sp,
+                                        color = if (call.status == CallStatus.MISSED) Color(0xFFEF4444) else Color(0xFF64748B),
+                                        fontFamily = TajawalFontFamily
+                                    )
+                                }
+                            }
+
+                            // Left Side (End in RTL): Call action button
+                            IconButton(
+                                onClick = {
+                                    val intent = Intent(context, CallActivity::class.java).apply {
+                                        putExtra("callID", "call_${call.name.hashCode()}")
+                                        putExtra("isVideo", call.isVideo)
+                                        putExtra("targetUserName", call.name)
+                                    }
+                                    context.startActivity(intent)
+                                },
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .background(Color(0xFFEEF4FB), CircleShape)
+                            ) {
+                                Icon(
+                                    imageVector = if (call.isVideo) Icons.Default.Videocam else Icons.Default.Call,
+                                    contentDescription = "اتصال",
+                                    tint = Color(0xFF2563EB),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
                         }
+
+                        HorizontalDivider(
+                            modifier = Modifier.padding(start = 82.dp, end = 20.dp),
+                            thickness = 0.6.dp,
+                            color = Color(0xFFF1F5F9)
+                        )
                     }
                 }
             }
