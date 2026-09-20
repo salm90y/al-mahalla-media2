@@ -2,7 +2,10 @@ package com.ps1.netplay.ui.compose
 
 import android.content.Context
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.Uri
+import android.os.Build
 import android.provider.OpenableColumns
 import android.webkit.MimeTypeMap
 import android.widget.Toast
@@ -74,6 +77,20 @@ data class Message(
     val isOutgoing: Boolean,
     val status: MessageStatus = MessageStatus.DELIVERED
 )
+
+fun isNetworkAvailable(context: Context): Boolean {
+    val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return false
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        val network = cm.activeNetwork ?: return false
+        val capabilities = cm.getNetworkCapabilities(network) ?: return false
+        capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    } else {
+        @Suppress("DEPRECATION")
+        val networkInfo = cm.activeNetworkInfo ?: return false
+        @Suppress("DEPRECATION")
+        networkInfo.isConnected
+    }
+}
 
 fun resolveMediaUrl(context: Context, rawUrl: String): Any {
     val trimmed = rawUrl.trim()
@@ -318,6 +335,7 @@ fun ChatDetailScreen(
         ) {
             ChatInputBar(
                 onSendText = { text ->
+                    val hasNet = isNetworkAvailable(context)
                     val now = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date())
                     val msgId = "msg_${System.currentTimeMillis()}_${(100..999).random()}"
                     val localMsg = Message(
@@ -325,11 +343,13 @@ fun ChatDetailScreen(
                         content = MessageContent.Text(text),
                         timestamp = now,
                         isOutgoing = true,
-                        status = MessageStatus.SENDING
+                        status = if (hasNet) MessageStatus.SENDING else MessageStatus.FAILED
                     )
                     messages = messages + localMsg
 
-                    if (targetUserId.isNotEmpty()) {
+                    if (!hasNet) {
+                        Toast.makeText(context, "تعذر الإرسال: لا يوجد اتصال بالإنترنت", Toast.LENGTH_SHORT).show()
+                    } else if (targetUserId.isNotEmpty()) {
                         CloudflareClient.updateLocalConversation(context, targetUserId, userName, avatarUrl, text, System.currentTimeMillis())
                         CloudflareClient.sendCloudflareMessage(
                             context = context,
@@ -343,6 +363,9 @@ fun ChatDetailScreen(
                                     m.copy(status = if (success) MessageStatus.DELIVERED else MessageStatus.FAILED)
                                 } else m
                             }
+                            if (!success) {
+                                Toast.makeText(context, "تعذر الإرسال: تحقق من الاتصال بالإنترنت", Toast.LENGTH_SHORT).show()
+                            }
                         }
                     } else {
                         messages = messages.map { m ->
@@ -351,6 +374,7 @@ fun ChatDetailScreen(
                     }
                 },
                 onSendFile = { uri, mimeType ->
+                    val hasNet = isNetworkAvailable(context)
                     var displayName = "file_${System.currentTimeMillis()}"
                     try {
                         context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
@@ -384,12 +408,13 @@ fun ChatDetailScreen(
                         },
                         timestamp = now,
                         isOutgoing = true,
-                        status = MessageStatus.SENDING
+                        status = if (hasNet) MessageStatus.SENDING else MessageStatus.FAILED
                     )
                     messages = messages + localMsg
 
-                    // Upload to Cloudflare R2 bucket and broadcast
-                    if (targetUserId.isNotEmpty()) {
+                    if (!hasNet) {
+                        Toast.makeText(context, "تعذر إرسال الصورة: لا يوجد اتصال بالإنترنت", Toast.LENGTH_SHORT).show()
+                    } else if (targetUserId.isNotEmpty()) {
                         coroutineScope.launch(Dispatchers.IO) {
                             try {
                                 val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
@@ -420,25 +445,33 @@ fun ChatDetailScreen(
                                                     messages = messages.map { m ->
                                                         if (m.id == msgId) m.copy(status = MessageStatus.FAILED) else m
                                                     }
+                                                    Toast.makeText(context, "تعذر إرسال المرفق: خطأ في الاتصال", Toast.LENGTH_SHORT).show()
                                                 }
                                             }
                                         } else {
                                             messages = messages.map { m ->
                                                 if (m.id == msgId) m.copy(status = MessageStatus.FAILED) else m
                                             }
+                                            Toast.makeText(context, "تعذر إرسال الصورة: تحقق من الاتصال بالإنترنت", Toast.LENGTH_SHORT).show()
                                         }
                                     }
                                 } else {
                                     messages = messages.map { m ->
                                         if (m.id == msgId) m.copy(status = MessageStatus.FAILED) else m
                                     }
+                                    Toast.makeText(context, "تعذر قراءة الملف المرفق", Toast.LENGTH_SHORT).show()
                                 }
                             } catch (e: Exception) {
                                 e.printStackTrace()
                                 messages = messages.map { m ->
                                     if (m.id == msgId) m.copy(status = MessageStatus.FAILED) else m
                                 }
+                                Toast.makeText(context, "تعذر الإرسال: فشل النقل", Toast.LENGTH_SHORT).show()
                             }
+                        }
+                    } else {
+                        messages = messages.map { m ->
+                            if (m.id == msgId) m.copy(status = MessageStatus.DELIVERED) else m
                         }
                     }
                 },
@@ -861,7 +894,6 @@ fun SinglePhotoBubble(
 ) {
     val context = LocalContext.current
     val imageModel = remember(url) { resolveMediaUrl(context, url) }
-    var hasError by remember { mutableStateOf(false) }
 
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -878,8 +910,8 @@ fun SinglePhotoBubble(
                     .clip(RoundedCornerShape(18.dp))
                     .background(Color(0xFFF1F5F9))
                     .border(
-                        1.dp,
-                        if (status == MessageStatus.FAILED || hasError) Color(0xFFEF4444) else Color(0xFFE2E8F0),
+                        1.5.dp,
+                        if (isOutgoing && status == MessageStatus.FAILED) Color(0xFFEF4444) else Color(0xFFE2E8F0),
                         RoundedCornerShape(18.dp)
                     )
             ) {
@@ -898,69 +930,31 @@ fun SinglePhotoBubble(
                                 .background(Color(0xFFF8FAFC)),
                             contentAlignment = Alignment.Center
                         ) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center
-                            ) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(34.dp),
-                                    color = Color(0xFF2563EB),
-                                    strokeWidth = 3.dp
-                                )
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Text(
-                                    text = "جاري تحميل الصورة...",
-                                    fontFamily = TajawalFontFamily,
-                                    fontSize = 11.5.sp,
-                                    color = Color(0xFF64748B)
-                                )
-                            }
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(32.dp),
+                                color = Color(0xFF2563EB),
+                                strokeWidth = 2.5.dp
+                            )
                         }
-                    },
-                    onError = {
-                        hasError = true
-                    },
-                    onSuccess = {
-                        hasError = false
                     },
                     error = {
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .background(Color(0xFFFEF2F2)),
+                                .background(Color(0xFFF1F5F9)),
                             contentAlignment = Alignment.Center
                         ) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center,
-                                modifier = Modifier.padding(12.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.ErrorOutline,
-                                    contentDescription = "خطأ",
-                                    tint = Color(0xFFEF4444),
-                                    modifier = Modifier.size(32.dp)
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = "تعذر تحميل الصورة",
-                                    color = Color(0xFFDC2626),
-                                    fontFamily = TajawalFontFamily,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = "تحقق من اتصال الإنترنت",
-                                    color = Color(0xFF991B1B),
-                                    fontFamily = TajawalFontFamily,
-                                    fontSize = 10.sp
-                                )
-                            }
+                            Icon(
+                                imageVector = Icons.Default.BrokenImage,
+                                contentDescription = "صورة",
+                                tint = Color(0xFF94A3B8),
+                                modifier = Modifier.size(36.dp)
+                            )
                         }
                     }
                 )
 
-                // Bottom gradient for timestamp & tick marks
+                // Bottom gradient for timestamp & status
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -984,17 +978,17 @@ fun SinglePhotoBubble(
                         when (status) {
                             MessageStatus.SENDING -> {
                                 CircularProgressIndicator(
-                                    modifier = Modifier.size(12.dp),
+                                    modifier = Modifier.size(11.dp),
                                     color = Color.White,
                                     strokeWidth = 1.5.dp
                                 )
                             }
                             MessageStatus.FAILED -> {
                                 Icon(
-                                    imageVector = Icons.Default.Error,
+                                    imageVector = Icons.Default.ErrorOutline,
                                     contentDescription = "تعذر الإرسال",
                                     tint = Color(0xFFEF4444),
-                                    modifier = Modifier.size(14.dp)
+                                    modifier = Modifier.size(13.dp)
                                 )
                             }
                             else -> {
@@ -1016,24 +1010,23 @@ fun SinglePhotoBubble(
                 }
             }
 
-            // Error label if sending failed
-            if (isOutgoing && (status == MessageStatus.FAILED || hasError)) {
+            if (isOutgoing && status == MessageStatus.FAILED) {
                 Row(
-                    modifier = Modifier.padding(top = 4.dp, end = 4.dp),
+                    modifier = Modifier.padding(top = 3.dp, end = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    horizontalArrangement = Arrangement.spacedBy(3.dp)
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Warning,
-                        contentDescription = "خطأ",
-                        tint = Color(0xFFEF4444),
-                        modifier = Modifier.size(13.dp)
+                        imageVector = Icons.Default.ErrorOutline,
+                        contentDescription = null,
+                        tint = Color(0xFFDC2626),
+                        modifier = Modifier.size(12.dp)
                     )
                     Text(
-                        text = "تعذر الإرسال (لا يوجد اتصال إنترنت)",
+                        text = "تعذر إرسال الصورة (لا يوجد اتصال بالإنترنت)",
                         color = Color(0xFFDC2626),
-                        fontSize = 11.sp,
                         fontFamily = TajawalFontFamily,
+                        fontSize = 10.5.sp,
                         fontWeight = FontWeight.Medium
                     )
                 }
@@ -1064,8 +1057,8 @@ fun MultiPhotoBubble(
                     .clip(RoundedCornerShape(16.dp))
                     .background(Color.White)
                     .border(
-                        1.dp, 
-                        if (status == MessageStatus.FAILED) Color(0xFFEF4444) else Color(0xFFE2E8F0), 
+                        1.5.dp, 
+                        if (isOutgoing && status == MessageStatus.FAILED) Color(0xFFEF4444) else Color(0xFFE2E8F0), 
                         RoundedCornerShape(16.dp)
                     )
             ) {
@@ -1092,8 +1085,8 @@ fun MultiPhotoBubble(
                                         }
                                     },
                                     error = {
-                                        Box(modifier = Modifier.fillMaxSize().background(Color(0xFFFEF2F2)), contentAlignment = Alignment.Center) {
-                                            Icon(Icons.Default.BrokenImage, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(24.dp))
+                                        Box(modifier = Modifier.fillMaxSize().background(Color(0xFFF1F5F9)), contentAlignment = Alignment.Center) {
+                                            Icon(Icons.Default.BrokenImage, contentDescription = null, tint = Color(0xFF94A3B8), modifier = Modifier.size(24.dp))
                                         }
                                     }
                                 )
@@ -1105,11 +1098,11 @@ fun MultiPhotoBubble(
 
             if (isOutgoing && status == MessageStatus.FAILED) {
                 Text(
-                    text = "تعذر الإرسال (لا يوجد اتصال إنترنت)",
+                    text = "تعذر إرسال الصور (لا يوجد اتصال بالإنترنت)",
                     color = Color(0xFFDC2626),
-                    fontSize = 11.sp,
                     fontFamily = TajawalFontFamily,
-                    modifier = Modifier.padding(top = 4.dp, end = 4.dp)
+                    fontSize = 10.5.sp,
+                    modifier = Modifier.padding(top = 3.dp, end = 4.dp)
                 )
             }
         }
@@ -1157,16 +1150,16 @@ fun DocumentBubble(
                         ),
                     contentAlignment = Alignment.Center
                 ) {
-                    if (status == MessageStatus.SENDING) {
+                    if (isOutgoing && status == MessageStatus.SENDING) {
                         CircularProgressIndicator(
-                            modifier = Modifier.size(22.dp),
-                            color = if (isOutgoing) Color.White else Color(0xFF2563EB),
-                            strokeWidth = 2.5.dp
+                            modifier = Modifier.size(20.dp),
+                            color = Color.White,
+                            strokeWidth = 2.dp
                         )
-                    } else if (status == MessageStatus.FAILED) {
+                    } else if (isOutgoing && status == MessageStatus.FAILED) {
                         Icon(
                             imageVector = Icons.Default.ErrorOutline,
-                            contentDescription = "خطأ",
+                            contentDescription = "تعذر الإرسال",
                             tint = Color.White,
                             modifier = Modifier.size(22.dp)
                         )
@@ -1201,11 +1194,11 @@ fun DocumentBubble(
 
             if (isOutgoing && status == MessageStatus.FAILED) {
                 Text(
-                    text = "تعذر الإرسال (انقطاع الإنترنت)",
+                    text = "تعذر إرسال الملف (لا يوجد اتصال بالإنترنت)",
                     color = Color(0xFFDC2626),
-                    fontSize = 11.sp,
                     fontFamily = TajawalFontFamily,
-                    modifier = Modifier.padding(top = 4.dp, end = 4.dp)
+                    fontSize = 10.5.sp,
+                    modifier = Modifier.padding(top = 3.dp, end = 4.dp)
                 )
             }
         }
