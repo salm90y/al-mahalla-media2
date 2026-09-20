@@ -1152,15 +1152,8 @@ export const AndroidDeviceSimulator: React.FC<AndroidDeviceSimulatorProps> = ({
             /* ================= 2. TAB: FRIENDS (الأصدقاء) ================= */
             <div className="flex flex-col h-full">
               {/* Unified Header */}
-              <div className="px-5 py-3.5 flex items-center justify-between">
+              <div className="px-5 py-3.5 flex items-center justify-start">
                 <h1 className="text-2xl font-bold text-slate-900 font-['Tajawal']">الأصدقاء</h1>
-                <button 
-                  onClick={() => alert('إضافة صديق جديد')}
-                  className="w-10 h-10 rounded-full bg-white border border-slate-200 flex items-center justify-center text-[#2563EB] hover:bg-slate-50 shadow-sm transition"
-                  title="إضافة صديق"
-                >
-                  <UserPlus className="w-5 h-5" />
-                </button>
               </div>
 
               {/* Unified Search */}
@@ -1234,15 +1227,8 @@ export const AndroidDeviceSimulator: React.FC<AndroidDeviceSimulatorProps> = ({
             /* ================= 3. TAB: CALLS (المكالمات) ================= */
             <div className="flex flex-col h-full">
               {/* Unified Header */}
-              <div className="px-5 py-3.5 flex items-center justify-between">
+              <div className="px-5 py-3.5 flex items-center justify-start">
                 <h1 className="text-2xl font-bold text-slate-900 font-['Tajawal']">المكالمات</h1>
-                <button 
-                  onClick={() => alert('بدء مكالمة جديدة')}
-                  className="w-10 h-10 rounded-full bg-white border border-slate-200 flex items-center justify-center text-emerald-600 hover:bg-slate-50 shadow-sm transition"
-                  title="بدء مكالمة"
-                >
-                  <PhoneCall className="w-5 h-5" />
-                </button>
               </div>
 
               {/* Unified Search */}
@@ -1307,15 +1293,8 @@ export const AndroidDeviceSimulator: React.FC<AndroidDeviceSimulatorProps> = ({
             /* ================= 4. TAB: STORIES (الحالات) ================= */
             <div className="flex flex-col h-full">
               {/* Unified Header */}
-              <div className="px-5 py-3.5 flex items-center justify-between">
+              <div className="px-5 py-3.5 flex items-center justify-start">
                 <h1 className="text-2xl font-bold text-slate-900 font-['Tajawal']">الحالات</h1>
-                <button 
-                  onClick={() => alert('إضافة حالة')}
-                  className="w-10 h-10 rounded-full bg-white border border-slate-200 flex items-center justify-center text-[#2563EB] hover:bg-slate-50 shadow-sm transition"
-                  title="إضافة حالة"
-                >
-                  <Camera className="w-5 h-5" />
-                </button>
               </div>
 
               {/* Unified Search */}

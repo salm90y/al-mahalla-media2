@@ -50,15 +50,15 @@ fun StoriesCameraScreen(
             .background(Color(0xFFF8FAFC))
             .statusBarsPadding()
     ) {
-        // 1. Top Bar: Title "الحالات" on Right (Start in RTL), Action Icons on Left (End in RTL)
+        // 1. Top Bar: Title "الحالات"
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp, vertical = 14.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            horizontalArrangement = Arrangement.Start,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Right: Title "الحالات"
+            // Title "الحالات"
             Text(
                 text = "الحالات",
                 fontSize = 24.sp,
@@ -66,49 +66,6 @@ fun StoriesCameraScreen(
                 fontFamily = TajawalFontFamily,
                 color = Color(0xFF0F172A)
             )
-
-            // Left Action Icons (Add Story & Settings)
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Add Story Icon Button
-                IconButton(
-                    onClick = {
-                        Toast.makeText(context, "إضافة حالة جديدة", Toast.LENGTH_SHORT).show()
-                    },
-                    modifier = Modifier
-                        .size(42.dp)
-                        .background(Color.White, CircleShape)
-                        .border(1.dp, Color(0xFFE2E8F0), CircleShape)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.CameraAlt,
-                        contentDescription = "إضافة حالة",
-                        tint = Color(0xFF2563EB),
-                        modifier = Modifier.size(22.dp)
-                    )
-                }
-
-                // Settings Icon Button
-                IconButton(
-                    onClick = {
-                        val intent = Intent(context, SettingsActivity::class.java)
-                        context.startActivity(intent)
-                    },
-                    modifier = Modifier
-                        .size(42.dp)
-                        .background(Color.White, CircleShape)
-                        .border(1.dp, Color(0xFFE2E8F0), CircleShape)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Settings,
-                        contentDescription = "الإعدادات",
-                        tint = Color(0xFF475569),
-                        modifier = Modifier.size(22.dp)
-                    )
-                }
-            }
         }
 
         // 2. Category Tabs (حالتي / المشاهدة - Starts with حالتي on Right)

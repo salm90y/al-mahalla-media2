@@ -39,6 +39,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
+import coil.compose.SubcomposeAsyncImage
+import coil.request.ImageRequest
 import com.ps1.netplay.CallActivity
 import com.ps1.netplay.UserManager
 import com.ps1.netplay.network.CloudflareClient
@@ -49,6 +51,13 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+enum class MessageStatus {
+    SENDING,
+    SENT,
+    DELIVERED,
+    FAILED
+}
 
 sealed class MessageContent {
     data class Text(val text: String) : MessageContent()
@@ -62,8 +71,31 @@ data class Message(
     val id: String,
     val content: MessageContent,
     val timestamp: String,
-    val isOutgoing: Boolean
+    val isOutgoing: Boolean,
+    val status: MessageStatus = MessageStatus.DELIVERED
 )
+
+fun resolveMediaUrl(context: Context, rawUrl: String): Any {
+    val trimmed = rawUrl.trim()
+    if (trimmed.isEmpty()) return ""
+    if (trimmed.startsWith("content://") || trimmed.startsWith("file://")) {
+        return Uri.parse(trimmed)
+    }
+    if (trimmed.startsWith("data:image")) {
+        return try {
+            val base64Data = trimmed.substringAfter("base64,")
+            android.util.Base64.decode(base64Data, android.util.Base64.DEFAULT)
+        } catch (_: Exception) {
+            trimmed
+        }
+    }
+    if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+        return trimmed
+    }
+    val baseUrl = CloudflareClient.getBaseUrl(context).trimEnd('/')
+    val path = if (trimmed.startsWith("/")) trimmed else "/$trimmed"
+    return "$baseUrl$path"
+}
 
 @Composable
 fun ChatDetailScreen(
@@ -241,15 +273,35 @@ fun ChatDetailScreen(
             ) {
                 items(messages, key = { it.id }) { message ->
                     when (message.content) {
-                        is MessageContent.Text -> TextBubble(message.content.text, message.timestamp, message.isOutgoing)
+                        is MessageContent.Text -> TextBubble(
+                            text = message.content.text,
+                            timestamp = message.timestamp,
+                            isOutgoing = message.isOutgoing,
+                            status = message.status
+                        )
                         is MessageContent.Photo -> {
                             if (message.content.urls.size == 1) {
-                                SinglePhotoBubble(message.content.urls.first(), message.timestamp, message.isOutgoing)
+                                SinglePhotoBubble(
+                                    url = message.content.urls.first(),
+                                    timestamp = message.timestamp,
+                                    isOutgoing = message.isOutgoing,
+                                    status = message.status
+                                )
                             } else {
-                                MultiPhotoBubble(message.content.urls, message.timestamp, message.isOutgoing)
+                                MultiPhotoBubble(
+                                    urls = message.content.urls,
+                                    timestamp = message.timestamp,
+                                    isOutgoing = message.isOutgoing,
+                                    status = message.status
+                                )
                             }
                         }
-                        is MessageContent.Document -> DocumentBubble(message.content, message.timestamp, message.isOutgoing)
+                        is MessageContent.Document -> DocumentBubble(
+                            content = message.content,
+                            timestamp = message.timestamp,
+                            isOutgoing = message.isOutgoing,
+                            status = message.status
+                        )
                         is MessageContent.Location -> MapCardBubble(message.content, message.timestamp, message.isOutgoing)
                         is MessageContent.Snap -> SnapMediaBubble(message.content, message.timestamp, message.isOutgoing)
                     }
@@ -272,7 +324,8 @@ fun ChatDetailScreen(
                         id = msgId,
                         content = MessageContent.Text(text),
                         timestamp = now,
-                        isOutgoing = true
+                        isOutgoing = true,
+                        status = MessageStatus.SENDING
                     )
                     messages = messages + localMsg
 
@@ -284,7 +337,17 @@ fun ChatDetailScreen(
                             text = text,
                             type = "text",
                             messageId = msgId
-                        ) { _, _ -> }
+                        ) { success, _ ->
+                            messages = messages.map { m ->
+                                if (m.id == msgId) {
+                                    m.copy(status = if (success) MessageStatus.DELIVERED else MessageStatus.FAILED)
+                                } else m
+                            }
+                        }
+                    } else {
+                        messages = messages.map { m ->
+                            if (m.id == msgId) m.copy(status = MessageStatus.DELIVERED) else m
+                        }
                     }
                 },
                 onSendFile = { uri, mimeType ->
@@ -320,7 +383,8 @@ fun ChatDetailScreen(
                             else -> MessageContent.Document(displayName, "مرفق وسائط", msgType)
                         },
                         timestamp = now,
-                        isOutgoing = true
+                        isOutgoing = true,
+                        status = MessageStatus.SENDING
                     )
                     messages = messages + localMsg
 
@@ -332,6 +396,17 @@ fun ChatDetailScreen(
                                 if (bytes != null) {
                                     CloudflareClient.uploadMediaFile(context, bytes, displayName, mimeType) { success, r2Url ->
                                         if (success && !r2Url.isNullOrEmpty()) {
+                                            messages = messages.map { m ->
+                                                if (m.id == msgId) {
+                                                    m.copy(
+                                                        status = MessageStatus.DELIVERED,
+                                                        content = when (m.content) {
+                                                            is MessageContent.Photo -> MessageContent.Photo(listOf(r2Url))
+                                                            else -> m.content
+                                                        }
+                                                    )
+                                                } else m
+                                            }
                                             CloudflareClient.sendCloudflareMessage(
                                                 context = context,
                                                 receiverId = targetUserId,
@@ -340,12 +415,29 @@ fun ChatDetailScreen(
                                                 mediaUrl = r2Url,
                                                 fileName = displayName,
                                                 messageId = msgId
-                                            ) { _, _ -> }
+                                            ) { sendSuccess, _ ->
+                                                if (!sendSuccess) {
+                                                    messages = messages.map { m ->
+                                                        if (m.id == msgId) m.copy(status = MessageStatus.FAILED) else m
+                                                    }
+                                                }
+                                            }
+                                        } else {
+                                            messages = messages.map { m ->
+                                                if (m.id == msgId) m.copy(status = MessageStatus.FAILED) else m
+                                            }
                                         }
+                                    }
+                                } else {
+                                    messages = messages.map { m ->
+                                        if (m.id == msgId) m.copy(status = MessageStatus.FAILED) else m
                                     }
                                 }
                             } catch (e: Exception) {
                                 e.printStackTrace()
+                                messages = messages.map { m ->
+                                    if (m.id == msgId) m.copy(status = MessageStatus.FAILED) else m
+                                }
                             }
                         }
                     }
@@ -656,128 +748,293 @@ fun StoryViewerDialog(
 // ----------------- Unified Clean Bubbles Matching App Design -----------------
 
 @Composable
-fun TextBubble(text: String, timestamp: String, isOutgoing: Boolean) {
+fun TextBubble(
+    text: String, 
+    timestamp: String, 
+    isOutgoing: Boolean,
+    status: MessageStatus = MessageStatus.DELIVERED
+) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (isOutgoing) Arrangement.End else Arrangement.Start
     ) {
         Column(
-            modifier = Modifier
-                .widthIn(max = 280.dp)
-                .clip(
-                    RoundedCornerShape(
-                        topStart = 16.dp,
-                        topEnd = 16.dp,
-                        bottomStart = if (isOutgoing) 16.dp else 4.dp,
-                        bottomEnd = if (isOutgoing) 4.dp else 16.dp
-                    )
-                )
-                .background(if (isOutgoing) Color(0xFF2563EB) else Color.White)
-                .border(
-                    width = 1.dp,
-                    color = if (isOutgoing) Color(0x22FFFFFF) else Color(0xFFE2E8F0),
-                    shape = RoundedCornerShape(
-                        topStart = 16.dp,
-                        topEnd = 16.dp,
-                        bottomStart = if (isOutgoing) 16.dp else 4.dp,
-                        bottomEnd = if (isOutgoing) 4.dp else 16.dp
-                    )
-                )
-                .padding(horizontal = 14.dp, vertical = 8.dp)
+            horizontalAlignment = if (isOutgoing) Alignment.End else Alignment.Start
         ) {
-            Text(
-                text = text,
-                color = if (isOutgoing) Color.White else Color(0xFF0F172A),
-                fontFamily = TajawalFontFamily,
-                fontSize = 14.5.sp,
-                lineHeight = 20.sp
-            )
-            Text(
-                text = "$timestamp ${if (isOutgoing) "✓✓" else ""}",
-                color = if (isOutgoing) Color(0xFFDBEAFE) else Color(0xFF64748B),
-                fontFamily = TajawalFontFamily,
-                fontSize = 10.sp,
+            Column(
                 modifier = Modifier
-                    .align(Alignment.End)
-                    .padding(top = 2.dp)
-            )
+                    .widthIn(max = 280.dp)
+                    .clip(
+                        RoundedCornerShape(
+                            topStart = 16.dp,
+                            topEnd = 16.dp,
+                            bottomStart = if (isOutgoing) 16.dp else 4.dp,
+                            bottomEnd = if (isOutgoing) 4.dp else 16.dp
+                        )
+                    )
+                    .background(
+                        if (isOutgoing) {
+                            if (status == MessageStatus.FAILED) Color(0xFFEF4444) else Color(0xFF2563EB)
+                        } else Color.White
+                    )
+                    .border(
+                        width = 1.dp,
+                        color = if (isOutgoing) Color(0x22FFFFFF) else Color(0xFFE2E8F0),
+                        shape = RoundedCornerShape(
+                            topStart = 16.dp,
+                            topEnd = 16.dp,
+                            bottomStart = if (isOutgoing) 16.dp else 4.dp,
+                            bottomEnd = if (isOutgoing) 4.dp else 16.dp
+                        )
+                    )
+                    .padding(horizontal = 14.dp, vertical = 8.dp)
+            ) {
+                Text(
+                    text = text,
+                    color = if (isOutgoing) Color.White else Color(0xFF0F172A),
+                    fontFamily = TajawalFontFamily,
+                    fontSize = 14.5.sp,
+                    lineHeight = 20.sp
+                )
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.End)
+                        .padding(top = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    if (isOutgoing) {
+                        when (status) {
+                            MessageStatus.SENDING -> {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(11.dp),
+                                    color = Color.White,
+                                    strokeWidth = 1.5.dp
+                                )
+                            }
+                            MessageStatus.FAILED -> {
+                                Icon(
+                                    imageVector = Icons.Default.ErrorOutline,
+                                    contentDescription = "تعذر الإرسال",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(13.dp)
+                                )
+                            }
+                            else -> {
+                                Text(
+                                    text = "✓✓",
+                                    color = Color(0xFFDBEAFE),
+                                    fontFamily = TajawalFontFamily,
+                                    fontSize = 10.sp
+                                )
+                            }
+                        }
+                    }
+                    Text(
+                        text = timestamp,
+                        color = if (isOutgoing) Color(0xFFDBEAFE) else Color(0xFF64748B),
+                        fontFamily = TajawalFontFamily,
+                        fontSize = 10.sp
+                    )
+                }
+            }
+
+            if (isOutgoing && status == MessageStatus.FAILED) {
+                Text(
+                    text = "تعذر الإرسال (تحقق من الإنترنت)",
+                    color = Color(0xFFDC2626),
+                    fontFamily = TajawalFontFamily,
+                    fontSize = 10.5.sp,
+                    modifier = Modifier.padding(top = 2.dp, end = 4.dp)
+                )
+            }
         }
     }
 }
 
 @Composable
-fun SinglePhotoBubble(url: String, timestamp: String, isOutgoing: Boolean) {
+fun SinglePhotoBubble(
+    url: String, 
+    timestamp: String, 
+    isOutgoing: Boolean,
+    status: MessageStatus = MessageStatus.DELIVERED
+) {
+    val context = LocalContext.current
+    val imageModel = remember(url) { resolveMediaUrl(context, url) }
+    var hasError by remember { mutableStateOf(false) }
+
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (isOutgoing) Arrangement.End else Arrangement.Start
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth(0.75f)
-                .height(200.dp)
-                .clip(RoundedCornerShape(18.dp))
-                .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(18.dp))
+        Column(
+            horizontalAlignment = if (isOutgoing) Alignment.End else Alignment.Start,
+            modifier = Modifier.fillMaxWidth(0.78f)
         ) {
-            AsyncImage(
-                model = Uri.parse(url),
-                contentDescription = "صورة",
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
-            )
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(44.dp)
-                    .align(Alignment.BottomCenter)
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(Color.Transparent, Color.Black.copy(alpha = 0.6f))
-                        )
+                    .height(220.dp)
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(Color(0xFFF1F5F9))
+                    .border(
+                        1.dp,
+                        if (status == MessageStatus.FAILED || hasError) Color(0xFFEF4444) else Color(0xFFE2E8F0),
+                        RoundedCornerShape(18.dp)
                     )
-            )
-            Text(
-                text = "$timestamp ${if (isOutgoing) "✓✓" else ""}",
-                color = Color.White,
-                fontFamily = TajawalFontFamily,
-                fontSize = 10.sp,
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(8.dp)
-            )
-        }
-    }
-}
+            ) {
+                SubcomposeAsyncImage(
+                    model = ImageRequest.Builder(context)
+                        .data(imageModel)
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = "صورة",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                    loading = {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color(0xFFF8FAFC)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(34.dp),
+                                    color = Color(0xFF2563EB),
+                                    strokeWidth = 3.dp
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = "جاري تحميل الصورة...",
+                                    fontFamily = TajawalFontFamily,
+                                    fontSize = 11.5.sp,
+                                    color = Color(0xFF64748B)
+                                )
+                            }
+                        }
+                    },
+                    onError = {
+                        hasError = true
+                    },
+                    onSuccess = {
+                        hasError = false
+                    },
+                    error = {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color(0xFFFEF2F2)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center,
+                                modifier = Modifier.padding(12.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.ErrorOutline,
+                                    contentDescription = "خطأ",
+                                    tint = Color(0xFFEF4444),
+                                    modifier = Modifier.size(32.dp)
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "تعذر تحميل الصورة",
+                                    color = Color(0xFFDC2626),
+                                    fontFamily = TajawalFontFamily,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "تحقق من اتصال الإنترنت",
+                                    color = Color(0xFF991B1B),
+                                    fontFamily = TajawalFontFamily,
+                                    fontSize = 10.sp
+                                )
+                            }
+                        }
+                    }
+                )
 
-@Composable
-fun MultiPhotoBubble(urls: List<String>, timestamp: String, isOutgoing: Boolean) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = if (isOutgoing) Arrangement.End else Arrangement.Start
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth(0.75f)
-                .clip(RoundedCornerShape(16.dp))
-                .background(Color.White)
-                .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(16.dp))
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.height(100.dp)) {
-                    AsyncImage(
-                        model = Uri.parse(urls.getOrNull(0) ?: ""),
-                        contentDescription = "صورة",
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxHeight(),
-                        contentScale = ContentScale.Crop
+                // Bottom gradient for timestamp & tick marks
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(44.dp)
+                        .align(Alignment.BottomCenter)
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(Color.Transparent, Color.Black.copy(alpha = 0.65f))
+                            )
+                        )
+                )
+
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    if (isOutgoing) {
+                        when (status) {
+                            MessageStatus.SENDING -> {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(12.dp),
+                                    color = Color.White,
+                                    strokeWidth = 1.5.dp
+                                )
+                            }
+                            MessageStatus.FAILED -> {
+                                Icon(
+                                    imageVector = Icons.Default.Error,
+                                    contentDescription = "تعذر الإرسال",
+                                    tint = Color(0xFFEF4444),
+                                    modifier = Modifier.size(14.dp)
+                                )
+                            }
+                            else -> {
+                                Text(
+                                    text = "✓✓",
+                                    color = Color.White,
+                                    fontFamily = TajawalFontFamily,
+                                    fontSize = 10.sp
+                                )
+                            }
+                        }
+                    }
+                    Text(
+                        text = timestamp,
+                        color = Color.White,
+                        fontFamily = TajawalFontFamily,
+                        fontSize = 10.sp
                     )
-                    AsyncImage(
-                        model = Uri.parse(urls.getOrNull(1) ?: ""),
-                        contentDescription = "صورة",
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxHeight(),
-                        contentScale = ContentScale.Crop
+                }
+            }
+
+            // Error label if sending failed
+            if (isOutgoing && (status == MessageStatus.FAILED || hasError)) {
+                Row(
+                    modifier = Modifier.padding(top = 4.dp, end = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Warning,
+                        contentDescription = "خطأ",
+                        tint = Color(0xFFEF4444),
+                        modifier = Modifier.size(13.dp)
+                    )
+                    Text(
+                        text = "تعذر الإرسال (لا يوجد اتصال إنترنت)",
+                        color = Color(0xFFDC2626),
+                        fontSize = 11.sp,
+                        fontFamily = TajawalFontFamily,
+                        fontWeight = FontWeight.Medium
                     )
                 }
             }
@@ -786,58 +1043,169 @@ fun MultiPhotoBubble(urls: List<String>, timestamp: String, isOutgoing: Boolean)
 }
 
 @Composable
-fun DocumentBubble(content: MessageContent.Document, timestamp: String, isOutgoing: Boolean) {
+fun MultiPhotoBubble(
+    urls: List<String>, 
+    timestamp: String, 
+    isOutgoing: Boolean,
+    status: MessageStatus = MessageStatus.DELIVERED
+) {
+    val context = LocalContext.current
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (isOutgoing) Arrangement.End else Arrangement.Start
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth(0.82f)
-                .background(
-                    if (isOutgoing) Color(0xFF2563EB) else Color.White,
-                    RoundedCornerShape(16.dp)
-                )
-                .border(
-                    1.dp,
-                    if (isOutgoing) Color(0x33FFFFFF) else Color(0xFFE2E8F0),
-                    RoundedCornerShape(16.dp)
-                )
-                .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
+        Column(
+            horizontalAlignment = if (isOutgoing) Alignment.End else Alignment.Start,
+            modifier = Modifier.fillMaxWidth(0.78f)
         ) {
             Box(
                 modifier = Modifier
-                    .size(42.dp)
-                    .background(
-                        if (isOutgoing) Color.White.copy(alpha = 0.2f) else Color(0xFFEFF6FF),
-                        RoundedCornerShape(12.dp)
-                    ),
-                contentAlignment = Alignment.Center
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color.White)
+                    .border(
+                        1.dp, 
+                        if (status == MessageStatus.FAILED) Color(0xFFEF4444) else Color(0xFFE2E8F0), 
+                        RoundedCornerShape(16.dp)
+                    )
             ) {
-                Icon(
-                    imageVector = Icons.Default.InsertDriveFile,
-                    contentDescription = null,
-                    tint = if (isOutgoing) Color.White else Color(0xFF2563EB),
-                    modifier = Modifier.size(22.dp)
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.height(110.dp)) {
+                        urls.take(2).forEach { itemUrl ->
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                                    .background(Color(0xFFF1F5F9))
+                            ) {
+                                SubcomposeAsyncImage(
+                                    model = ImageRequest.Builder(context)
+                                        .data(resolveMediaUrl(context, itemUrl))
+                                        .crossfade(true)
+                                        .build(),
+                                    contentDescription = "صورة",
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop,
+                                    loading = {
+                                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                            CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp, color = Color(0xFF2563EB))
+                                        }
+                                    },
+                                    error = {
+                                        Box(modifier = Modifier.fillMaxSize().background(Color(0xFFFEF2F2)), contentAlignment = Alignment.Center) {
+                                            Icon(Icons.Default.BrokenImage, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(24.dp))
+                                        }
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (isOutgoing && status == MessageStatus.FAILED) {
+                Text(
+                    text = "تعذر الإرسال (لا يوجد اتصال إنترنت)",
+                    color = Color(0xFFDC2626),
+                    fontSize = 11.sp,
+                    fontFamily = TajawalFontFamily,
+                    modifier = Modifier.padding(top = 4.dp, end = 4.dp)
                 )
             }
-            Spacer(modifier = Modifier.width(10.dp))
-            Column(modifier = Modifier.weight(1f)) {
+        }
+    }
+}
+
+@Composable
+fun DocumentBubble(
+    content: MessageContent.Document, 
+    timestamp: String, 
+    isOutgoing: Boolean,
+    status: MessageStatus = MessageStatus.DELIVERED
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = if (isOutgoing) Arrangement.End else Arrangement.Start
+    ) {
+        Column(
+            horizontalAlignment = if (isOutgoing) Alignment.End else Alignment.Start,
+            modifier = Modifier.fillMaxWidth(0.82f)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        if (isOutgoing) {
+                            if (status == MessageStatus.FAILED) Color(0xFFEF4444) else Color(0xFF2563EB)
+                        } else Color.White,
+                        RoundedCornerShape(16.dp)
+                    )
+                    .border(
+                        1.dp,
+                        if (isOutgoing) Color(0x33FFFFFF) else Color(0xFFE2E8F0),
+                        RoundedCornerShape(16.dp)
+                    )
+                    .padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .background(
+                            if (isOutgoing) Color.White.copy(alpha = 0.2f) else Color(0xFFEFF6FF),
+                            RoundedCornerShape(12.dp)
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (status == MessageStatus.SENDING) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(22.dp),
+                            color = if (isOutgoing) Color.White else Color(0xFF2563EB),
+                            strokeWidth = 2.5.dp
+                        )
+                    } else if (status == MessageStatus.FAILED) {
+                        Icon(
+                            imageVector = Icons.Default.ErrorOutline,
+                            contentDescription = "خطأ",
+                            tint = Color.White,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.InsertDriveFile,
+                            contentDescription = null,
+                            tint = if (isOutgoing) Color.White else Color(0xFF2563EB),
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = content.name,
+                        color = if (isOutgoing) Color.White else Color(0xFF0F172A),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.5.sp,
+                        fontFamily = TajawalFontFamily,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = "${content.size} • $timestamp",
+                        color = if (isOutgoing) Color(0xFFDBEAFE) else Color(0xFF64748B),
+                        fontSize = 11.sp,
+                        fontFamily = TajawalFontFamily
+                    )
+                }
+            }
+
+            if (isOutgoing && status == MessageStatus.FAILED) {
                 Text(
-                    text = content.name,
-                    color = if (isOutgoing) Color.White else Color(0xFF0F172A),
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 13.5.sp,
-                    fontFamily = TajawalFontFamily,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = "${content.size} • $timestamp",
-                    color = if (isOutgoing) Color(0xFFDBEAFE) else Color(0xFF64748B),
+                    text = "تعذر الإرسال (انقطاع الإنترنت)",
+                    color = Color(0xFFDC2626),
                     fontSize = 11.sp,
-                    fontFamily = TajawalFontFamily
+                    fontFamily = TajawalFontFamily,
+                    modifier = Modifier.padding(top = 4.dp, end = 4.dp)
                 )
             }
         }
