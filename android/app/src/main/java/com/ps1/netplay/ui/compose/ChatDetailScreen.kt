@@ -51,6 +51,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -95,9 +96,20 @@ fun isNetworkAvailable(context: Context): Boolean {
 fun resolveMediaUrl(context: Context, rawUrl: String): Any {
     val trimmed = rawUrl.trim()
     if (trimmed.isEmpty()) return ""
+
+    // Check if it's an existing local file or file path
+    if (trimmed.startsWith("/") || trimmed.startsWith("file://")) {
+        val cleanPath = if (trimmed.startsWith("file://")) trimmed.removePrefix("file://") else trimmed
+        val file = File(cleanPath)
+        if (file.exists()) {
+            return file
+        }
+    }
+
     if (trimmed.startsWith("content://") || trimmed.startsWith("file://")) {
         return Uri.parse(trimmed)
     }
+
     if (trimmed.startsWith("data:image")) {
         return try {
             val base64Data = trimmed.substringAfter("base64,")
@@ -106,9 +118,25 @@ fun resolveMediaUrl(context: Context, rawUrl: String): Any {
             trimmed
         }
     }
+
+    // Check local chat_media storage directory by fileName
+    try {
+        val localMediaDir = File(context.filesDir, "chat_media")
+        val candidate = File(localMediaDir, trimmed)
+        if (candidate.exists()) {
+            return candidate
+        }
+        val cacheMediaDir = File(context.cacheDir, "chat_media")
+        val candidate2 = File(cacheMediaDir, trimmed)
+        if (candidate2.exists()) {
+            return candidate2
+        }
+    } catch (_: Exception) {}
+
     if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
         return trimmed
     }
+
     val baseUrl = CloudflareClient.getBaseUrl(context).trimEnd('/')
     val path = if (trimmed.startsWith("/")) trimmed else "/$trimmed"
     return "$baseUrl$path"
@@ -400,10 +428,26 @@ fun ChatDetailScreen(
 
                     val now = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date())
                     val msgId = "msg_${System.currentTimeMillis()}_${(100..999).random()}"
+
+                    // Read bytes immediately and cache to local app storage
+                    var localSavedPath = uri.toString()
+                    var fileBytes: ByteArray? = null
+                    try {
+                        fileBytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                        if (fileBytes != null && fileBytes.isNotEmpty()) {
+                            val mediaDir = File(context.filesDir, "chat_media").apply { mkdirs() }
+                            val localFile = File(mediaDir, "img_${msgId}_$displayName")
+                            localFile.writeBytes(fileBytes)
+                            localSavedPath = localFile.absolutePath
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+
                     val localMsg = Message(
                         id = msgId,
                         content = when (msgType) {
-                            "image" -> MessageContent.Photo(listOf(uri.toString()))
+                            "image" -> MessageContent.Photo(listOf(localSavedPath))
                             else -> MessageContent.Document(displayName, "مرفق وسائط", msgType)
                         },
                         timestamp = now,
@@ -417,7 +461,7 @@ fun ChatDetailScreen(
                     } else if (targetUserId.isNotEmpty()) {
                         coroutineScope.launch(Dispatchers.IO) {
                             try {
-                                val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                                val bytes = fileBytes ?: context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
                                 if (bytes != null) {
                                     CloudflareClient.uploadMediaFile(context, bytes, displayName, mimeType) { success, r2Url ->
                                         if (success && !r2Url.isNullOrEmpty()) {
@@ -426,7 +470,7 @@ fun ChatDetailScreen(
                                                     m.copy(
                                                         status = MessageStatus.DELIVERED,
                                                         content = when (m.content) {
-                                                            is MessageContent.Photo -> MessageContent.Photo(listOf(r2Url))
+                                                            is MessageContent.Photo -> MessageContent.Photo(listOf(localSavedPath))
                                                             else -> m.content
                                                         }
                                                     )
@@ -449,6 +493,7 @@ fun ChatDetailScreen(
                                                 }
                                             }
                                         } else {
+                                            // Keep local display and mark failed if network issue
                                             messages = messages.map { m ->
                                                 if (m.id == msgId) m.copy(status = MessageStatus.FAILED) else m
                                             }
