@@ -1,11 +1,17 @@
 package com.ps1.netplay.ui.compose
 
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.drawable.BitmapDrawable
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
 import android.provider.OpenableColumns
 import android.webkit.MimeTypeMap
 import android.widget.Toast
@@ -41,20 +47,27 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import coil.ImageLoader
 import coil.compose.AsyncImage
 import coil.compose.SubcomposeAsyncImage
+import coil.request.CachePolicy
 import coil.request.ImageRequest
+import coil.request.SuccessResult
 import com.ps1.netplay.CallActivity
 import com.ps1.netplay.UserManager
 import com.ps1.netplay.network.CloudflareClient
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 
 enum class MessageStatus {
     SENDING,
@@ -79,6 +92,51 @@ data class Message(
     val status: MessageStatus = MessageStatus.DELIVERED
 )
 
+data class FullscreenPhotoViewerData(
+    val url: String,
+    val messageId: String,
+    val timestamp: String,
+    val isOutgoing: Boolean,
+    val senderName: String
+)
+
+object ChatMediaCache {
+    private val memoryMap = ConcurrentHashMap<String, String>()
+
+    fun register(context: Context, key: String, localPath: String) {
+        if (key.isBlank() || localPath.isBlank()) return
+        val f = File(localPath)
+        if (!f.exists() || f.length() == 0L) return
+        memoryMap[key] = localPath
+        try {
+            context.getSharedPreferences("chat_media_registry", Context.MODE_PRIVATE)
+                .edit()
+                .putString(key, localPath)
+                .apply()
+        } catch (_: Exception) {}
+    }
+
+    fun get(context: Context, key: String): String? {
+        if (key.isBlank()) return null
+        val mem = memoryMap[key]
+        if (!mem.isNullOrEmpty()) {
+            val f = File(mem)
+            if (f.exists() && f.length() > 0) return mem
+        }
+        return try {
+            val disk = context.getSharedPreferences("chat_media_registry", Context.MODE_PRIVATE)
+                .getString(key, null)
+            if (!disk.isNullOrEmpty()) {
+                val f = File(disk)
+                if (f.exists() && f.length() > 0) {
+                    memoryMap[key] = disk
+                    disk
+                } else null
+            } else null
+        } catch (_: Exception) { null }
+    }
+}
+
 fun isNetworkAvailable(context: Context): Boolean {
     val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return false
     return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -93,23 +151,42 @@ fun isNetworkAvailable(context: Context): Boolean {
     }
 }
 
-fun resolveMediaUrl(context: Context, rawUrl: String): Any {
+fun resolveMediaUrl(context: Context, rawUrl: String, messageId: String? = null): Any {
     val trimmed = rawUrl.trim()
-    if (trimmed.isEmpty()) return ""
+    if (trimmed.isEmpty() && messageId.isNullOrEmpty()) return ""
 
-    // Check if it's an existing local file or file path
+    // 0. Check ChatMediaCache first for instant zero-latency loading
+    if (!messageId.isNullOrEmpty()) {
+        val cached = ChatMediaCache.get(context, messageId)
+        if (!cached.isNullOrEmpty()) {
+            val f = File(cached)
+            if (f.exists() && f.length() > 0) return f
+        }
+    }
+    if (trimmed.isNotEmpty()) {
+        val cached = ChatMediaCache.get(context, trimmed)
+        if (!cached.isNullOrEmpty()) {
+            val f = File(cached)
+            if (f.exists() && f.length() > 0) return f
+        }
+    }
+
+    // 1. Direct local absolute file or file:// path
     if (trimmed.startsWith("/") || trimmed.startsWith("file://")) {
         val cleanPath = if (trimmed.startsWith("file://")) trimmed.removePrefix("file://") else trimmed
         val file = File(cleanPath)
-        if (file.exists()) {
+        if (file.exists() && file.length() > 0) {
+            if (!messageId.isNullOrEmpty()) ChatMediaCache.register(context, messageId, file.absolutePath)
+            ChatMediaCache.register(context, trimmed, file.absolutePath)
             return file
         }
     }
 
-    if (trimmed.startsWith("content://") || trimmed.startsWith("file://")) {
+    if (trimmed.startsWith("content://")) {
         return Uri.parse(trimmed)
     }
 
+    // 2. Base64
     if (trimmed.startsWith("data:image")) {
         return try {
             val base64Data = trimmed.substringAfter("base64,")
@@ -119,27 +196,143 @@ fun resolveMediaUrl(context: Context, rawUrl: String): Any {
         }
     }
 
-    // Check local chat_media storage directory by fileName
+    // 3. Search local media storage directories
     try {
-        val localMediaDir = File(context.filesDir, "chat_media")
-        val candidate = File(localMediaDir, trimmed)
-        if (candidate.exists()) {
-            return candidate
+        val mediaDirs = listOf(
+            File(context.filesDir, "chat_media"),
+            File(context.cacheDir, "chat_media"),
+            context.filesDir,
+            context.cacheDir
+        )
+        val simpleName = trimmed.substringAfterLast("/")
+        val candidateNames = mutableListOf(
+            trimmed,
+            simpleName,
+            "img_$trimmed",
+            "img_$simpleName"
+        )
+        if (!messageId.isNullOrEmpty()) {
+            candidateNames.add("img_$messageId")
+            candidateNames.add(messageId)
+            candidateNames.add("img_${messageId}_$simpleName")
+            candidateNames.add("img_${messageId}_$trimmed")
         }
-        val cacheMediaDir = File(context.cacheDir, "chat_media")
-        val candidate2 = File(cacheMediaDir, trimmed)
-        if (candidate2.exists()) {
-            return candidate2
+
+        for (dir in mediaDirs) {
+            if (!dir.exists()) continue
+            for (candidate in candidateNames) {
+                val f = File(dir, candidate)
+                if (f.exists() && f.length() > 0) {
+                    if (!messageId.isNullOrEmpty()) ChatMediaCache.register(context, messageId, f.absolutePath)
+                    ChatMediaCache.register(context, trimmed, f.absolutePath)
+                    return f
+                }
+            }
+            if (!messageId.isNullOrEmpty()) {
+                val matching = dir.listFiles { file ->
+                    file.name.contains(messageId) && file.length() > 0
+                }
+                if (!matching.isNullOrEmpty()) {
+                    val f = matching[0]
+                    ChatMediaCache.register(context, messageId, f.absolutePath)
+                    return f
+                }
+            }
         }
     } catch (_: Exception) {}
 
+    val baseUrl = CloudflareClient.getBaseUrl(context).trimEnd('/')
+
+    // 4. Handle HTTP / HTTPS URLs - redirect legacy/inaccessible domains to active baseUrl
     if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+        if (trimmed.contains("/media/")) {
+            val mediaPath = trimmed.substringAfter("/media/").trimStart('/')
+            return "$baseUrl/media/$mediaPath"
+        }
+        if (trimmed.contains("ahmed1986y.com") || trimmed.contains("ahmed1986y5.workers.dev")) {
+            val key = trimmed.substringAfterLast("/").trimStart('/')
+            return "$baseUrl/media/uploads/$key"
+        }
         return trimmed
     }
 
-    val baseUrl = CloudflareClient.getBaseUrl(context).trimEnd('/')
-    val path = if (trimmed.startsWith("/")) trimmed else "/$trimmed"
-    return "$baseUrl$path"
+    // 5. Relative media paths
+    val cleanKey = trimmed.removePrefix("/media/").removePrefix("media/").removePrefix("/")
+    return "$baseUrl/media/$cleanKey"
+}
+
+fun saveImageToGallery(context: Context, model: Any, onResult: (Boolean, String) -> Unit) {
+    CoroutineScope(Dispatchers.IO).launch {
+        try {
+            var bitmap: Bitmap? = null
+            if (model is File && model.exists()) {
+                bitmap = BitmapFactory.decodeFile(model.absolutePath)
+            } else if (model is String && model.startsWith("/")) {
+                val f = File(model)
+                if (f.exists()) bitmap = BitmapFactory.decodeFile(f.absolutePath)
+            }
+
+            if (bitmap == null) {
+                val loader = ImageLoader(context)
+                val req = ImageRequest.Builder(context)
+                    .data(model)
+                    .allowHardware(false)
+                    .build()
+                val result = (loader.execute(req) as? SuccessResult)?.drawable
+                if (result is BitmapDrawable) {
+                    bitmap = result.bitmap
+                }
+            }
+
+            if (bitmap != null) {
+                val fileName = "IMG_${System.currentTimeMillis()}.jpg"
+                val resolver = context.contentResolver
+                val contentValues = ContentValues().apply {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                    put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/AlMahalla")
+                        put(MediaStore.MediaColumns.IS_PENDING, 1)
+                    }
+                }
+
+                val imageUri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
+                if (imageUri != null) {
+                    resolver.openOutputStream(imageUri)?.use { out ->
+                        bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)
+                    }
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        contentValues.clear()
+                        contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0)
+                        resolver.update(imageUri, contentValues, null, null)
+                    }
+                    withContext(Dispatchers.Main) {
+                        onResult(true, "تم حفظ الصورة في استوديو الصور بنجاح")
+                    }
+                    return@launch
+                }
+            }
+            withContext(Dispatchers.Main) {
+                onResult(false, "تعذر حفظ الصورة في المعرض")
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            withContext(Dispatchers.Main) {
+                onResult(false, "حدث خطأ أثناء حفظ الصورة")
+            }
+        }
+    }
+}
+
+fun shareImageContent(context: Context, model: Any) {
+    try {
+        val shareText = if (model is File) "صورة من تطبيق المحلة" else model.toString()
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, shareText)
+        }
+        context.startActivity(Intent.createChooser(intent, "مشاركة الصورة"))
+    } catch (_: Exception) {}
 }
 
 @Composable
@@ -163,10 +356,26 @@ fun ChatDetailScreen(
     // Load initial cached messages immediately without delay
     val initialLocal = remember(convId) {
         val cached = CloudflareClient.getLocalChatMessages(context, convId)
+        val mediaDir = File(context.filesDir, "chat_media")
         if (cached.isNotEmpty()) {
             cached.map { m ->
+                val cachedLocalPath = ChatMediaCache.get(context, m.id)
+                    ?: ChatMediaCache.get(context, m.mediaUrl)
+                    ?: ChatMediaCache.get(context, m.fileName)
+
+                val localFileCandidate = File(mediaDir, "img_${m.id}")
+                val localFileCandidate2 = if (m.fileName.isNotEmpty()) File(mediaDir, "img_${m.id}_${m.fileName}") else null
+                val localFileCandidate3 = if (m.fileName.isNotEmpty()) File(mediaDir, m.fileName) else null
+
+                val localPath = when {
+                    !cachedLocalPath.isNullOrEmpty() && File(cachedLocalPath).exists() -> cachedLocalPath
+                    localFileCandidate.exists() && localFileCandidate.length() > 0 -> localFileCandidate.absolutePath
+                    localFileCandidate2 != null && localFileCandidate2.exists() && localFileCandidate2.length() > 0 -> localFileCandidate2.absolutePath
+                    localFileCandidate3 != null && localFileCandidate3.exists() && localFileCandidate3.length() > 0 -> localFileCandidate3.absolutePath
+                    else -> m.mediaUrl.ifEmpty { m.content }
+                }
                 val content = when (m.type) {
-                    "image" -> MessageContent.Photo(listOf(m.mediaUrl.ifEmpty { m.content }))
+                    "image" -> MessageContent.Photo(listOf(localPath))
                     "file", "audio", "video" -> MessageContent.Document(m.fileName.ifEmpty { m.content }, "ملف", m.type)
                     else -> MessageContent.Text(m.content)
                 }
@@ -182,6 +391,9 @@ fun ChatDetailScreen(
     val listState = rememberLazyListState()
     val imeBottom = WindowInsets.ime.getBottom(LocalDensity.current)
 
+    // Full screen photo viewer state
+    var activePhotoViewer by remember { mutableStateOf<FullscreenPhotoViewerData?>(null) }
+
     // Story viewing state
     var showStoryDialog by remember { mutableStateOf(false) }
     var activeStoryToView by remember { mutableStateOf<UserStory?>(null) }
@@ -190,12 +402,33 @@ fun ChatDetailScreen(
     // Live bidirectional sync loop from Cloudflare and R2
     LaunchedEffect(targetUserId) {
         if (targetUserId.isNotEmpty()) {
+            val mediaDir = File(context.filesDir, "chat_media")
             while (isActive) {
                 CloudflareClient.fetchCloudflareMessages(context, targetUserId) { loaded ->
                     if (loaded.isNotEmpty()) {
+                        val currentPhotoMap = messages.associate { curr ->
+                            curr.id to (curr.content as? MessageContent.Photo)?.urls?.firstOrNull()
+                        }
                         val mapped = loaded.map { m ->
+                            val existingLocal = currentPhotoMap[m.id]
+                            val cachedLocalPath = ChatMediaCache.get(context, m.id)
+                                ?: ChatMediaCache.get(context, m.mediaUrl)
+                                ?: ChatMediaCache.get(context, m.fileName)
+
+                            val localFileCandidate = File(mediaDir, "img_${m.id}")
+                            val localFileCandidate2 = if (m.fileName.isNotEmpty()) File(mediaDir, "img_${m.id}_${m.fileName}") else null
+                            val localFileCandidate3 = if (m.fileName.isNotEmpty()) File(mediaDir, m.fileName) else null
+
+                            val localPath = when {
+                                !existingLocal.isNullOrEmpty() && (existingLocal.startsWith("/") || existingLocal.startsWith("file://") || existingLocal.startsWith("content://")) -> existingLocal
+                                !cachedLocalPath.isNullOrEmpty() && File(cachedLocalPath).exists() -> cachedLocalPath
+                                localFileCandidate.exists() && localFileCandidate.length() > 0 -> localFileCandidate.absolutePath
+                                localFileCandidate2 != null && localFileCandidate2.exists() && localFileCandidate2.length() > 0 -> localFileCandidate2.absolutePath
+                                localFileCandidate3 != null && localFileCandidate3.exists() && localFileCandidate3.length() > 0 -> localFileCandidate3.absolutePath
+                                else -> m.mediaUrl.ifEmpty { m.content }
+                            }
                             val content = when (m.type) {
-                                "image" -> MessageContent.Photo(listOf(m.mediaUrl.ifEmpty { m.content }))
+                                "image" -> MessageContent.Photo(listOf(localPath))
                                 "file", "audio", "video" -> MessageContent.Document(m.fileName.ifEmpty { m.content }, "ملف", m.type)
                                 else -> MessageContent.Text(m.content)
                             }
@@ -223,6 +456,30 @@ fun ChatDetailScreen(
         if (imeBottom > 0 && messages.isNotEmpty()) {
             listState.animateScrollToItem(messages.size - 1)
         }
+    }
+
+    // Full screen interactive photo viewer dialog
+    if (activePhotoViewer != null) {
+        val photoData = activePhotoViewer!!
+        FullscreenPhotoViewerDialog(
+            data = photoData,
+            onDismiss = { activePhotoViewer = null },
+            onSave = {
+                saveImageToGallery(context, resolveMediaUrl(context, photoData.url)) { _, msg ->
+                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                }
+            },
+            onShare = {
+                shareImageContent(context, resolveMediaUrl(context, photoData.url))
+            },
+            onDelete = {
+                val msgIdToDelete = photoData.messageId
+                messages = messages.filter { it.id != msgIdToDelete }
+                CloudflareClient.deleteLocalChatMessage(context, convId, msgIdToDelete)
+                activePhotoViewer = null
+                Toast.makeText(context, "تم حذف الصورة من المحادثة", Toast.LENGTH_SHORT).show()
+            }
+        )
     }
 
     // Story Viewer Dialog
@@ -330,14 +587,32 @@ fun ChatDetailScreen(
                                     url = message.content.urls.first(),
                                     timestamp = message.timestamp,
                                     isOutgoing = message.isOutgoing,
-                                    status = message.status
+                                    status = message.status,
+                                    onPhotoClick = { clickedUrl ->
+                                        activePhotoViewer = FullscreenPhotoViewerData(
+                                            url = clickedUrl,
+                                            messageId = message.id,
+                                            timestamp = message.timestamp,
+                                            isOutgoing = message.isOutgoing,
+                                            senderName = if (message.isOutgoing) "أنت" else userName
+                                        )
+                                    }
                                 )
                             } else {
                                 MultiPhotoBubble(
                                     urls = message.content.urls,
                                     timestamp = message.timestamp,
                                     isOutgoing = message.isOutgoing,
-                                    status = message.status
+                                    status = message.status,
+                                    onPhotoClick = { clickedUrl ->
+                                        activePhotoViewer = FullscreenPhotoViewerData(
+                                            url = clickedUrl,
+                                            messageId = message.id,
+                                            timestamp = message.timestamp,
+                                            isOutgoing = message.isOutgoing,
+                                            senderName = if (message.isOutgoing) "أنت" else userName
+                                        )
+                                    }
                                 )
                             }
                         }
@@ -439,6 +714,19 @@ fun ChatDetailScreen(
                             val localFile = File(mediaDir, "img_${msgId}_$displayName")
                             localFile.writeBytes(fileBytes)
                             localSavedPath = localFile.absolutePath
+
+                            try {
+                                val altFile1 = File(mediaDir, "img_$msgId")
+                                altFile1.writeBytes(fileBytes)
+                                val altFile2 = File(mediaDir, msgId)
+                                altFile2.writeBytes(fileBytes)
+                                val altFile3 = File(mediaDir, displayName)
+                                altFile3.writeBytes(fileBytes)
+                            } catch (_: Exception) {}
+
+                            ChatMediaCache.register(context, msgId, localSavedPath)
+                            ChatMediaCache.register(context, displayName, localSavedPath)
+                            ChatMediaCache.register(context, "img_$msgId", localSavedPath)
                         }
                     } catch (e: Exception) {
                         e.printStackTrace()
@@ -465,6 +753,10 @@ fun ChatDetailScreen(
                                 if (bytes != null) {
                                     CloudflareClient.uploadMediaFile(context, bytes, displayName, mimeType) { success, r2Url ->
                                         if (success && !r2Url.isNullOrEmpty()) {
+                                            ChatMediaCache.register(context, r2Url, localSavedPath)
+                                            val r2Key = r2Url.substringAfterLast("/")
+                                            ChatMediaCache.register(context, r2Key, localSavedPath)
+
                                             messages = messages.map { m ->
                                                 if (m.id == msgId) {
                                                     m.copy(
@@ -935,7 +1227,8 @@ fun SinglePhotoBubble(
     url: String, 
     timestamp: String, 
     isOutgoing: Boolean,
-    status: MessageStatus = MessageStatus.DELIVERED
+    status: MessageStatus = MessageStatus.DELIVERED,
+    onPhotoClick: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
     val imageModel = remember(url) { resolveMediaUrl(context, url) }
@@ -959,11 +1252,14 @@ fun SinglePhotoBubble(
                         if (isOutgoing && status == MessageStatus.FAILED) Color(0xFFEF4444) else Color(0xFFE2E8F0),
                         RoundedCornerShape(18.dp)
                     )
+                    .clickable { onPhotoClick(url) }
             ) {
                 SubcomposeAsyncImage(
                     model = ImageRequest.Builder(context)
                         .data(imageModel)
                         .crossfade(true)
+                        .diskCachePolicy(CachePolicy.ENABLED)
+                        .memoryCachePolicy(CachePolicy.ENABLED)
                         .build(),
                     contentDescription = "صورة",
                     modifier = Modifier.fillMaxSize(),
@@ -1085,7 +1381,8 @@ fun MultiPhotoBubble(
     urls: List<String>, 
     timestamp: String, 
     isOutgoing: Boolean,
-    status: MessageStatus = MessageStatus.DELIVERED
+    status: MessageStatus = MessageStatus.DELIVERED,
+    onPhotoClick: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
     Row(
@@ -1115,11 +1412,14 @@ fun MultiPhotoBubble(
                                     .weight(1f)
                                     .fillMaxHeight()
                                     .background(Color(0xFFF1F5F9))
+                                    .clickable { onPhotoClick(itemUrl) }
                             ) {
                                 SubcomposeAsyncImage(
                                     model = ImageRequest.Builder(context)
                                         .data(resolveMediaUrl(context, itemUrl))
                                         .crossfade(true)
+                                        .diskCachePolicy(CachePolicy.ENABLED)
+                                        .memoryCachePolicy(CachePolicy.ENABLED)
                                         .build(),
                                     contentDescription = "صورة",
                                     modifier = Modifier.fillMaxSize(),
@@ -1151,6 +1451,333 @@ fun MultiPhotoBubble(
                 )
             }
         }
+    }
+}
+
+@Composable
+fun FullscreenPhotoViewerDialog(
+    data: FullscreenPhotoViewerData,
+    onDismiss: () -> Unit,
+    onSave: () -> Unit,
+    onShare: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val context = LocalContext.current
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+    val imageModel = remember(data.url) { resolveMediaUrl(context, data.url) }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            dismissOnBackPress = true,
+            dismissOnClickOutside = false
+        )
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color(0xF2090D16))
+        ) {
+            // Main Photo Display
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(vertical = 72.dp, horizontal = 10.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                SubcomposeAsyncImage(
+                    model = ImageRequest.Builder(context)
+                        .data(imageModel)
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = "عرض الصورة كاملة",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Fit,
+                    loading = {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(38.dp),
+                                    color = Color(0xFF38BDF8),
+                                    strokeWidth = 3.dp
+                                )
+                                Text(
+                                    text = "جاري تحميل الصورة بدقة عالية...",
+                                    color = Color(0xFFE2E8F0),
+                                    fontFamily = TajawalFontFamily,
+                                    fontSize = 13.sp
+                                )
+                            }
+                        }
+                    },
+                    error = {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.BrokenImage,
+                                    contentDescription = null,
+                                    tint = Color(0xFF94A3B8),
+                                    modifier = Modifier.size(48.dp)
+                                )
+                                Text(
+                                    text = "تعذر تحميل الصورة بدقة كاملة",
+                                    color = Color(0xFF94A3B8),
+                                    fontFamily = TajawalFontFamily,
+                                    fontSize = 13.sp
+                                )
+                            }
+                        }
+                    }
+                )
+            }
+
+            // Top Header Bar
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.TopCenter)
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(Color.Black.copy(alpha = 0.85f), Color.Transparent)
+                        )
+                    )
+                    .statusBarsPadding()
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                // Close Button & Sender Info
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier
+                            .size(38.dp)
+                            .background(Color.White.copy(alpha = 0.15f), CircleShape)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "إغلاق",
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    Column {
+                        Text(
+                            text = data.senderName,
+                            color = Color.White,
+                            fontFamily = TajawalFontFamily,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp
+                        )
+                        Text(
+                            text = data.timestamp,
+                            color = Color(0xFF94A3B8),
+                            fontFamily = TajawalFontFamily,
+                            fontSize = 11.5.sp
+                        )
+                    }
+                }
+
+                // Top Quick Action Icons
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    IconButton(
+                        onClick = onSave,
+                        modifier = Modifier
+                            .size(38.dp)
+                            .background(Color.White.copy(alpha = 0.15f), CircleShape)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Download,
+                            contentDescription = "حفظ",
+                            tint = Color.White,
+                            modifier = Modifier.size(19.dp)
+                        )
+                    }
+
+                    IconButton(
+                        onClick = onShare,
+                        modifier = Modifier
+                            .size(38.dp)
+                            .background(Color.White.copy(alpha = 0.15f), CircleShape)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Share,
+                            contentDescription = "مشاركة",
+                            tint = Color.White,
+                            modifier = Modifier.size(19.dp)
+                        )
+                    }
+
+                    IconButton(
+                        onClick = { showDeleteConfirm = true },
+                        modifier = Modifier
+                            .size(38.dp)
+                            .background(Color(0x33EF4444), CircleShape)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.DeleteOutline,
+                            contentDescription = "حذف",
+                            tint = Color(0xFFEF4444),
+                            modifier = Modifier.size(19.dp)
+                        )
+                    }
+                }
+            }
+
+            // Bottom Action Bar
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.BottomCenter)
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(Color.Transparent, Color.Black.copy(alpha = 0.9f))
+                        )
+                    )
+                    .navigationBarsPadding()
+                    .padding(horizontal = 16.dp, vertical = 14.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Save Button
+                    Button(
+                        onClick = onSave,
+                        modifier = Modifier.weight(1f).height(44.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
+                        shape = RoundedCornerShape(14.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Download,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "حفظ الصورة",
+                            fontFamily = TajawalFontFamily,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            fontSize = 13.5.sp
+                        )
+                    }
+
+                    // Share Button
+                    OutlinedButton(
+                        onClick = onShare,
+                        modifier = Modifier.weight(1f).height(44.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x55FFFFFF)),
+                        shape = RoundedCornerShape(14.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Share,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "مشاركة",
+                            fontFamily = TajawalFontFamily,
+                            fontWeight = FontWeight.Medium,
+                            color = Color.White,
+                            fontSize = 13.5.sp
+                        )
+                    }
+
+                    // Delete Button
+                    IconButton(
+                        onClick = { showDeleteConfirm = true },
+                        modifier = Modifier
+                            .size(44.dp)
+                            .background(Color(0x33EF4444), RoundedCornerShape(14.dp))
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.DeleteOutline,
+                            contentDescription = "حذف الصورة",
+                            tint = Color(0xFFEF4444),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    // Delete Confirmation Dialog
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            containerColor = Color.White,
+            shape = RoundedCornerShape(20.dp),
+            title = {
+                Text(
+                    text = "حذف الصورة",
+                    fontFamily = TajawalFontFamily,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF0F172A),
+                    fontSize = 17.sp
+                )
+            },
+            text = {
+                Text(
+                    text = "هل أنت متأكد من حذف هذه الصورة من سجل المحادثة؟",
+                    fontFamily = TajawalFontFamily,
+                    color = Color(0xFF64748B),
+                    fontSize = 14.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showDeleteConfirm = false
+                        onDelete()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text(
+                        text = "حذف",
+                        fontFamily = TajawalFontFamily,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) {
+                    Text(
+                        text = "إلغاء",
+                        fontFamily = TajawalFontFamily,
+                        color = Color(0xFF64748B)
+                    )
+                }
+            }
+        )
     }
 }
 

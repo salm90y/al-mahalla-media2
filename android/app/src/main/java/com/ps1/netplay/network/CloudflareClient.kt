@@ -707,9 +707,9 @@ val serverUrl = json.optString("url", "wss://ps1-netplay.livekit.cloud")
     // ----------------- Media Upload -----------------
     fun uploadMedia(context: Context, bytes: ByteArray, fileName: String, mimeType: String, callback: (String?) -> Unit) {
         val token = getAuthToken(context)
-val url = "${getBaseUrl(context)}/media/upload"
+        val url = "${getBaseUrl(context)}/media/upload"
         val body = bytes.toRequestBody(mimeType.toMediaTypeOrNull())
-val request = Request.Builder()
+        val request = Request.Builder()
             .url(url)
             .post(body)
             .addHeader("Content-Type", mimeType)
@@ -720,7 +720,7 @@ val request = Request.Builder()
             override fun onFailure(call: Call, e: IOException) {
                 mainHandler.post { callback(null) }
             }
-override fun onResponse(call: Call, response: Response) {
+            override fun onResponse(call: Call, response: Response) {
                 response.use {
                     if (response.isSuccessful) {
                         try {
@@ -731,6 +731,45 @@ override fun onResponse(call: Call, response: Response) {
                         } catch (_: Exception) {}
                     }
                     mainHandler.post { callback(null) }
+                }
+            }
+        })
+    }
+
+    fun uploadMediaFile(
+        context: Context,
+        bytes: ByteArray,
+        fileName: String,
+        mimeType: String,
+        callback: (Boolean, String?) -> Unit
+    ) {
+        val token = getAuthToken(context)
+        val myId = getCurrentUserId(context)
+        val url = "${getBaseUrl(context)}/media/upload"
+        val body = bytes.toRequestBody(mimeType.toMediaTypeOrNull())
+        val request = Request.Builder()
+            .url(url)
+            .post(body)
+            .addHeader("Content-Type", mimeType)
+            .addHeader("X-File-Name", fileName)
+            .addHeader("X-User-Id", myId)
+            .apply { if (token != null) addHeader("Authorization", "Bearer $token") }
+            .build()
+        httpClient.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                mainHandler.post { callback(false, null) }
+            }
+            override fun onResponse(call: Call, response: Response) {
+                response.use { resp ->
+                    if (resp.isSuccessful) {
+                        try {
+                            val json = JSONObject(resp.body?.string() ?: "{}")
+                            val mediaUrl = json.optString("media_url").ifEmpty { json.optString("url") }
+                            mainHandler.post { callback(true, mediaUrl) }
+                            return
+                        } catch (_: Exception) {}
+                    }
+                    mainHandler.post { callback(false, null) }
                 }
             }
         })
@@ -1339,6 +1378,12 @@ override fun onResponse(call: Call, response: Response) {
         val current = getLocalChatMessages(context, convId).toMutableList()
         current.removeAll { it.id == message.id }
         current.add(message)
+        saveLocalChatMessages(context, convId, current)
+    }
+
+    fun deleteLocalChatMessage(context: Context, convId: String, messageId: String) {
+        val current = getLocalChatMessages(context, convId).toMutableList()
+        current.removeAll { it.id == messageId }
         saveLocalChatMessages(context, convId, current)
     }
 

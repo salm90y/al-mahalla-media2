@@ -263,9 +263,9 @@ async function startServer() {
   });
 
   // ----------------- R2: POST /media/upload -----------------
-  app.post('/media/upload', (req, res) => {
+  app.post(['/media/upload', '/api/media/upload'], (req, res) => {
     const auth = getAuth(req);
-    const userId = auth?.id || "guest";
+    const userId = auth?.id || (req.headers['x-user-id'] as string) || "guest";
     const filename = req.headers['x-file-name'] as string || `file_${Date.now()}`;
     const contentType = (req.headers['content-type'] as string) || "application/octet-stream";
     
@@ -285,11 +285,16 @@ async function startServer() {
     let buffer: Buffer;
     if (Buffer.isBuffer(req.body)) {
       buffer = req.body;
+    } else if (typeof req.body === 'string') {
+      buffer = Buffer.from(req.body);
     } else {
       buffer = Buffer.from(JSON.stringify(req.body || {}));
     }
 
-    r2MediaBucket.set(key, { data: buffer, contentType, filename });
+    const mediaItem = { data: buffer, contentType, filename };
+    r2MediaBucket.set(key, mediaItem);
+    r2MediaBucket.set(`uploads/${userId}/${Date.now()}_${filename}`, mediaItem);
+    r2MediaBucket.set(filename, mediaItem);
 
     const mediaUrl = `https://api.ahmed1986y.com/media/${key}`;
     res.json({
@@ -305,13 +310,28 @@ async function startServer() {
   });
 
   // ----------------- R2: GET /media/:key -----------------
-  app.get('/media/*', (req, res) => {
-    const key = req.params[0];
-    const item = r2MediaBucket.get(key);
+  app.get(['/media/*', '/api/media/*'], (req, res) => {
+    const rawKey = req.params[0] || "";
+    const cleanKey = rawKey.replace(/^\/+/, "");
+    
+    let item = r2MediaBucket.get(cleanKey) || r2MediaBucket.get(rawKey);
+    
+    if (!item) {
+      // Suffix search
+      for (const [k, v] of r2MediaBucket.entries()) {
+        if (k.endsWith(cleanKey) || cleanKey.endsWith(k) || (v.filename && v.filename === cleanKey)) {
+          item = v;
+          break;
+        }
+      }
+    }
+
     if (!item) {
       return res.status(404).send("File not found in R2 bucket");
     }
-    res.setHeader("Content-Type", item.contentType);
+    res.setHeader("Content-Type", item.contentType || "application/octet-stream");
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Cache-Control", "public, max-age=31536000");
     res.send(item.data);
   });
 
@@ -487,9 +507,9 @@ async function startServer() {
   // ----------------- Messages: POST /messages/send -----------------
   app.post(['/messages/send', '/api/messages/send'], (req, res) => {
     const auth = getAuth(req);
-    const { receiver_id, type = "text", content = "", media_url = "", file_name = "", file_size = 0 } = req.body;
+    const { receiver_id, type = "text", content = "", media_url = "", file_name = "", file_size = 0, id } = req.body;
     const senderId = auth?.id || req.body.sender_id || (req.headers['x-user-id'] as string) || "user_me";
-    const messageId = crypto.randomUUID();
+    const messageId = id || req.body.message_id || crypto.randomUUID();
     const now = Date.now();
     const [u1, u2] = [senderId, receiver_id || "user_target"].sort();
     const convId = `${u1}_${u2}`;
