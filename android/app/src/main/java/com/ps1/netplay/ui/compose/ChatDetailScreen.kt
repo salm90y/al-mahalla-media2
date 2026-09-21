@@ -151,6 +151,68 @@ fun isNetworkAvailable(context: Context): Boolean {
     }
 }
 
+fun resolveMediaUrlString(context: Context, rawUrl: String): String {
+    val trimmed = rawUrl.trim()
+    if (trimmed.isEmpty()) return ""
+    val baseUrl = CloudflareClient.getBaseUrl(context).trimEnd('/')
+    if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+        if (trimmed.contains("/media/")) {
+            val mediaPath = trimmed.substringAfter("/media/").trimStart('/')
+            return "$baseUrl/media/$mediaPath"
+        }
+        if (trimmed.contains("ahmed1986y.com") || trimmed.contains("ahmed1986y5.workers.dev")) {
+            val key = trimmed.substringAfterLast("/").trimStart('/')
+            return "$baseUrl/media/uploads/$key"
+        }
+        return trimmed
+    }
+    val cleanKey = trimmed.removePrefix("/media/").removePrefix("media/").removePrefix("/")
+    return "$baseUrl/media/$cleanKey"
+}
+
+fun ensureMediaCachedLocally(context: Context, rawUrl: String, messageId: String? = null) {
+    val trimmed = rawUrl.trim()
+    if (trimmed.isBlank() || trimmed.startsWith("/") || trimmed.startsWith("file://") || trimmed.startsWith("content://") || trimmed.startsWith("data:image")) return
+
+    val resolvedUrl = resolveMediaUrlString(context, trimmed)
+    if (!resolvedUrl.startsWith("http://") && !resolvedUrl.startsWith("https://")) return
+
+    val mediaDir = File(context.filesDir, "chat_media").apply { mkdirs() }
+    val safeHash = Math.abs(resolvedUrl.hashCode()).toString()
+    val simpleName = resolvedUrl.substringAfterLast("/").substringBefore("?")
+    val localFile = File(mediaDir, "cache_${safeHash}_$simpleName")
+
+    if (localFile.exists() && localFile.length() > 0) {
+        ChatMediaCache.register(context, trimmed, localFile.absolutePath)
+        ChatMediaCache.register(context, resolvedUrl, localFile.absolutePath)
+        if (!messageId.isNullOrEmpty()) ChatMediaCache.register(context, messageId, localFile.absolutePath)
+        return
+    }
+
+    CoroutineScope(Dispatchers.IO).launch {
+        try {
+            val req = okhttp3.Request.Builder().url(resolvedUrl).build()
+            val client = okhttp3.OkHttpClient.Builder()
+                .connectTimeout(12, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+                .build()
+            client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val bytes = resp.body?.bytes()
+                    if (bytes != null && bytes.isNotEmpty()) {
+                        val tempFile = File(mediaDir, "temp_${safeHash}_$simpleName")
+                        tempFile.writeBytes(bytes)
+                        tempFile.renameTo(localFile)
+                        ChatMediaCache.register(context, trimmed, localFile.absolutePath)
+                        ChatMediaCache.register(context, resolvedUrl, localFile.absolutePath)
+                        if (!messageId.isNullOrEmpty()) ChatMediaCache.register(context, messageId, localFile.absolutePath)
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+    }
+}
+
 fun resolveMediaUrl(context: Context, rawUrl: String, messageId: String? = null): Any {
     val trimmed = rawUrl.trim()
     if (trimmed.isEmpty() && messageId.isNullOrEmpty()) return ""
@@ -196,7 +258,7 @@ fun resolveMediaUrl(context: Context, rawUrl: String, messageId: String? = null)
         }
     }
 
-    // 3. Search local media storage directories
+    // 3. Search local media storage directories & cache
     try {
         val mediaDirs = listOf(
             File(context.filesDir, "chat_media"),
@@ -205,9 +267,11 @@ fun resolveMediaUrl(context: Context, rawUrl: String, messageId: String? = null)
             context.cacheDir
         )
         val simpleName = trimmed.substringAfterLast("/")
+        val safeHash = Math.abs(trimmed.hashCode()).toString()
         val candidateNames = mutableListOf(
             trimmed,
             simpleName,
+            "cache_${safeHash}_$simpleName",
             "img_$trimmed",
             "img_$simpleName"
         )
@@ -241,24 +305,10 @@ fun resolveMediaUrl(context: Context, rawUrl: String, messageId: String? = null)
         }
     } catch (_: Exception) {}
 
-    val baseUrl = CloudflareClient.getBaseUrl(context).trimEnd('/')
+    // Trigger local background download & permanent cache for remote URL
+    ensureMediaCachedLocally(context, trimmed, messageId)
 
-    // 4. Handle HTTP / HTTPS URLs - redirect legacy/inaccessible domains to active baseUrl
-    if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
-        if (trimmed.contains("/media/")) {
-            val mediaPath = trimmed.substringAfter("/media/").trimStart('/')
-            return "$baseUrl/media/$mediaPath"
-        }
-        if (trimmed.contains("ahmed1986y.com") || trimmed.contains("ahmed1986y5.workers.dev")) {
-            val key = trimmed.substringAfterLast("/").trimStart('/')
-            return "$baseUrl/media/uploads/$key"
-        }
-        return trimmed
-    }
-
-    // 5. Relative media paths
-    val cleanKey = trimmed.removePrefix("/media/").removePrefix("media/").removePrefix("/")
-    return "$baseUrl/media/$cleanKey"
+    return resolveMediaUrlString(context, trimmed)
 }
 
 fun saveImageToGallery(context: Context, model: Any, onResult: (Boolean, String) -> Unit) {
@@ -373,6 +423,9 @@ fun ChatDetailScreen(
                     localFileCandidate2 != null && localFileCandidate2.exists() && localFileCandidate2.length() > 0 -> localFileCandidate2.absolutePath
                     localFileCandidate3 != null && localFileCandidate3.exists() && localFileCandidate3.length() > 0 -> localFileCandidate3.absolutePath
                     else -> m.mediaUrl.ifEmpty { m.content }
+                }
+                if (m.type == "image") {
+                    ensureMediaCachedLocally(context, localPath, m.id)
                 }
                 val content = when (m.type) {
                     "image" -> MessageContent.Photo(listOf(localPath))
@@ -846,7 +899,6 @@ fun ChatTopBar(
             .fillMaxWidth()
             .background(Color.White)
             .statusBarsPadding()
-            .border(1.dp, Color(0xFFE2E8F0))
             .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -947,7 +999,7 @@ fun ChatTopBar(
             }
         }
 
-        // 1. Audio Call Button - Small icon without text
+        // 1. Audio Call Button - Free Icon
         IconButton(
             onClick = {
                 val intent = Intent(context, CallActivity::class.java).apply {
@@ -957,22 +1009,19 @@ fun ChatTopBar(
                 }
                 context.startActivity(intent)
             },
-            modifier = Modifier
-                .size(38.dp)
-                .background(Color.White, CircleShape)
-                .border(1.dp, Color(0xFFE2E8F0), CircleShape)
+            modifier = Modifier.size(38.dp)
         ) {
             Icon(
                 imageVector = Icons.Default.Call,
                 contentDescription = "اتصال صوتي",
                 tint = Color(0xFF2563EB),
-                modifier = Modifier.size(19.dp)
+                modifier = Modifier.size(22.dp)
             )
         }
 
-        Spacer(modifier = Modifier.width(8.dp))
+        Spacer(modifier = Modifier.width(4.dp))
 
-        // 2. Video Call Button - Small icon without text (Same Design)
+        // 2. Video Call Button - Free Icon
         IconButton(
             onClick = {
                 val intent = Intent(context, CallActivity::class.java).apply {
@@ -982,16 +1031,13 @@ fun ChatTopBar(
                 }
                 context.startActivity(intent)
             },
-            modifier = Modifier
-                .size(38.dp)
-                .background(Color.White, CircleShape)
-                .border(1.dp, Color(0xFFE2E8F0), CircleShape)
+            modifier = Modifier.size(38.dp)
         ) {
             Icon(
                 imageVector = Icons.Default.Videocam,
                 contentDescription = "اتصال فيديو",
                 tint = Color(0xFF2563EB),
-                modifier = Modifier.size(20.dp)
+                modifier = Modifier.size(24.dp)
             )
         }
     }
@@ -1233,6 +1279,10 @@ fun SinglePhotoBubble(
     val context = LocalContext.current
     val imageModel = remember(url) { resolveMediaUrl(context, url) }
 
+    LaunchedEffect(url) {
+        ensureMediaCachedLocally(context, url)
+    }
+
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (isOutgoing) Arrangement.End else Arrangement.Start
@@ -1254,45 +1304,17 @@ fun SinglePhotoBubble(
                     )
                     .clickable { onPhotoClick(url) }
             ) {
-                SubcomposeAsyncImage(
+                AsyncImage(
                     model = ImageRequest.Builder(context)
                         .data(imageModel)
                         .crossfade(true)
                         .diskCachePolicy(CachePolicy.ENABLED)
                         .memoryCachePolicy(CachePolicy.ENABLED)
+                        .networkCachePolicy(CachePolicy.ENABLED)
                         .build(),
                     contentDescription = "صورة",
                     modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
-                    loading = {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(Color(0xFFF8FAFC)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(32.dp),
-                                color = Color(0xFF2563EB),
-                                strokeWidth = 2.5.dp
-                            )
-                        }
-                    },
-                    error = {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(Color(0xFFF1F5F9)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.BrokenImage,
-                                contentDescription = "صورة",
-                                tint = Color(0xFF94A3B8),
-                                modifier = Modifier.size(36.dp)
-                            )
-                        }
-                    }
+                    contentScale = ContentScale.Crop
                 )
 
                 // Bottom gradient for timestamp & status
@@ -1385,6 +1407,10 @@ fun MultiPhotoBubble(
     onPhotoClick: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
+    LaunchedEffect(urls) {
+        urls.forEach { ensureMediaCachedLocally(context, it) }
+    }
+
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (isOutgoing) Arrangement.End else Arrangement.Start
@@ -1407,6 +1433,7 @@ fun MultiPhotoBubble(
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Row(horizontalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.height(110.dp)) {
                         urls.take(2).forEach { itemUrl ->
+                            val model = remember(itemUrl) { resolveMediaUrl(context, itemUrl) }
                             Box(
                                 modifier = Modifier
                                     .weight(1f)
@@ -1414,26 +1441,17 @@ fun MultiPhotoBubble(
                                     .background(Color(0xFFF1F5F9))
                                     .clickable { onPhotoClick(itemUrl) }
                             ) {
-                                SubcomposeAsyncImage(
+                                AsyncImage(
                                     model = ImageRequest.Builder(context)
-                                        .data(resolveMediaUrl(context, itemUrl))
+                                        .data(model)
                                         .crossfade(true)
                                         .diskCachePolicy(CachePolicy.ENABLED)
                                         .memoryCachePolicy(CachePolicy.ENABLED)
+                                        .networkCachePolicy(CachePolicy.ENABLED)
                                         .build(),
                                     contentDescription = "صورة",
                                     modifier = Modifier.fillMaxSize(),
-                                    contentScale = ContentScale.Crop,
-                                    loading = {
-                                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                            CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp, color = Color(0xFF2563EB))
-                                        }
-                                    },
-                                    error = {
-                                        Box(modifier = Modifier.fillMaxSize().background(Color(0xFFF1F5F9)), contentAlignment = Alignment.Center) {
-                                            Icon(Icons.Default.BrokenImage, contentDescription = null, tint = Color(0xFF94A3B8), modifier = Modifier.size(24.dp))
-                                        }
-                                    }
+                                    contentScale = ContentScale.Crop
                                 )
                             }
                         }
