@@ -116,6 +116,8 @@ fun WhatsAppSettingsScreen(
     var vibrateAnswer by remember { mutableStateOf(AppSettingsManager.isVibrateAnswer(context)) }
     var callDataSaver by remember { mutableStateOf(AppSettingsManager.isCallDataSaver(context)) }
 
+    val scope = rememberCoroutineScope()
+
     // Profile
     val currentUser = remember { UserManager.getCurrentUser(context) }
     var userName by remember { mutableStateOf(currentUser?.fullName?.ifEmpty { currentUser.username } ?: "أحمد المحلاوي") }
