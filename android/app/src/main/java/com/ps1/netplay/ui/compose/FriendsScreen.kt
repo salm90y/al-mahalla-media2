@@ -143,12 +143,12 @@ fun FriendsScreen(
             .background(Color.White)
             .statusBarsPadding()
     ) {
-        // 1. Top Bar: Title "الأصدقاء"
+        // 1. Unified Top Bar: Title "الأصدقاء" on Right (Start in RTL), Add Friend Icon on Left (End in RTL)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp, vertical = 14.dp),
-            horizontalArrangement = Arrangement.Start,
+            horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             // Title "الأصدقاء"
@@ -159,61 +159,22 @@ fun FriendsScreen(
                 fontFamily = TajawalFontFamily,
                 color = Color(0xFF0F172A)
             )
-        }
 
-        // 2. Search Bar
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 6.dp)
-                .height(48.dp)
-                .clip(RoundedCornerShape(24.dp))
-                .background(Color(0xFFF1F5F9))
-                .padding(horizontal = 16.dp),
-            contentAlignment = Alignment.CenterStart
-        ) {
-            Row(
-                modifier = Modifier.fillMaxSize(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Start
+            // Add Friend Icon Button (Free/flat icon, size 38dp)
+            IconButton(
+                onClick = { showAddFriendDialog = true },
+                modifier = Modifier.size(38.dp)
             ) {
                 Icon(
-                    imageVector = Icons.Default.Search,
-                    contentDescription = "بحث",
-                    tint = Color(0xFF94A3B8),
-                    modifier = Modifier.size(20.dp)
-                )
-
-                Spacer(modifier = Modifier.width(8.dp))
-
-                BasicTextField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it },
-                    textStyle = TextStyle(
-                        fontSize = 14.sp,
-                        fontFamily = TajawalFontFamily,
-                        color = Color(0xFF0F172A),
-                        textAlign = TextAlign.Start
-                    ),
-                    modifier = Modifier.weight(1f),
-                    decorationBox = { innerTextField ->
-                        if (searchQuery.isEmpty()) {
-                            Text(
-                                text = "ابحث عن صديق",
-                                fontSize = 14.sp,
-                                fontFamily = TajawalFontFamily,
-                                color = Color(0xFF94A3B8),
-                                textAlign = TextAlign.Start,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        }
-                        innerTextField()
-                    }
+                    imageVector = Icons.Default.PersonAdd,
+                    contentDescription = "إضافة صديق",
+                    tint = Color(0xFF2563EB),
+                    modifier = Modifier.size(24.dp)
                 )
             }
         }
 
-        // 3. Category Tabs (الأصدقاء / طلبات الصداقة - Starts with الأصدقاء on Right)
+        // 2. Category Tabs (الأصدقاء / طلبات الصداقة)
         Row(
             modifier = Modifier
                 .fillMaxWidth()

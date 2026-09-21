@@ -1,7 +1,7 @@
 package com.ps1.netplay.ui.compose
 
 import android.content.Intent
-import android.widget.Toast
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -10,11 +10,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -22,11 +19,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -50,8 +46,11 @@ enum class RoomType {
 data class RoomItemData(
     val type: RoomType,
     val title: String,
+    val subtitle: String,
     val icon: ImageVector,
-    val color: Color = Color(0xFF2563EB)
+    val iconColor: Color,
+    val iconBgColor: Color,
+    val badgeText: String = "نشط"
 )
 
 @Composable
@@ -60,25 +59,100 @@ fun RoomsScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    var searchQuery by remember { mutableStateOf("") }
     var selectedRoomForExperience by remember { mutableStateOf<RoomType?>(null) }
 
     val allContentRooms = listOf(
-        RoomItemData(RoomType.QURAN, "قرآن كريم", Icons.Default.MenuBook),
-        RoomItemData(RoomType.DUAS, "أدعية وازيارات", Icons.Default.VolunteerActivism),
-        RoomItemData(RoomType.LATMIYAT, "لطميات", Icons.Default.MusicNote),
-        RoomItemData(RoomType.MAJALIS, "مجالس", Icons.Default.Groups),
-        RoomItemData(RoomType.FATAWA, "فتاوى", Icons.Default.HelpOutline),
-        RoomItemData(RoomType.AFRAH, "أفراح", Icons.Default.AutoAwesome),
-        RoomItemData(RoomType.TV_CHANNELS, "قنوات تلفزيونية", Icons.Default.Tv),
-        RoomItemData(RoomType.MOVIES_SERIES, "أفلام ومسلسلات", Icons.Default.Theaters),
-        RoomItemData(RoomType.MEDIA, "ميديا", Icons.Default.PlayCircleFilled),
-        RoomItemData(RoomType.GAMES, "ألعاب", Icons.Default.SportsEsports)
+        RoomItemData(
+            type = RoomType.QURAN,
+            title = "القرآن الكريم",
+            subtitle = "تلاوات واستماع مباشر",
+            icon = Icons.Default.MenuBook,
+            iconColor = Color(0xFF059669),
+            iconBgColor = Color(0xFFECFDF5),
+            badgeText = "مباشر"
+        ),
+        RoomItemData(
+            type = RoomType.DUAS,
+            title = "أدعية وزيارات",
+            subtitle = "مفاتيح الجنان والأذكار",
+            icon = Icons.Default.VolunteerActivism,
+            iconColor = Color(0xFF2563EB),
+            iconBgColor = Color(0xFFEFF6FF),
+            badgeText = "متاح"
+        ),
+        RoomItemData(
+            type = RoomType.LATMIYAT,
+            title = "لطميات ومراثي",
+            subtitle = "إصدارات ومقاطع صوتية",
+            icon = Icons.Default.MusicNote,
+            iconColor = Color(0xFFDC2626),
+            iconBgColor = Color(0xFFFEF2F2),
+            badgeText = "جديد"
+        ),
+        RoomItemData(
+            type = RoomType.MAJALIS,
+            title = "مجالس حسينية",
+            subtitle = "بثوث ومحاضرات مباشرة",
+            icon = Icons.Default.Groups,
+            iconColor = Color(0xFFD97706),
+            iconBgColor = Color(0xFFFFFBEB),
+            badgeText = "بث صوتي"
+        ),
+        RoomItemData(
+            type = RoomType.FATAWA,
+            title = "فتاوى وأحكام",
+            subtitle = "إجابات الأسئلة الشرعية",
+            icon = Icons.Default.HelpOutline,
+            iconColor = Color(0xFF7C3AED),
+            iconBgColor = Color(0xFFF5F3FF),
+            badgeText = "إرشادات"
+        ),
+        RoomItemData(
+            type = RoomType.AFRAH,
+            title = "أفراح ومناسبات",
+            subtitle = "مواليد وأناشيد بهيجة",
+            icon = Icons.Default.AutoAwesome,
+            iconColor = Color(0xFFDB2777),
+            iconBgColor = Color(0xFFFDF2F8),
+            badgeText = "مناسبات"
+        ),
+        RoomItemData(
+            type = RoomType.TV_CHANNELS,
+            title = "قنوات تلفزيونية",
+            subtitle = "بث القنوات الفضائية",
+            icon = Icons.Default.Tv,
+            iconColor = Color(0xFF0284C7),
+            iconBgColor = Color(0xFFF0F9FF),
+            badgeText = "بث حي"
+        ),
+        RoomItemData(
+            type = RoomType.MOVIES_SERIES,
+            title = "أفلام ومسلسلات",
+            subtitle = "مكتبة وثائقية ومرئية",
+            icon = Icons.Default.Theaters,
+            iconColor = Color(0xFF475569),
+            iconBgColor = Color(0xFFF1F5F9),
+            badgeText = "HD"
+        ),
+        RoomItemData(
+            type = RoomType.MEDIA,
+            title = "ميديا وتغطيات",
+            subtitle = "تغطيات وتقارير مصورة",
+            icon = Icons.Default.PlayCircleFilled,
+            iconColor = Color(0xFF0D9488),
+            iconBgColor = Color(0xFFF0FDFA),
+            badgeText = "فيديو"
+        ),
+        RoomItemData(
+            type = RoomType.GAMES,
+            title = "ألعاب وبلايستيشن",
+            subtitle = "ألعاب جماعية وبطولات",
+            icon = Icons.Default.SportsEsports,
+            iconColor = Color(0xFF4F46E5),
+            iconBgColor = Color(0xFFEEF2FF),
+            badgeText = "PlayStation"
+        )
     )
-
-    val filteredRooms = allContentRooms.filter {
-        searchQuery.isEmpty() || it.title.contains(searchQuery, ignoreCase = true)
-    }
 
     // Interactive Room Experience Dialog / Screen
     if (selectedRoomForExperience != null) {
@@ -107,7 +181,8 @@ fun RoomsScreen(
                     confirmButton = {
                         Button(
                             onClick = { selectedRoomForExperience = null },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
+                            shape = RoundedCornerShape(10.dp)
                         ) {
                             Text("دخول الغرفة", fontFamily = TajawalFontFamily, color = Color.White)
                         }
@@ -127,7 +202,7 @@ fun RoomsScreen(
                     },
                     text = {
                         Text(
-                            text = "مرحباً بك في غرفة ${currentRoom?.title}. الغرفة جاهزة ومجهزة بالبث الصوتي والمرئي عالي النقاء.",
+                            text = "مرحباً بك في غرفة ${currentRoom?.title}. الغرفة جاهزة ومجهزة بالبث والتواصل الصوتي والمرئي التفاعلي.",
                             fontFamily = TajawalFontFamily,
                             color = Color(0xFF64748B)
                         )
@@ -144,13 +219,12 @@ fun RoomsScreen(
             .fillMaxSize()
             .background(Color(0xFFF8FAFC))
             .statusBarsPadding()
-            .verticalScroll(rememberScrollState())
-            .padding(bottom = 80.dp)
     ) {
-        // 1. Top Bar: Title "الغرف" on Right (Start in RTL), Back navigation icon on Left (End in RTL)
+        // 1. Unified Top Bar: Title "الغرف" on Right (Start in RTL), Back navigation icon on Left (End in RTL)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .background(Color.White)
                 .padding(horizontal = 20.dp, vertical = 14.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
@@ -165,145 +239,117 @@ fun RoomsScreen(
 
             IconButton(
                 onClick = { navController.popBackStack() },
-                modifier = Modifier
-                    .size(42.dp)
-                    .background(Color.White, CircleShape)
-                    .border(1.dp, Color(0xFFE2E8F0), CircleShape)
+                modifier = Modifier.size(38.dp)
             ) {
                 Icon(
                     imageVector = Icons.Default.ArrowBack,
                     contentDescription = "رجوع",
-                    tint = Color(0xFF0F172A),
-                    modifier = Modifier.size(22.dp)
+                    tint = Color(0xFF475569),
+                    modifier = Modifier.size(24.dp)
                 )
             }
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
-
-        // محتويات الغرفة (2-Column Grid of Pills)
-        Column(
+        // 2. Modern Grid of Room Cards (No Section Headers / Clean Minimalist Design)
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(2),
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+                .fillMaxSize()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(bottom = 80.dp)
         ) {
-            val chunked = filteredRooms.chunked(2)
-            chunked.forEach { rowItems ->
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    rowItems.forEach { room ->
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(20.dp))
-                                .background(Color(0xFFEEF6FF))
-                                .border(1.dp, Color(0xFFDBEAFE), RoundedCornerShape(20.dp))
-                                .clickable {
-                                    if (room.type == RoomType.GAMES) {
-                                        navController.navigate("games_room")
-                                    } else if (room.type == RoomType.QURAN) {
-                                        navController.navigate("quran_home")
-                                    } else {
-                                        selectedRoomForExperience = room.type
-                                    }
-                                }
-                                .padding(horizontal = 14.dp, vertical = 12.dp),
-                            contentAlignment = Alignment.Center
+            items(allContentRooms, key = { it.title }) { room ->
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
                         ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.End
+                            if (room.type == RoomType.GAMES) {
+                                navController.navigate("games_room")
+                            } else if (room.type == RoomType.QURAN) {
+                                navController.navigate("quran_home")
+                            } else {
+                                selectedRoomForExperience = room.type
+                            }
+                        },
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                    border = BorderStroke(1.dp, Color(0xFFE2E8F0))
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp)
+                    ) {
+                        // Top row of Card: Icon on right (RTL start) + Badge on left (RTL end)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Badge
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(room.iconBgColor)
+                                    .padding(horizontal = 8.dp, vertical = 3.dp)
                             ) {
                                 Text(
-                                    text = room.title,
-                                    fontSize = 14.sp,
+                                    text = room.badgeText,
+                                    fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
                                     fontFamily = TajawalFontFamily,
-                                    color = Color(0xFF1E40AF),
-                                    textAlign = TextAlign.Right,
-                                    modifier = Modifier.weight(1f)
+                                    color = room.iconColor
                                 )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Box(
-                                    modifier = Modifier
-                                        .size(32.dp)
-                                        .background(Color(0xFF2563EB), CircleShape),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = room.icon,
-                                        contentDescription = null,
-                                        tint = Color.White,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
+                            }
+
+                            // Icon Box
+                            Box(
+                                modifier = Modifier
+                                    .size(42.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(room.iconBgColor),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = room.icon,
+                                    contentDescription = room.title,
+                                    tint = room.iconColor,
+                                    modifier = Modifier.size(22.dp)
+                                )
                             }
                         }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        // Room Title
+                        Text(
+                            text = room.title,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = TajawalFontFamily,
+                            color = Color(0xFF0F172A),
+                            textAlign = TextAlign.Start,
+                            maxLines = 1
+                        )
+
+                        Spacer(modifier = Modifier.height(3.dp))
+
+                        // Room Subtitle
+                        Text(
+                            text = room.subtitle,
+                            fontSize = 12.sp,
+                            fontFamily = TajawalFontFamily,
+                            color = Color(0xFF64748B),
+                            textAlign = TextAlign.Start,
+                            maxLines = 1
+                        )
                     }
-                    if (rowItems.size == 1) {
-                        Spacer(modifier = Modifier.weight(1f))
-                    }
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // الغرف النشطة (Active Rooms) - أسفل محتويات الغرفة
-        Text(
-            text = "الغرف النشطة",
-            fontSize = 17.sp,
-            fontWeight = FontWeight.Bold,
-            fontFamily = TajawalFontFamily,
-            color = Color(0xFF0F172A),
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp),
-            textAlign = TextAlign.Right
-        )
-
-        Spacer(modifier = Modifier.height(10.dp))
-
-        // Active room pill
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp),
-            horizontalArrangement = Arrangement.End
-        ) {
-            Row(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(24.dp))
-                    .background(Color(0xFFEBF3FF))
-                    .border(1.dp, Color(0xFFBFDBFE), RoundedCornerShape(24.dp))
-                    .clickable { selectedRoomForExperience = RoomType.DUAS }
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "أدعية وازيارات",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = TajawalFontFamily,
-                    color = Color(0xFF0284C7)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Box(
-                    modifier = Modifier
-                        .size(28.dp)
-                        .background(Color(0xFF0284C7), CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.VolunteerActivism,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(16.dp)
-                    )
                 }
             }
         }

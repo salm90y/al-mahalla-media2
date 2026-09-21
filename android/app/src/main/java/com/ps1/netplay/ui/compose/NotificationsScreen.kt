@@ -24,7 +24,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import com.ps1.netplay.model.FriendItem
 import com.ps1.netplay.network.CloudflareClient
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 
 data class AppNotificationItem(
     val id: String,
@@ -46,53 +49,55 @@ fun NotificationsScreen(
     var selectedFilter by remember { mutableStateOf(0) } // 0: الكل, 1: الصداقة, 2: المكالمات, 3: النظام
     val filterTabs = listOf("الكل", "طلبات الصداقة", "المكالمات", "النظام")
 
-    var notifications by remember {
-        mutableStateOf(
-            listOf(
-                AppNotificationItem(
-                    id = "notif_1",
-                    title = "طلب صداقة جديد",
-                    description = "أرسل لك أحمد المحلاوي طلب صداقة جديد",
-                    time = "منذ 5 دقائق",
-                    type = "friend_request",
-                    isRead = false,
-                    senderName = "أحمد المحلاوي",
-                    senderId = "ahmed"
-                ),
-                AppNotificationItem(
-                    id = "notif_2",
-                    title = "مكالمة صوتية فائتة",
-                    description = "مكالمة واردة فائتة من جهة الاتصال",
-                    time = "منذ 25 دقيقة",
-                    type = "call",
-                    isRead = false
-                ),
-                AppNotificationItem(
-                    id = "notif_3",
-                    title = "تم تفعيل التشفير التام",
-                    description = "تم تأكيد مفاتيح التشفير التام بين الطرفين (E2EE) بنجاح",
-                    time = "اليوم 11:30 ص",
-                    type = "system",
-                    isRead = true
-                ),
-                AppNotificationItem(
-                    id = "notif_4",
-                    title = "انضمام للغرفة الصوتية",
-                    description = "تم بدء جلسة تلاوة قرآنية جديدة في الغرف العامة",
-                    time = "أمس 09:15 م",
-                    type = "chat",
-                    isRead = true
-                ),
-                AppNotificationItem(
-                    id = "notif_5",
-                    title = "تحديث أمان الخوادم",
-                    description = "تم تحديث خوادم Cloudflare D1 و R2 للأداء الفائق",
-                    time = "قبل يومين",
-                    type = "system",
-                    isRead = true
+    var notifications by remember { mutableStateOf<List<AppNotificationItem>>(emptyList()) }
+
+    fun refreshRealNotifications() {
+        val list = mutableListOf<AppNotificationItem>()
+
+        // 1. Real incoming friend requests
+        CloudflareClient.getIncomingRequests(context) { requests ->
+            val incoming = requests ?: CloudflareClient.getLocalIncomingRequests(context)
+            incoming.forEach { req ->
+                list.add(
+                    AppNotificationItem(
+                        id = "req_${req.id}",
+                        title = "طلب صداقة جديد",
+                        description = "أرسل لك ${req.fromUsername} طلب صداقة جديد",
+                        time = "طلب معلّق",
+                        type = "friend_request",
+                        isRead = false,
+                        senderName = req.fromUsername,
+                        senderId = req.fromUserId
+                    )
                 )
-            )
-        )
+            }
+
+            // 2. Real missed calls
+            val missedCalls = CallHistoryManager.getHistory(context).filter { it.status == CallStatus.MISSED }
+            missedCalls.forEach { call ->
+                list.add(
+                    AppNotificationItem(
+                        id = "call_${call.id}",
+                        title = "مكالمة فائتة",
+                        description = "مكالمة ${if (call.isVideo) "فيديو" else "صوتية"} فائتة من ${call.name}",
+                        time = call.time.ifEmpty { "مؤخراً" },
+                        type = "call",
+                        isRead = false,
+                        senderName = call.name
+                    )
+                )
+            }
+
+            notifications = list
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        refreshRealNotifications()
+        while (isActive) {
+            delay(5000)
+            refreshRealNotifications()
+        }
     }
 
     val filteredNotifications = notifications.filter {
@@ -113,10 +118,11 @@ fun NotificationsScreen(
                     .background(Color.White)
                     .statusBarsPadding()
             ) {
+                // Unified Top Bar: Title "الإشعارات" on Right (Start in RTL), Actions on Left
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                        .padding(horizontal = 20.dp, vertical = 14.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -126,19 +132,19 @@ fun NotificationsScreen(
                     ) {
                         IconButton(
                             onClick = { navController.popBackStack() },
-                            modifier = Modifier.size(36.dp)
+                            modifier = Modifier.size(38.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.ArrowForward,
                                 contentDescription = "رجوع",
                                 tint = Color(0xFF0F172A),
-                                modifier = Modifier.size(22.dp)
+                                modifier = Modifier.size(24.dp)
                             )
                         }
 
                         Text(
-                            text = "مركز الإشعارات",
-                            fontSize = 20.sp,
+                            text = "الإشعارات",
+                            fontSize = 24.sp,
                             fontWeight = FontWeight.Bold,
                             fontFamily = TajawalFontFamily,
                             color = Color(0xFF0F172A)
@@ -149,9 +155,9 @@ fun NotificationsScreen(
                         IconButton(
                             onClick = {
                                 notifications = notifications.map { it.copy(isRead = true) }
-                                Toast.makeText(context, "تم تعيين جميع الإشعارات كمقروءة", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "تم تعيين الإشعارات كمقروءة", Toast.LENGTH_SHORT).show()
                             },
-                            modifier = Modifier.size(36.dp)
+                            modifier = Modifier.size(38.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.DoneAll,
@@ -164,9 +170,9 @@ fun NotificationsScreen(
                         IconButton(
                             onClick = {
                                 notifications = emptyList()
-                                Toast.makeText(context, "تم مسح جميع الإشعارات", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "تم مسح قائمة الإشعارات", Toast.LENGTH_SHORT).show()
                             },
-                            modifier = Modifier.size(36.dp)
+                            modifier = Modifier.size(38.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.DeleteSweep,
@@ -182,7 +188,7 @@ fun NotificationsScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 6.dp),
+                        .padding(horizontal = 20.dp, vertical = 6.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     filterTabs.forEachIndexed { index, tabTitle ->
@@ -236,19 +242,36 @@ fun NotificationsScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(paddingValues)
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                    .padding(horizontal = 20.dp, vertical = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 items(filteredNotifications, key = { it.id }) { item ->
                     NotificationCard(
                         item = item,
                         onAcceptFriend = {
-                            notifications = notifications.filter { it.id != item.id }
-                            Toast.makeText(context, "تم قبول طلب الصداقة بنجاح", Toast.LENGTH_SHORT).show()
+                            if (item.senderName.isNotEmpty()) {
+                                CloudflareClient.acceptFriendRequest(context, item.senderName) { success, msg ->
+                                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                    // Add to local friends
+                                    val newFriend = FriendItem(
+                                        id = item.senderId.ifEmpty { "u_${System.currentTimeMillis()}" },
+                                        username = item.senderName,
+                                        avatarUrl = "",
+                                        status = "online",
+                                        createdAt = System.currentTimeMillis()
+                                    )
+                                    CloudflareClient.addLocalFriend(context, newFriend)
+                                    refreshRealNotifications()
+                                }
+                            }
                         },
                         onDeclineFriend = {
-                            notifications = notifications.filter { it.id != item.id }
-                            Toast.makeText(context, "تم رفض طلب الصداقة", Toast.LENGTH_SHORT).show()
+                            if (item.senderName.isNotEmpty()) {
+                                CloudflareClient.rejectFriendRequest(context, item.senderName) { success, msg ->
+                                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                    refreshRealNotifications()
+                                }
+                            }
                         },
                         onClick = {
                             notifications = notifications.map { if (it.id == item.id) it.copy(isRead = true) else it }
