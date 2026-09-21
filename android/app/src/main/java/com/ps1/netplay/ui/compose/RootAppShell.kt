@@ -156,6 +156,12 @@ fun RootAppShell() {
                         }
                     )
                 }
+                composable("admin_dashboard") {
+                    AdminDashboardScreen(navController = navController)
+                }
+                composable("notifications") {
+                    NotificationsScreen(navController = navController)
+                }
                 composable("login") {
                     LoginScreen(
                         onLoginSuccess = {

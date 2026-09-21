@@ -7,6 +7,8 @@ import android.media.RingtoneManager
 import android.media.ToneGenerator
 import android.net.Uri
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
@@ -42,6 +44,10 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.ps1.netplay.AppSettingsManager
 import com.ps1.netplay.UserManager
+import com.ps1.netplay.network.CloudflareClient
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 // 15 Available Tones
 val APP_TONES_LIST = listOf(
@@ -882,49 +888,173 @@ fun WhatsAppSettingsScreen(
         )
     }
 
-    // Profile Edit Dialog
+    // Profile Edit Dialog (Supports changing name, bio, phone, and profile photo)
     if (showProfileEditDialog) {
         var tempName by remember { mutableStateOf(userName) }
         var tempStatus by remember { mutableStateOf(userStatus) }
+        var tempPhone by remember { mutableStateOf(userPhone) }
+        var selectedAvatarUri by remember { mutableStateOf<Uri?>(null) }
+        var isSavingProfile by remember { mutableStateOf(false) }
+
+        val profilePhotoPicker = rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.GetContent()
+        ) { uri: Uri? ->
+            if (uri != null) {
+                selectedAvatarUri = uri
+            }
+        }
 
         AlertDialog(
-            onDismissRequest = { showProfileEditDialog = false },
+            onDismissRequest = { if (!isSavingProfile) showProfileEditDialog = false },
             confirmButton = {
                 Button(
                     onClick = {
-                        userName = tempName
-                        userStatus = tempStatus
-                        showProfileEditDialog = false
-                        Toast.makeText(context, "تم حفظ بيانات الملف الشخصي بنجاح", Toast.LENGTH_SHORT).show()
+                        isSavingProfile = true
+                        scope.launch(Dispatchers.IO) {
+                            var finalAvatarUrl = userAvatar
+                            if (selectedAvatarUri != null) {
+                                try {
+                                    val bytes = context.contentResolver.openInputStream(selectedAvatarUri!!)?.use { it.readBytes() }
+                                    if (bytes != null && bytes.isNotEmpty()) {
+                                        val filename = "avatar_${currentUser?.username ?: "user"}_${System.currentTimeMillis()}.jpg"
+                                        val latch = java.util.concurrent.CountDownLatch(1)
+                                        CloudflareClient.uploadAvatar(context, bytes, filename) { success, r2Url ->
+                                            if (success && !r2Url.isNullOrEmpty()) {
+                                                finalAvatarUrl = r2Url
+                                            }
+                                            latch.countDown()
+                                        }
+                                        latch.await(10, java.util.concurrent.TimeUnit.SECONDS)
+                                    }
+                                } catch (_: Exception) {}
+                            }
+
+                            withContext(Dispatchers.Main) {
+                                userName = tempName
+                                userStatus = tempStatus
+                                userPhone = tempPhone
+                                userAvatar = finalAvatarUrl
+                                AppSettingsManager.setUserName(context, tempName)
+                                AppSettingsManager.setUserStatus(context, tempStatus)
+                                AppSettingsManager.setUserPhone(context, tempPhone)
+                                AppSettingsManager.setUserAvatar(context, finalAvatarUrl)
+
+                                currentUser?.let { curr ->
+                                    val updatedProfile = curr.copy(
+                                        fullName = tempName,
+                                        avatar = finalAvatarUrl
+                                    )
+                                    UserManager.saveCurrentUserProfile(context, updatedProfile)
+                                    CloudflareClient.adminUpdateUser(
+                                        context = context,
+                                        username = curr.username,
+                                        newAvatar = finalAvatarUrl
+                                    ) { _, _ -> }
+                                }
+
+                                isSavingProfile = false
+                                showProfileEditDialog = false
+                                Toast.makeText(context, "تم حفظ وتحديث الملف الشخصي بنجاح", Toast.LENGTH_SHORT).show()
+                            }
+                        }
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
+                    enabled = !isSavingProfile,
+                    shape = RoundedCornerShape(10.dp)
                 ) {
-                    Text("حفظ", fontFamily = TajawalFontFamily, color = Color.White)
+                    if (isSavingProfile) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("جارٍ الحفظ...", fontFamily = TajawalFontFamily, color = Color.White)
+                    } else {
+                        Text("حفظ التغييرات", fontFamily = TajawalFontFamily, color = Color.White)
+                    }
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showProfileEditDialog = false }) {
+                TextButton(
+                    onClick = { showProfileEditDialog = false },
+                    enabled = !isSavingProfile
+                ) {
                     Text("إلغاء", fontFamily = TajawalFontFamily, color = Color(0xFF64748B))
                 }
             },
             title = {
-                Text("تعديل الملف الشخصي", fontFamily = TajawalFontFamily, fontWeight = FontWeight.Bold)
+                Text("تعديل الملف الشخصي والصورة", fontFamily = TajawalFontFamily, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
             },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    // Profile Photo Avatar Picker
+                    Box(
+                        modifier = Modifier
+                            .size(80.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFFEEF4FB))
+                            .border(2.dp, Color(0xFF2563EB), CircleShape)
+                            .clickable { profilePhotoPicker.launch("image/*") },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (selectedAvatarUri != null) {
+                            AsyncImage(
+                                model = selectedAvatarUri,
+                                contentDescription = "الصورة المختارة",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        } else if (userAvatar.isNotEmpty()) {
+                            AsyncImage(
+                                model = userAvatar,
+                                contentDescription = userName,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.AddAPhoto,
+                                contentDescription = "تغيير الصورة",
+                                tint = Color(0xFF2563EB),
+                                modifier = Modifier.size(32.dp)
+                            )
+                        }
+                    }
+
+                    Text(
+                        text = "انقر لتغيير الصورة الشخصية",
+                        fontSize = 11.sp,
+                        fontFamily = TajawalFontFamily,
+                        color = Color(0xFF2563EB),
+                        fontWeight = FontWeight.Medium
+                    )
+
                     OutlinedTextField(
                         value = tempName,
                         onValueChange = { tempName = it },
                         label = { Text("الاسم الكامل", fontFamily = TajawalFontFamily) },
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp)
+                        shape = RoundedCornerShape(12.dp),
+                        singleLine = true
                     )
+
                     OutlinedTextField(
                         value = tempStatus,
                         onValueChange = { tempStatus = it },
                         label = { Text("الحالة / النبذة", fontFamily = TajawalFontFamily) },
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp)
+                        shape = RoundedCornerShape(12.dp),
+                        singleLine = true
+                    )
+
+                    OutlinedTextField(
+                        value = tempPhone,
+                        onValueChange = { tempPhone = it },
+                        label = { Text("رقم الهاتف أو المعرّف", fontFamily = TajawalFontFamily) },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        singleLine = true
                     )
                 }
             },

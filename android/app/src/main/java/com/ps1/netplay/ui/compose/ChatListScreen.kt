@@ -15,6 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.Dashboard
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
@@ -32,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.ps1.netplay.SettingsActivity
+import com.ps1.netplay.UserManager
 import com.ps1.netplay.network.CloudflareClient
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -81,6 +83,11 @@ fun ChatListScreen(
     }
     var conversations by remember { mutableStateOf<List<ChatConversation>>(initialConversations) }
     var showAdminDialog by remember { mutableStateOf(false) }
+
+    val currentUser = remember { UserManager.getCurrentUser(context) }
+    val isAdmin = remember(currentUser) {
+        currentUser != null && (currentUser.isAdmin || currentUser.role == "مشرف" || currentUser.role == "مدير" || currentUser.username.equals("ahmed", ignoreCase = true))
+    }
 
     LaunchedEffect(Unit) {
         while (isActive) {
@@ -164,45 +171,56 @@ fun ChatListScreen(
                 color = Color(0xFF0F172A)
             )
 
-            // Left Action Icons (Dashboard & Settings)
+            // Left Action Icons (Admin Dashboard, Notifications & Settings) - Free/flat icons
             Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Control Panel / Dashboard Icon Button
+                // 1. Control Panel / Dashboard Icon Button (Visible ONLY to Admin)
+                if (isAdmin) {
+                    IconButton(
+                        onClick = {
+                            navController.navigate("admin_dashboard")
+                        },
+                        modifier = Modifier.size(38.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Dashboard,
+                            contentDescription = "لوحة التحكم",
+                            tint = Color(0xFF2563EB),
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                }
+
+                // 2. Notifications Icon Button (Small icon, visible to everyone)
                 IconButton(
                     onClick = {
-                        showAdminDialog = true
+                        navController.navigate("notifications")
                     },
-                    modifier = Modifier
-                        .size(42.dp)
-                        .background(Color(0xFFF8FAFC), CircleShape)
-                        .border(1.dp, Color(0xFFE2E8F0), CircleShape)
+                    modifier = Modifier.size(38.dp)
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Dashboard,
-                        contentDescription = "لوحة التحكم",
-                        tint = Color(0xFF2563EB),
-                        modifier = Modifier.size(22.dp)
+                        imageVector = Icons.Default.Notifications,
+                        contentDescription = "الإشعارات",
+                        tint = Color(0xFF475569),
+                        modifier = Modifier.size(24.dp)
                     )
                 }
 
-                // Settings Icon Button
+                // 3. Settings Icon Button (Free Icon, small symbol)
                 IconButton(
                     onClick = {
                         val intent = Intent(context, SettingsActivity::class.java)
                         context.startActivity(intent)
                     },
-                    modifier = Modifier
-                        .size(42.dp)
-                        .background(Color(0xFFF8FAFC), CircleShape)
-                        .border(1.dp, Color(0xFFE2E8F0), CircleShape)
+                    modifier = Modifier.size(38.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Settings,
                         contentDescription = "الإعدادات",
                         tint = Color(0xFF475569),
-                        modifier = Modifier.size(22.dp)
+                        modifier = Modifier.size(24.dp)
                     )
                 }
             }

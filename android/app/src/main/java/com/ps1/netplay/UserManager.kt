@@ -146,4 +146,11 @@ fun removeUser(context: Context, username: String) {
         val current = getAllUsers(context).toMutableList()
         current.removeAll { it.username.equals(username, ignoreCase = true) }
         saveAllUsers(context, current)
-    }}
+    }
+
+    fun saveCurrentUserProfile(context: Context, updated: UserProfile) {
+        val prefs = getPrefs(context)
+        val token = prefs.getString(KEY_JWT_TOKEN, "") ?: ""
+        saveAuthenticatedSession(context, updated, token)
+    }
+}
