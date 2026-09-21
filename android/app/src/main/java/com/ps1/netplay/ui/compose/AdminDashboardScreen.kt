@@ -38,6 +38,7 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.ps1.netplay.UserManager
 import com.ps1.netplay.UserProfile
+import com.ps1.netplay.model.AdminBroadcastItem
 import com.ps1.netplay.network.CloudflareClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -1416,10 +1417,10 @@ fun AdminBroadcastAlertsView() {
     var content by remember { mutableStateOf("") }
     var priority by remember { mutableStateOf("high") } // urgent, high, normal
     var isSending by remember { mutableStateOf(false) }
-    var previousBroadcasts by remember { mutableStateOf(CloudflareClient.getLocalAdminBroadcasts(context)) }
+    var previousBroadcasts by remember { mutableStateOf<List<AdminBroadcastItem>>(CloudflareClient.getLocalAdminBroadcasts(context)) }
 
     fun refreshBroadcasts() {
-        CloudflareClient.getAdminBroadcasts(context) { list ->
+        CloudflareClient.getAdminBroadcasts(context) { list: List<AdminBroadcastItem> ->
             previousBroadcasts = list
         }
     }

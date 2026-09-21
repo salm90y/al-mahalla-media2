@@ -24,6 +24,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import com.ps1.netplay.model.AdminBroadcastItem
 import com.ps1.netplay.model.FriendItem
 import com.ps1.netplay.network.CloudflareClient
 import kotlinx.coroutines.delay
@@ -55,8 +56,8 @@ fun NotificationsScreen(
         val list = mutableListOf<AppNotificationItem>()
 
         // 1. Admin Broadcast Announcements (General Administrative Alerts)
-        CloudflareClient.getAdminBroadcasts(context) { broadcasts ->
-            broadcasts.forEach { b ->
+        CloudflareClient.getAdminBroadcasts(context) { broadcasts: List<AdminBroadcastItem> ->
+            broadcasts.forEach { b: AdminBroadcastItem ->
                 val timeStr = if (b.createdAt > 0) {
                     val diff = System.currentTimeMillis() - b.createdAt
                     when {

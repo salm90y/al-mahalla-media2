@@ -8,6 +8,7 @@ import  android.os.Handler
 import  android.os.Looper
 import  android.util.Log 
 import  com.ps1.netplay.UserManager
+import  com.ps1.netplay.model.AdminBroadcastItem
 import  com.ps1.netplay.model.ChatMessage 
 import  com.ps1.netplay.model.FriendItem
 import  com.ps1.netplay.model.FriendRequestItem 
