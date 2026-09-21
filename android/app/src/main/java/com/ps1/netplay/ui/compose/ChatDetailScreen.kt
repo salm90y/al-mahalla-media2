@@ -441,7 +441,9 @@ fun ChatDetailScreen(
     }
 
     var messages by remember { mutableStateOf(initialLocal) }
-    val listState = rememberLazyListState()
+    val initialLastIndex = remember { if (initialLocal.isNotEmpty()) initialLocal.size - 1 else 0 }
+    val listState = rememberLazyListState(initialFirstVisibleItemIndex = initialLastIndex)
+    var isFirstLoad by remember { mutableStateOf(true) }
     val imeBottom = WindowInsets.ime.getBottom(LocalDensity.current)
 
     // Full screen photo viewer state
@@ -501,13 +503,21 @@ fun ChatDetailScreen(
 
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
-            listState.animateScrollToItem(messages.size - 1)
+            if (isFirstLoad) {
+                listState.scrollToItem(messages.size - 1)
+                isFirstLoad = false
+            } else {
+                val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+                if (lastVisible >= messages.size - 3) {
+                    listState.scrollToItem(messages.size - 1)
+                }
+            }
         }
     }
 
     LaunchedEffect(imeBottom) {
         if (imeBottom > 0 && messages.isNotEmpty()) {
-            listState.animateScrollToItem(messages.size - 1)
+            listState.scrollToItem(messages.size - 1)
         }
     }
 
