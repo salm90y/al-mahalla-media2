@@ -62,3 +62,12 @@ data class ConversationItem(
     val lastMessageAt: Long,
     val unreadCount: Int = 0
 )
+
+data class AdminBroadcastItem(
+    val id: String,
+    val title: String,
+    val content: String,
+    val author: String = "الإدارة",
+    val priority: String = "high", // high, normal, urgent
+    val createdAt: Long = System.currentTimeMillis()
+)

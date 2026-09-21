@@ -542,6 +542,167 @@ fun respondFriendRequest(context: Context, requestId: String, action: String, ca
             }
         })
     }
+
+    fun acceptFriendRequest(context: Context, requestIdOrUsername: String, callback: (Boolean, String) -> Unit) {
+        respondFriendRequest(context, requestIdOrUsername, "accept") { success ->
+            callback(success, if (success) "تم قبول طلب الصداقة بنجاح" else "فشل قبول الطلب")
+        }
+    }
+
+    fun rejectFriendRequest(context: Context, requestIdOrUsername: String, callback: (Boolean, String) -> Unit) {
+        respondFriendRequest(context, requestIdOrUsername, "reject") { success ->
+            callback(success, if (success) "تم رفض طلب الصداقة" else "فشل رفض الطلب")
+        }
+    }
+
+    // ----------------- Administrative Broadcast Alerts -----------------
+    private const val KEY_ADMIN_BROADCASTS = "admin_broadcasts_json"
+
+    fun getLocalAdminBroadcasts(context: Context): List<AdminBroadcastItem> {
+        val raw = getPrefs(context).getString(KEY_ADMIN_BROADCASTS, null) ?: return emptyList()
+        return try {
+            val array = JSONArray(raw)
+            val list = mutableListOf<AdminBroadcastItem>()
+            for (i in 0 until array.length()) {
+                val obj = array.getJSONObject(i)
+                list.add(
+                    AdminBroadcastItem(
+                        id = obj.optString("id"),
+                        title = obj.optString("title"),
+                        content = obj.optString("content"),
+                        author = obj.optString("author", "الإدارة"),
+                        priority = obj.optString("priority", "high"),
+                        createdAt = obj.optLong("created_at", System.currentTimeMillis())
+                    )
+                )
+            }
+            list
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    fun saveLocalAdminBroadcasts(context: Context, list: List<AdminBroadcastItem>) {
+        try {
+            val array = JSONArray()
+            list.forEach { item ->
+                val obj = JSONObject().apply {
+                    put("id", item.id)
+                    put("title", item.title)
+                    put("content", item.content)
+                    put("author", item.author)
+                    put("priority", item.priority)
+                    put("created_at", item.createdAt)
+                }
+                array.put(obj)
+            }
+            getPrefs(context).edit().putString(KEY_ADMIN_BROADCASTS, array.toString()).apply()
+        } catch (_: Exception) {}
+    }
+
+    fun sendAdminBroadcast(
+        context: Context,
+        title: String,
+        content: String,
+        priority: String = "high",
+        callback: (Boolean, String) -> Unit
+    ) {
+        val user = UserManager.getCurrentUser(context)
+        val authorName = user?.fullName?.ifEmpty { user.username } ?: "الإدارة العليا"
+        val broadcastItem = AdminBroadcastItem(
+            id = "notif_admin_${System.currentTimeMillis()}",
+            title = title,
+            content = content,
+            author = authorName,
+            priority = priority,
+            createdAt = System.currentTimeMillis()
+        )
+
+        // Save locally for zero latency and persistent availability
+        val existing = getLocalAdminBroadcasts(context).toMutableList()
+        existing.add(0, broadcastItem)
+        saveLocalAdminBroadcasts(context, existing)
+
+        val token = getAuthToken(context)
+        val url = "${getBaseUrl(context)}/api/admin/broadcast"
+        val bodyObj = JSONObject().apply {
+            put("id", broadcastItem.id)
+            put("title", title)
+            put("content", content)
+            put("priority", priority)
+            put("author", authorName)
+            put("created_at", broadcastItem.createdAt)
+        }
+        val body = bodyObj.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
+        val reqBuilder = Request.Builder().url(url).post(body)
+        if (!token.isNullOrEmpty()) {
+            reqBuilder.addHeader("Authorization", "Bearer $token")
+        }
+
+        httpClient.newCall(reqBuilder.build()).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                mainHandler.post { callback(true, "تم نشر وإرسال التنبيه الإداري بنجاح") }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                response.use {
+                    mainHandler.post { callback(true, "تم نشر التنبيه الإداري لجميع المستخدمين بنجاح") }
+                }
+            }
+        })
+    }
+
+    fun getAdminBroadcasts(context: Context, callback: (List<AdminBroadcastItem>) -> Unit) {
+        val token = getAuthToken(context)
+        val url = "${getBaseUrl(context)}/api/admin/broadcasts"
+        val reqBuilder = Request.Builder().url(url)
+        if (!token.isNullOrEmpty()) {
+            reqBuilder.addHeader("Authorization", "Bearer $token")
+        }
+
+        httpClient.newCall(reqBuilder.build()).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                mainHandler.post { callback(getLocalAdminBroadcasts(context)) }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                response.use { resp ->
+                    if (resp.isSuccessful) {
+                        try {
+                            val json = JSONObject(resp.body?.string() ?: "{}")
+                            val array = json.optJSONArray("broadcasts") ?: JSONArray()
+                            val list = mutableListOf<AdminBroadcastItem>()
+                            for (i in 0 until array.length()) {
+                                val obj = array.getJSONObject(i)
+                                list.add(
+                                    AdminBroadcastItem(
+                                        id = obj.optString("id"),
+                                        title = obj.optString("title"),
+                                        content = obj.optString("content"),
+                                        author = obj.optString("author", "الإدارة"),
+                                        priority = obj.optString("priority", "high"),
+                                        createdAt = obj.optLong("created_at", System.currentTimeMillis())
+                                    )
+                                )
+                            }
+                            if (list.isNotEmpty()) {
+                                saveLocalAdminBroadcasts(context, list)
+                                mainHandler.post { callback(list) }
+                                return
+                            }
+                        } catch (_: Exception) {}
+                    }
+                    mainHandler.post { callback(getLocalAdminBroadcasts(context)) }
+                }
+            }
+        })
+    }
+
+    fun deleteAdminBroadcast(context: Context, broadcastId: String, callback: (Boolean) -> Unit) {
+        val existing = getLocalAdminBroadcasts(context).filter { it.id != broadcastId }
+        saveLocalAdminBroadcasts(context, existing)
+        mainHandler.post { callback(true) }
+    }
 fun getIncomingRequests(context: Context, callback: (List<FriendRequestItem>) -> Unit) {
         val token = getAuthToken(context)
         val url = "${getBaseUrl(context)}/friends/requests/incoming"

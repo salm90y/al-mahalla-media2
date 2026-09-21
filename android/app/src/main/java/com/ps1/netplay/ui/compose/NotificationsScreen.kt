@@ -54,41 +54,68 @@ fun NotificationsScreen(
     fun refreshRealNotifications() {
         val list = mutableListOf<AppNotificationItem>()
 
-        // 1. Real incoming friend requests
-        CloudflareClient.getIncomingRequests(context) { requests ->
-            val incoming = requests ?: CloudflareClient.getLocalIncomingRequests(context)
-            incoming.forEach { req ->
+        // 1. Admin Broadcast Announcements (General Administrative Alerts)
+        CloudflareClient.getAdminBroadcasts(context) { broadcasts ->
+            broadcasts.forEach { b ->
+                val timeStr = if (b.createdAt > 0) {
+                    val diff = System.currentTimeMillis() - b.createdAt
+                    when {
+                        diff < 60_000 -> "الآن"
+                        diff < 3600_000 -> "منذ ${diff / 60_000} دقيقة"
+                        diff < 86400_000 -> "منذ ${diff / 3600_000} ساعة"
+                        else -> "منذ ${diff / 86400_000} يوم"
+                    }
+                } else "تنبيه عام"
+
                 list.add(
                     AppNotificationItem(
-                        id = "req_${req.id}",
-                        title = "طلب صداقة جديد",
-                        description = "أرسل لك ${req.fromUsername} طلب صداقة جديد",
-                        time = "طلب معلّق",
-                        type = "friend_request",
+                        id = "admin_${b.id}",
+                        title = b.title,
+                        description = b.content,
+                        time = "تنبيه إداري • $timeStr",
+                        type = "system",
                         isRead = false,
-                        senderName = req.fromUsername,
-                        senderId = req.fromUserId
+                        senderName = b.author
                     )
                 )
             }
 
-            // 2. Real missed calls
-            val missedCalls = CallHistoryManager.getHistory(context).filter { it.status == CallStatus.MISSED }
-            missedCalls.forEach { call ->
-                list.add(
-                    AppNotificationItem(
-                        id = "call_${call.id}",
-                        title = "مكالمة فائتة",
-                        description = "مكالمة ${if (call.isVideo) "فيديو" else "صوتية"} فائتة من ${call.name}",
-                        time = call.time.ifEmpty { "مؤخراً" },
-                        type = "call",
-                        isRead = false,
-                        senderName = call.name
+            // 2. Real incoming friend requests
+            CloudflareClient.getIncomingRequests(context) { requests ->
+                val incoming = requests ?: CloudflareClient.getLocalIncomingRequests(context)
+                incoming.forEach { req ->
+                    list.add(
+                        AppNotificationItem(
+                            id = "req_${req.id}",
+                            title = "طلب صداقة جديد",
+                            description = "أرسل لك ${req.fromUsername} طلب صداقة جديد",
+                            time = "طلب معلّق",
+                            type = "friend_request",
+                            isRead = false,
+                            senderName = req.fromUsername,
+                            senderId = req.fromUserId
+                        )
                     )
-                )
-            }
+                }
 
-            notifications = list
+                // 3. Real missed calls
+                val missedCalls = CallHistoryManager.getHistory(context).filter { it.status == CallStatus.MISSED }
+                missedCalls.forEach { call ->
+                    list.add(
+                        AppNotificationItem(
+                            id = "call_${call.id}",
+                            title = "مكالمة فائتة",
+                            description = "مكالمة ${if (call.isVideo) "فيديو" else "صوتية"} فائتة من ${call.name}",
+                            time = call.time.ifEmpty { "مؤخراً" },
+                            type = "call",
+                            isRead = false,
+                            senderName = call.name
+                        )
+                    )
+                }
+
+                notifications = list
+            }
         }
     }
 

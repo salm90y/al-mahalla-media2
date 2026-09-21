@@ -170,14 +170,15 @@ fun AdminDashboardScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     val tabs = listOf(
                         Triple(0, "الإحصائيات", Icons.Default.Analytics),
                         Triple(1, "الحسابات", Icons.Default.People),
                         Triple(2, "إنشاء حساب", Icons.Default.PersonAdd),
-                        Triple(3, "الصلاحيات", Icons.Default.Security)
+                        Triple(3, "الصلاحيات", Icons.Default.Security),
+                        Triple(4, "إرسال تنبيه", Icons.Default.Campaign)
                     )
 
                     tabs.forEach { (index, title, icon) ->
@@ -185,12 +186,12 @@ fun AdminDashboardScreen(
                         Box(
                             modifier = Modifier
                                 .weight(1f)
-                                .clip(RoundedCornerShape(12.dp))
+                                .clip(RoundedCornerShape(10.dp))
                                 .background(
                                     if (isSelected) Color(0xFF2563EB) else Color(0xFFF1F5F9)
                                 )
                                 .clickable { selectedTab = index }
-                                .padding(vertical = 8.dp, horizontal = 4.dp),
+                                .padding(vertical = 7.dp, horizontal = 2.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Row(
@@ -201,12 +202,12 @@ fun AdminDashboardScreen(
                                     imageVector = icon,
                                     contentDescription = title,
                                     tint = if (isSelected) Color.White else Color(0xFF64748B),
-                                    modifier = Modifier.size(16.dp)
+                                    modifier = Modifier.size(14.dp)
                                 )
-                                Spacer(modifier = Modifier.width(4.dp))
+                                Spacer(modifier = Modifier.width(3.dp))
                                 Text(
                                     text = title,
-                                    fontSize = 12.sp,
+                                    fontSize = 11.sp,
                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                                     fontFamily = TajawalFontFamily,
                                     color = if (isSelected) Color.White else Color(0xFF475569),
@@ -245,6 +246,7 @@ fun AdminDashboardScreen(
                     }
                 )
                 3 -> AdminPermissionsMatrixView(allUsers = allUsers, onRefresh = { refreshUsers() })
+                4 -> AdminBroadcastAlertsView()
             }
         }
     }
@@ -1402,6 +1404,333 @@ fun PermissionRoleItem(
                     fontFamily = TajawalFontFamily,
                     color = Color(0xFF475569)
                 )
+            }
+        }
+    }
+}
+
+@Composable
+fun AdminBroadcastAlertsView() {
+    val context = LocalContext.current
+    var title by remember { mutableStateOf("") }
+    var content by remember { mutableStateOf("") }
+    var priority by remember { mutableStateOf("high") } // urgent, high, normal
+    var isSending by remember { mutableStateOf(false) }
+    var previousBroadcasts by remember { mutableStateOf(CloudflareClient.getLocalAdminBroadcasts(context)) }
+
+    fun refreshBroadcasts() {
+        CloudflareClient.getAdminBroadcasts(context) { list ->
+            previousBroadcasts = list
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        refreshBroadcasts()
+    }
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        // Composer Card
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .background(Color(0xFFEFF6FF), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Campaign,
+                                contentDescription = null,
+                                tint = Color(0xFF2563EB),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+
+                        Column {
+                            Text(
+                                text = "إرسال تنبيه إداري عام",
+                                fontFamily = TajawalFontFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp,
+                                color = Color(0xFF0F172A)
+                            )
+                            Text(
+                                text = "يظهر هذا التنبيه لجميع المستخدمين فورياً في واجهة الإشعارات",
+                                fontFamily = TajawalFontFamily,
+                                fontSize = 12.sp,
+                                color = Color(0xFF64748B)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Title Field
+                    OutlinedTextField(
+                        value = title,
+                        onValueChange = { title = it },
+                        label = { Text("عنوان التنبيه", fontFamily = TajawalFontFamily) },
+                        placeholder = { Text("مثال: تنبيه هام، تحديث في الخوادم، مناسبة خاصة...", fontFamily = TajawalFontFamily) },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        singleLine = true
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Content Field
+                    OutlinedTextField(
+                        value = content,
+                        onValueChange = { content = it },
+                        label = { Text("نص التنبيه الإداري", fontFamily = TajawalFontFamily) },
+                        placeholder = { Text("اكتب تفاصيل الإعلان أو التنبيه هنا بالتفصيل...", fontFamily = TajawalFontFamily) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 100.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        maxLines = 5
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Priority Selector
+                    Text(
+                        text = "درجة الأهمية:",
+                        fontFamily = TajawalFontFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp,
+                        color = Color(0xFF334155)
+                    )
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        val priorities = listOf(
+                            Triple("urgent", "عاجل جداً", Color(0xFFDC2626)),
+                            Triple("high", "هام", Color(0xFF2563EB)),
+                            Triple("normal", "عادي", Color(0xFF64748B))
+                        )
+
+                        priorities.forEach { (pKey, pLabel, pColor) ->
+                            val isSelected = priority == pKey
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(if (isSelected) pColor else pColor.copy(alpha = 0.08f))
+                                    .border(
+                                        1.dp,
+                                        if (isSelected) pColor else Color.Transparent,
+                                        RoundedCornerShape(10.dp)
+                                    )
+                                    .clickable { priority = pKey }
+                                    .padding(vertical = 8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = pLabel,
+                                    fontFamily = TajawalFontFamily,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    fontSize = 12.sp,
+                                    color = if (isSelected) Color.White else pColor
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(18.dp))
+
+                    // Send Button
+                    Button(
+                        onClick = {
+                            if (title.isBlank() || content.isBlank()) {
+                                Toast.makeText(context, "يرجى ملء العنوان والنص بالكامل", Toast.LENGTH_SHORT).show()
+                                return@Button
+                            }
+                            isSending = true
+                            CloudflareClient.sendAdminBroadcast(context, title.trim(), content.trim(), priority) { success, msg ->
+                                isSending = false
+                                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                if (success) {
+                                    title = ""
+                                    content = ""
+                                    refreshBroadcasts()
+                                }
+                            }
+                        },
+                        enabled = !isSending,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
+                    ) {
+                        if (isSending) {
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Send,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "إرسال التنبيه لكافة المستخدمين",
+                                fontFamily = TajawalFontFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                                color = Color.White
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Previous Broadcasts List Section
+        item {
+            Text(
+                text = "سجل التنبيهات الإدارية المرسلة (${previousBroadcasts.size})",
+                fontFamily = TajawalFontFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = 15.sp,
+                color = Color(0xFF0F172A)
+            )
+        }
+
+        if (previousBroadcasts.isEmpty()) {
+            item {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 24.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "لا توجد تنبيهات مرسلة مسبقاً",
+                        fontFamily = TajawalFontFamily,
+                        fontSize = 13.sp,
+                        color = Color(0xFF94A3B8)
+                    )
+                }
+            }
+        } else {
+            items(previousBroadcasts, key = { it.id }) { item ->
+                val badgeColor = when (item.priority) {
+                    "urgent" -> Color(0xFFDC2626)
+                    "high" -> Color(0xFF2563EB)
+                    else -> Color(0xFF64748B)
+                }
+
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0))
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(badgeColor.copy(alpha = 0.12f))
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = if (item.priority == "urgent") "عاجل" else if (item.priority == "high") "هام" else "عادي",
+                                        fontFamily = TajawalFontFamily,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = badgeColor
+                                    )
+                                }
+
+                                Text(
+                                    text = item.title,
+                                    fontFamily = TajawalFontFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp,
+                                    color = Color(0xFF0F172A)
+                                )
+                            }
+
+                            IconButton(
+                                onClick = {
+                                    CloudflareClient.deleteAdminBroadcast(context, item.id) {
+                                        Toast.makeText(context, "تم حذف التنبيه الإداري", Toast.LENGTH_SHORT).show()
+                                        refreshBroadcasts()
+                                    }
+                                },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.DeleteOutline,
+                                    contentDescription = "حذف",
+                                    tint = Color(0xFF94A3B8),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        Text(
+                            text = item.content,
+                            fontFamily = TajawalFontFamily,
+                            fontSize = 13.sp,
+                            color = Color(0xFF475569)
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "المرسل: ${item.author}",
+                                fontFamily = TajawalFontFamily,
+                                fontSize = 11.sp,
+                                color = Color(0xFF64748B)
+                            )
+
+                            val timeStr = SimpleDateFormat("yyyy/MM/dd HH:mm", Locale.getDefault()).format(Date(item.createdAt))
+                            Text(
+                                text = timeStr,
+                                fontFamily = TajawalFontFamily,
+                                fontSize = 11.sp,
+                                color = Color(0xFF94A3B8)
+                            )
+                        }
+                    }
+                }
             }
         }
     }
