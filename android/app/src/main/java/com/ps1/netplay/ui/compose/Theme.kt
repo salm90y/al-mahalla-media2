@@ -15,7 +15,6 @@ import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.core.view.WindowCompat
-import androidx.core.view.WindowInsetsCompat
 import com.ps1.netplay.AppSettingsManager
 import com.ps1.netplay.R
 
@@ -35,6 +34,12 @@ val LightPillBg = Color(0xFFEEF4FB)
 val TextPrimary = Color(0xFF0F172A)
 val TextSecondary = Color(0xFF64748B)
 val LightBorder = Color(0xFFE2E8F0)
+
+val DarkBg = Color(0xFF000000)
+val DarkSurface = Color(0xFF111827)
+val DarkTextPrimary = Color(0xFFF8FAFC)
+val DarkTextSecondary = Color(0xFF94A3B8)
+val DarkBorder = Color(0xFF1E293B)
 
 val PrimaryAccent = Color(0xFF2563EB)
 val SecondaryAccent = Color(0xFF3B82F6)
@@ -59,6 +64,13 @@ fun NetPlayTheme(
         AppSettingsManager.initIfNeeded(view.context)
     }
 
+    val currentThemeSetting = AppSettingsManager.themeModeState.value
+    val isDark = when (currentThemeSetting) {
+        "dark" -> true
+        "light" -> false
+        else -> isSystemInDarkTheme() || darkTheme
+    }
+
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as? Activity)?.window
@@ -66,21 +78,34 @@ fun NetPlayTheme(
                 WindowCompat.setDecorFitsSystemWindows(window, false)
                 window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
                 val insetsController = WindowCompat.getInsetsController(window, view)
-                insetsController.isAppearanceLightStatusBars = true
-                insetsController.isAppearanceLightNavigationBars = true
+                insetsController.isAppearanceLightStatusBars = !isDark
+                insetsController.isAppearanceLightNavigationBars = !isDark
             }
         }
     }
 
-    MaterialTheme(
-        colorScheme = lightColorScheme(
+    val colorScheme = if (isDark) {
+        darkColorScheme(
+            primary = PrimaryBlue,
+            background = DarkBg,
+            surface = DarkSurface,
+            onPrimary = Color.White,
+            onBackground = DarkTextPrimary,
+            onSurface = DarkTextPrimary
+        )
+    } else {
+        lightColorScheme(
             primary = PrimaryBlue,
             background = LightBg,
             surface = LightSurface,
             onPrimary = Color.White,
             onBackground = TextPrimary,
             onSurface = TextPrimary
-        ),
+        )
+    }
+
+    MaterialTheme(
+        colorScheme = colorScheme,
         content = content
     )
 }

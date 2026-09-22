@@ -40,16 +40,36 @@ fun ChatInputBar(
     modifier: Modifier = Modifier,
     onSendText: (String) -> Unit = {},
     onTyping: () -> Unit = {},
-    onSendFile: (Uri, String) -> Unit = { _, _ -> }
+    onSendFile: (Uri, String) -> Unit = { _, _ -> },
+    onSendEditedPhoto: (Uri, String, Boolean) -> Unit = { _, _, _ -> },
+    onSendLocation: (Double, Double, String, String, Int) -> Unit = { _, _, _, _, _ -> }
 ) {
     val context = LocalContext.current
     var text by remember { mutableStateOf("") }
     var showAttachments by remember { mutableStateOf(false) }
 
+    // Image editing dialog state
+    var selectedImageForEditing by remember { mutableStateOf<Uri?>(null) }
+    // Location sharing dialog state
+    var showLocationDialog by remember { mutableStateOf(false) }
+
+    // Launcher for general files & media
     val fileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) {
             val mimeType = context.contentResolver.getType(uri) ?: "*/*"
-            onSendFile(uri, mimeType)
+            if (mimeType.startsWith("image/")) {
+                selectedImageForEditing = uri
+            } else {
+                onSendFile(uri, mimeType)
+            }
+            showAttachments = false
+        }
+    }
+
+    // Direct Image Picker with Image Editor
+    val photoPickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            selectedImageForEditing = uri
             showAttachments = false
         }
     }
@@ -61,6 +81,29 @@ fun ChatInputBar(
         animationSpec = tween(durationMillis = 250),
         label = "plus_rotation"
     )
+
+    // 1. Image Editor Modal if user picked a photo
+    if (selectedImageForEditing != null) {
+        ImageEditorDialog(
+            imageUri = selectedImageForEditing!!,
+            onDismiss = { selectedImageForEditing = null },
+            onSendEditedImage = { editedUri, caption, isViewTwice ->
+                selectedImageForEditing = null
+                onSendEditedPhoto(editedUri, caption, isViewTwice)
+            }
+        )
+    }
+
+    // 2. Real Location Dialog
+    if (showLocationDialog) {
+        RealLocationShareDialog(
+            onDismiss = { showLocationDialog = false },
+            onSendLocation = { lat, lng, addr, dist, dur ->
+                showLocationDialog = false
+                onSendLocation(lat, lng, addr, dist, dur)
+            }
+        )
+    }
 
     Box(
         modifier = modifier
@@ -142,9 +185,9 @@ fun ChatInputBar(
 
                 Spacer(modifier = Modifier.width(6.dp))
 
-                // Quick photo / camera action inside input box
+                // Quick photo / camera action with built-in Editor
                 IconButton(
-                    onClick = { fileLauncher.launch("image/*") },
+                    onClick = { photoPickerLauncher.launch("image/*") },
                     modifier = Modifier.size(30.dp)
                 ) {
                     Icon(
@@ -219,7 +262,22 @@ fun ChatInputBar(
             }
         ) {
             AttachmentGrid(
-                onPickFile = { fileLauncher.launch(it) },
+                onPickPhoto = {
+                    showAttachments = false
+                    photoPickerLauncher.launch("image/*")
+                },
+                onPickDocument = {
+                    showAttachments = false
+                    fileLauncher.launch("*/*")
+                },
+                onPickAudio = {
+                    showAttachments = false
+                    fileLauncher.launch("audio/*")
+                },
+                onOpenLocation = {
+                    showAttachments = false
+                    showLocationDialog = true
+                },
                 onDismiss = { showAttachments = false }
             )
         }
@@ -228,7 +286,10 @@ fun ChatInputBar(
 
 @Composable
 fun AttachmentGrid(
-    onPickFile: (String) -> Unit = {},
+    onPickPhoto: () -> Unit = {},
+    onPickDocument: () -> Unit = {},
+    onPickAudio: () -> Unit = {},
+    onOpenLocation: () -> Unit = {},
     onDismiss: () -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -251,17 +312,16 @@ fun AttachmentGrid(
             horizontalArrangement = Arrangement.SpaceAround
         ) {
             AttachmentIcon("معرض الصور", Color(0xFFEEF2FF), Color(0xFF4F46E5), Icons.Default.InsertPhoto) {
-                onPickFile("image/*")
+                onPickPhoto()
             }
             AttachmentIcon("الكاميرا", Color(0xFFFEF3C7), Color(0xFFD97706), Icons.Default.CameraAlt) {
-                Toast.makeText(context, "فتح الكاميرا", Toast.LENGTH_SHORT).show()
-                onDismiss()
+                onPickPhoto()
             }
             AttachmentIcon("مستند وملف", Color(0xFFECFDF5), Color(0xFF059669), Icons.Default.InsertDriveFile) {
-                onPickFile("*/*")
+                onPickDocument()
             }
             AttachmentIcon("تسجيل صوتي", Color(0xFFEFF6FF), Color(0xFF2563EB), Icons.Default.Mic) {
-                onPickFile("audio/*")
+                onPickAudio()
             }
         }
 
@@ -271,9 +331,8 @@ fun AttachmentGrid(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceAround
         ) {
-            AttachmentIcon("الموقع الحالي", Color(0xFFFDF2F8), Color(0xFFDB2777), Icons.Default.LocationOn) {
-                Toast.makeText(context, "مشاركة الموقع الحالي", Toast.LENGTH_SHORT).show()
-                onDismiss()
+            AttachmentIcon("الموقع الجغرافي", Color(0xFFFDF2F8), Color(0xFFDB2777), Icons.Default.LocationOn) {
+                onOpenLocation()
             }
             AttachmentIcon("جهة اتصال", Color(0xFFF0FDF4), Color(0xFF16A34A), Icons.Default.Person) {
                 Toast.makeText(context, "مشاركة جهة اتصال", Toast.LENGTH_SHORT).show()
