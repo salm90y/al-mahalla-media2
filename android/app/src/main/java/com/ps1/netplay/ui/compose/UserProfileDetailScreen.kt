@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.ps1.netplay.CallActivity
+import com.ps1.netplay.UserManager
 import com.ps1.netplay.model.FriendItem
 import com.ps1.netplay.model.FriendRequestItem
 import com.ps1.netplay.network.CloudflareClient

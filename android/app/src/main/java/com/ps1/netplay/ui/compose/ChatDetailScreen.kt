@@ -2134,3 +2134,44 @@ fun CallBubble(
     }
 }
 
+@Composable
+fun SnapMediaBubble(content: MessageContent.Snap, timestamp: String, isOutgoing: Boolean) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = if (isOutgoing) Arrangement.End else Arrangement.Start
+    ) {
+        Row(
+            modifier = Modifier
+                .widthIn(min = 160.dp, max = 220.dp)
+                .background(Color.White, RoundedCornerShape(16.dp))
+                .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(16.dp))
+                .padding(10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.LocalFireDepartment,
+                contentDescription = "Snap",
+                tint = Color(0xFFF59E0B),
+                modifier = Modifier.size(24.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Column {
+                Text(
+                    text = "رسالة مؤقتة",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp,
+                    fontFamily = TajawalFontFamily,
+                    color = Color(0xFF0F172A)
+                )
+                Text(
+                    text = "${content.timer} ثواني • $timestamp",
+                    color = Color(0xFF64748B),
+                    fontSize = 11.sp,
+                    fontFamily = TajawalFontFamily
+                )
+            }
+        }
+    }
+}
+
+
