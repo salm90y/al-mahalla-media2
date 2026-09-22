@@ -183,12 +183,12 @@ fun CallsScreen(
             .background(Color.White)
             .statusBarsPadding()
     ) {
-        // 1. Unified Top Bar: Title "المكالمات" on Right (Start in RTL), Start Call Icon on Left (End in RTL)
+        // 1. Unified Top Bar: Title "المكالمات"
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp, vertical = 14.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            horizontalArrangement = Arrangement.Start,
             verticalAlignment = Alignment.CenterVertically
         ) {
             // Title "المكالمات"
@@ -199,19 +199,6 @@ fun CallsScreen(
                 fontFamily = TajawalFontFamily,
                 color = Color(0xFF0F172A)
             )
-
-            // Start Call Icon Button (Free/flat icon, size 38dp)
-            IconButton(
-                onClick = { showStartCallDialog = true },
-                modifier = Modifier.size(38.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Call,
-                    contentDescription = "بدء مكالمة",
-                    tint = Color(0xFF2563EB),
-                    modifier = Modifier.size(24.dp)
-                )
-            }
         }
 
         // 2. Category Tabs (الكل / الفائتة - Starts with الكل on Right)

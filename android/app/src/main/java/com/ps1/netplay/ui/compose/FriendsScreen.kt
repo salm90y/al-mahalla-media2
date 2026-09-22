@@ -2,6 +2,9 @@ package com.ps1.netplay.ui.compose
 
 import android.content.Intent
 import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -15,6 +18,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Search
@@ -31,11 +36,16 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.navigation.NavController
+import coil.compose.AsyncImage
 import com.ps1.netplay.CallActivity
 import com.ps1.netplay.SettingsActivity
+import com.ps1.netplay.UserManager
+import com.ps1.netplay.UserProfile
 import com.ps1.netplay.model.FriendItem
 import com.ps1.netplay.model.FriendRequestItem
 import com.ps1.netplay.network.CloudflareClient
@@ -87,92 +97,482 @@ fun FriendsScreen(
 
     if (showAddFriendDialog) {
         var inputFriendUsername by remember { mutableStateOf("") }
-        AlertDialog(
-            onDismissRequest = { showAddFriendDialog = false },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val nameToSend = inputFriendUsername.trim()
-                        if (nameToSend.isNotBlank()) {
-                            val newFriend = FriendItem(
-                                id = "u_${System.currentTimeMillis()}",
-                                username = nameToSend,
-                                avatarUrl = "",
-                                status = "online",
-                                createdAt = System.currentTimeMillis()
-                            )
-                            CloudflareClient.addLocalFriend(context, newFriend)
-                            friendsList = CloudflareClient.getLocalFriends(context)
-                            CloudflareClient.sendFriendRequest(context, nameToSend) { success, msg ->
-                                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
-                                loadData()
+        var allUsers by remember { mutableStateOf<List<UserProfile>>(UserManager.getAllUsers(context)) }
+        var searchResults by remember { mutableStateOf<List<UserProfile>>(emptyList()) }
+        var isSearching by remember { mutableStateOf(false) }
+        var hasSearched by remember { mutableStateOf(false) }
+        var sentRequests by remember { mutableStateOf<Set<String>>(emptySet()) }
+
+        val currentUserId = UserManager.getCurrentUser(context)?.id ?: ""
+        val currentUsername = UserManager.getCurrentUser(context)?.username ?: ""
+
+        fun performSearch(query: String) {
+            val q = query.trim()
+            if (q.isBlank()) {
+                searchResults = emptyList()
+                hasSearched = false
+                return
+            }
+            isSearching = true
+            hasSearched = true
+
+            val filtered = allUsers.filter { user ->
+                (user.id != currentUserId && user.username != currentUsername) &&
+                (user.username.contains(q, ignoreCase = true) ||
+                 user.fullName.contains(q, ignoreCase = true) ||
+                 user.id.contains(q, ignoreCase = true))
+            }
+            searchResults = filtered
+            isSearching = false
+        }
+
+        LaunchedEffect(Unit) {
+            CloudflareClient.getAllUsers(context) { success, list ->
+                if (success && list != null && list.isNotEmpty()) {
+                    allUsers = list
+                } else {
+                    allUsers = UserManager.getAllUsers(context)
+                }
+            }
+        }
+
+        Dialog(
+            onDismissRequest = { showAddFriendDialog = false }
+        ) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 16.dp),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(20.dp)
+                ) {
+                    // Header Row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .background(Color(0xFFEFF6FF), CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.PersonAdd,
+                                    contentDescription = null,
+                                    tint = Color(0xFF2563EB),
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                            Column {
+                                Text(
+                                    text = "إضافة صديق جديد",
+                                    fontFamily = TajawalFontFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 17.sp,
+                                    color = Color(0xFF0F172A)
+                                )
+                                Text(
+                                    text = "ابحث عن الأصدقاء بواسطة الاسم أو اليوزر",
+                                    fontFamily = TajawalFontFamily,
+                                    fontSize = 12.sp,
+                                    color = Color(0xFF64748B)
+                                )
                             }
                         }
-                        showAddFriendDialog = false
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
-                ) {
-                    Text("إرسال الطلب", fontFamily = TajawalFontFamily, color = Color.White)
+
+                        IconButton(
+                            onClick = { showAddFriendDialog = false },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "إغلاق",
+                                tint = Color(0xFF94A3B8),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(18.dp))
+
+                    // Search Input & Search Button Row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = inputFriendUsername,
+                            onValueChange = {
+                                inputFriendUsername = it
+                                if (it.isBlank()) {
+                                    searchResults = emptyList()
+                                    hasSearched = false
+                                } else {
+                                    performSearch(it)
+                                }
+                            },
+                            placeholder = {
+                                Text(
+                                    text = "أدخل اسم أو يوزر الصديق...",
+                                    fontFamily = TajawalFontFamily,
+                                    fontSize = 13.sp,
+                                    color = Color(0xFF94A3B8)
+                                )
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Search,
+                                    contentDescription = null,
+                                    tint = Color(0xFF94A3B8),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            },
+                            trailingIcon = {
+                                if (inputFriendUsername.isNotEmpty()) {
+                                    IconButton(
+                                        onClick = {
+                                            inputFriendUsername = ""
+                                            searchResults = emptyList()
+                                            hasSearched = false
+                                        },
+                                        modifier = Modifier.size(24.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Close,
+                                            contentDescription = "مسح",
+                                            tint = Color(0xFF94A3B8),
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+                            },
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.weight(1f)
+                        )
+
+                        Button(
+                            onClick = { performSearch(inputFriendUsername) },
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+                            modifier = Modifier.height(52.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Search,
+                                contentDescription = "بحث",
+                                tint = Color.White,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "بحث",
+                                fontFamily = TajawalFontFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                color = Color.White
+                            )
+                        }
+                    }
+
+                    // Dropdown Results List below the field
+                    AnimatedVisibility(
+                        visible = hasSearched || inputFriendUsername.isNotBlank(),
+                        enter = fadeIn(),
+                        exit = fadeOut()
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 12.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(Color(0xFFF8FAFC))
+                                .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(14.dp))
+                                .padding(8.dp)
+                        ) {
+                            if (isSearching) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(16.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(24.dp),
+                                        strokeWidth = 2.dp,
+                                        color = Color(0xFF2563EB)
+                                    )
+                                }
+                            } else if (searchResults.isNotEmpty()) {
+                                Text(
+                                    text = "الحسابات المشابهة (${searchResults.size}):",
+                                    fontFamily = TajawalFontFamily,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF64748B),
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+
+                                LazyColumn(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(max = 240.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    items(searchResults, key = { it.id }) { user ->
+                                        val isRequestSent = sentRequests.contains(user.id) || sentRequests.contains(user.username)
+                                        val displayName = user.fullName.ifEmpty { user.username }
+                                        val encodedName = try {
+                                            java.net.URLEncoder.encode(displayName, "UTF-8")
+                                        } catch (_: Exception) {
+                                            displayName
+                                        }
+
+                                        Card(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable {
+                                                    // Clicking on name/card opens personal profile
+                                                    showAddFriendDialog = false
+                                                    navController.navigate("user_profile/${user.id}/$encodedName")
+                                                },
+                                            shape = RoundedCornerShape(10.dp),
+                                            colors = CardDefaults.cardColors(containerColor = Color.White),
+                                            elevation = CardDefaults.cardElevation(defaultElevation = 0.5.dp)
+                                        ) {
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(8.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                // Mini Avatar
+                                                if (user.avatar.isNotBlank()) {
+                                                    AsyncImage(
+                                                        model = user.avatar,
+                                                        contentDescription = displayName,
+                                                        modifier = Modifier
+                                                            .size(36.dp)
+                                                            .clip(CircleShape),
+                                                        contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                                                    )
+                                                } else {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(36.dp)
+                                                            .background(Color(0xFFEEF4FB), CircleShape),
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        Text(
+                                                            text = displayName.take(1).uppercase().ifEmpty { "ص" },
+                                                            fontSize = 14.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = Color(0xFF2563EB),
+                                                            fontFamily = TajawalFontFamily
+                                                        )
+                                                    }
+                                                }
+
+                                                Spacer(modifier = Modifier.width(10.dp))
+
+                                                // Name & Username
+                                                Column(
+                                                    modifier = Modifier
+                                                        .weight(1f)
+                                                        .clickable {
+                                                            showAddFriendDialog = false
+                                                            navController.navigate("user_profile/${user.id}/$encodedName")
+                                                        }
+                                                ) {
+                                                    Text(
+                                                        text = displayName,
+                                                        fontSize = 13.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = Color(0xFF0F172A),
+                                                        fontFamily = TajawalFontFamily,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                    Text(
+                                                        text = "@${user.username}",
+                                                        fontSize = 11.sp,
+                                                        color = Color(0xFF64748B),
+                                                        fontFamily = TajawalFontFamily,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                }
+
+                                                Spacer(modifier = Modifier.width(6.dp))
+
+                                                // Send Friend Request Button
+                                                if (isRequestSent) {
+                                                    Surface(
+                                                        shape = RoundedCornerShape(8.dp),
+                                                        color = Color(0xFFDCFCE7),
+                                                        contentColor = Color(0xFF16A34A)
+                                                    ) {
+                                                        Row(
+                                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                                            verticalAlignment = Alignment.CenterVertically
+                                                        ) {
+                                                            Icon(
+                                                                imageVector = Icons.Default.Check,
+                                                                contentDescription = null,
+                                                                modifier = Modifier.size(12.dp)
+                                                            )
+                                                            Spacer(modifier = Modifier.width(3.dp))
+                                                            Text(
+                                                                text = "تم الإرسال",
+                                                                fontSize = 11.sp,
+                                                                fontFamily = TajawalFontFamily,
+                                                                fontWeight = FontWeight.Bold
+                                                            )
+                                                        }
+                                                    }
+                                                } else {
+                                                    Button(
+                                                        onClick = {
+                                                            sentRequests = sentRequests + user.id + user.username
+                                                            CloudflareClient.sendFriendRequest(context, user.username) { success, msg ->
+                                                                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                                                loadData()
+                                                            }
+                                                        },
+                                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
+                                                        shape = RoundedCornerShape(8.dp),
+                                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                                        modifier = Modifier.height(32.dp)
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.PersonAdd,
+                                                            contentDescription = null,
+                                                            modifier = Modifier.size(13.dp),
+                                                            tint = Color.White
+                                                        )
+                                                        Spacer(modifier = Modifier.width(4.dp))
+                                                        Text(
+                                                            text = "طلب صداقة",
+                                                            color = Color.White,
+                                                            fontFamily = TajawalFontFamily,
+                                                            fontSize = 11.sp,
+                                                            fontWeight = FontWeight.Bold
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                // No direct match in database -> offer direct request to the typed text
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Text(
+                                        text = "لم يتم العثور على حساب مطابق في القائمة",
+                                        fontFamily = TajawalFontFamily,
+                                        fontSize = 12.sp,
+                                        color = Color(0xFF64748B)
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Button(
+                                        onClick = {
+                                            val target = inputFriendUsername.trim()
+                                            if (target.isNotBlank()) {
+                                                CloudflareClient.sendFriendRequest(context, target) { success, msg ->
+                                                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                                    loadData()
+                                                }
+                                                showAddFriendDialog = false
+                                            }
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
+                                        shape = RoundedCornerShape(10.dp),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Send,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(14.dp),
+                                            tint = Color.White
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = "إرسال طلب مباشر لـ '$inputFriendUsername'",
+                                            fontFamily = TajawalFontFamily,
+                                            fontSize = 12.sp,
+                                            color = Color.White
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Cancel / Close Button
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        TextButton(onClick = { showAddFriendDialog = false }) {
+                            Text(
+                                text = "إغلاق",
+                                fontFamily = TajawalFontFamily,
+                                color = Color(0xFF64748B),
+                                fontSize = 14.sp
+                            )
+                        }
+                    }
                 }
-            },
-            dismissButton = {
-                TextButton(onClick = { showAddFriendDialog = false }) {
-                    Text("إلغاء", fontFamily = TajawalFontFamily, color = Color(0xFF64748B))
-                }
-            },
-            title = {
-                Text("إضافة صديق جديد", fontFamily = TajawalFontFamily, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
-            },
-            text = {
-                OutlinedTextField(
-                    value = inputFriendUsername,
-                    onValueChange = { inputFriendUsername = it },
-                    placeholder = { Text("اسم المستخدم أو الرقم التعريفي", fontFamily = TajawalFontFamily) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            },
-            containerColor = Color.White,
-            shape = RoundedCornerShape(20.dp)
-        )
+            }
+        }
     }
 
-    Column(
+    Box(
         modifier = modifier
             .fillMaxSize()
             .background(Color.White)
             .statusBarsPadding()
     ) {
-        // 1. Unified Top Bar: Title "الأصدقاء" on Right (Start in RTL), Add Friend Icon on Left (End in RTL)
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 14.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+        Column(
+            modifier = Modifier.fillMaxSize()
         ) {
-            // Title "الأصدقاء"
-            Text(
-                text = "الأصدقاء",
-                fontSize = 24.sp,
-                fontWeight = FontWeight.Bold,
-                fontFamily = TajawalFontFamily,
-                color = Color(0xFF0F172A)
-            )
-
-            // Add Friend Icon Button (Free/flat icon, size 38dp)
-            IconButton(
-                onClick = { showAddFriendDialog = true },
-                modifier = Modifier.size(38.dp)
+            // 1. Unified Top Bar: Title "الأصدقاء"
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 14.dp),
+                horizontalArrangement = Arrangement.Start,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = Icons.Default.PersonAdd,
-                    contentDescription = "إضافة صديق",
-                    tint = Color(0xFF2563EB),
-                    modifier = Modifier.size(24.dp)
+                // Title "الأصدقاء"
+                Text(
+                    text = "الأصدقاء",
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = TajawalFontFamily,
+                    color = Color(0xFF0F172A)
                 )
             }
-        }
 
         // 2. Category Tabs (الأصدقاء / طلبات الصداقة)
         Row(
@@ -578,6 +978,24 @@ fun FriendsScreen(
                     }
                 }
             }
+        }
+
+        // Floating Action Button to Add Friends easily
+        FloatingActionButton(
+            onClick = { showAddFriendDialog = true },
+            containerColor = Color(0xFF2563EB),
+            contentColor = Color.White,
+            shape = CircleShape,
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(20.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.PersonAdd,
+                contentDescription = "إضافة صديق",
+                tint = Color.White,
+                modifier = Modifier.size(24.dp)
+            )
         }
     }
 }
