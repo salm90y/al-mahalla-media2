@@ -1000,4 +1000,6 @@ fun FriendsScreen(
         }
     }
 }
+}
+
 
