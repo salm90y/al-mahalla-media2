@@ -547,14 +547,33 @@ fun FriendsScreen(
         }
     }
 
-    Box(
+    Scaffold(
         modifier = modifier
             .fillMaxSize()
             .background(Color.White)
-            .statusBarsPadding()
-    ) {
+            .statusBarsPadding(),
+        containerColor = Color.White,
+        floatingActionButton = {
+            FloatingActionButton(
+                onClick = { showAddFriendDialog = true },
+                containerColor = Color(0xFF2563EB),
+                contentColor = Color.White,
+                shape = CircleShape,
+                modifier = Modifier.padding(16.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.PersonAdd,
+                    contentDescription = "إضافة صديق",
+                    tint = Color.White,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+        }
+    ) { innerPadding ->
         Column(
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
         ) {
             // 1. Unified Top Bar: Title "الأصدقاء"
             Row(
@@ -978,24 +997,6 @@ fun FriendsScreen(
                     }
                 }
             }
-        }
-
-        // Floating Action Button to Add Friends easily
-        FloatingActionButton(
-            onClick = { showAddFriendDialog = true },
-            containerColor = Color(0xFF2563EB),
-            contentColor = Color.White,
-            shape = CircleShape,
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(20.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Default.PersonAdd,
-                contentDescription = "إضافة صديق",
-                tint = Color.White,
-                modifier = Modifier.size(24.dp)
-            )
         }
     }
 }
