@@ -82,6 +82,7 @@ sealed class MessageContent {
     data class Document(val name: String, val size: String, val type: String) : MessageContent()
     data class Location(val address: String, val city: String, val country: String) : MessageContent()
     data class Snap(val timer: Int) : MessageContent()
+    data class Call(val callId: String, val isVideo: Boolean, val statusText: String) : MessageContent()
 }
 
 data class Message(
@@ -429,6 +430,8 @@ fun ChatDetailScreen(
                 }
                 val content = when (m.type) {
                     "image" -> MessageContent.Photo(listOf(localPath))
+                    "call", "audio_call" -> MessageContent.Call(m.mediaUrl.ifBlank { "call_${listOf(myId, targetUserId).sorted().joinToString("_")}" }, isVideo = false, statusText = m.content.ifBlank { "مكالمة صوتية" })
+                    "video_call" -> MessageContent.Call(m.mediaUrl.ifBlank { "call_${listOf(myId, targetUserId).sorted().joinToString("_")}" }, isVideo = true, statusText = m.content.ifBlank { "مكالمة فيديو" })
                     "file", "audio", "video" -> MessageContent.Document(m.fileName.ifEmpty { m.content }, "ملف", m.type)
                     else -> MessageContent.Text(m.content)
                 }
@@ -454,6 +457,10 @@ fun ChatDetailScreen(
     var activeStoryToView by remember { mutableStateOf<UserStory?>(null) }
     var showNoStoryNotice by remember { mutableStateOf(false) }
 
+    // Live Incoming Call state & dismissed cache
+    var activeIncomingCall by remember { mutableStateOf<IncomingCallData?>(null) }
+    var dismissedCallIds by remember { mutableStateOf(setOf<String>()) }
+
     // Live bidirectional sync loop from Cloudflare and R2
     LaunchedEffect(targetUserId) {
         if (targetUserId.isNotEmpty()) {
@@ -461,6 +468,27 @@ fun ChatDetailScreen(
             while (isActive) {
                 CloudflareClient.fetchCloudflareMessages(context, targetUserId) { loaded ->
                     if (loaded.isNotEmpty()) {
+                        // Check for recent incoming call signals (last 45 seconds)
+                        val incomingCallMsg = loaded.lastOrNull { m ->
+                            (m.type == "audio_call" || m.type == "video_call" || m.type == "call") &&
+                            !m.isOutgoing &&
+                            (System.currentTimeMillis() - m.createdAt < 45000) &&
+                            !dismissedCallIds.contains(m.id) &&
+                            !dismissedCallIds.contains(m.mediaUrl)
+                        }
+                        if (incomingCallMsg != null && activeIncomingCall == null) {
+                            val isVid = incomingCallMsg.type == "video_call"
+                            val callRoom = incomingCallMsg.mediaUrl.ifBlank { "call_${listOf(myId, targetUserId).sorted().joinToString("_")}" }
+                            activeIncomingCall = IncomingCallData(
+                                callerId = targetUserId,
+                                callerName = userName,
+                                callerAvatar = avatarUrl,
+                                callRoomId = callRoom,
+                                isVideo = isVid,
+                                timestamp = incomingCallMsg.createdAt
+                            )
+                        }
+
                         val currentPhotoMap = messages.associate { curr ->
                             curr.id to (curr.content as? MessageContent.Photo)?.urls?.firstOrNull()
                         }
@@ -484,6 +512,8 @@ fun ChatDetailScreen(
                             }
                             val content = when (m.type) {
                                 "image" -> MessageContent.Photo(listOf(localPath))
+                                "call", "audio_call" -> MessageContent.Call(m.mediaUrl.ifBlank { "call_${listOf(myId, targetUserId).sorted().joinToString("_")}" }, isVideo = false, statusText = m.content.ifBlank { "مكالمة صوتية" })
+                                "video_call" -> MessageContent.Call(m.mediaUrl.ifBlank { "call_${listOf(myId, targetUserId).sorted().joinToString("_")}" }, isVideo = true, statusText = m.content.ifBlank { "مكالمة فيديو" })
                                 "file", "audio", "video" -> MessageContent.Document(m.fileName.ifEmpty { m.content }, "ملف", m.type)
                                 else -> MessageContent.Text(m.content)
                             }
@@ -687,6 +717,20 @@ fun ChatDetailScreen(
                         )
                         is MessageContent.Location -> MapCardBubble(message.content, message.timestamp, message.isOutgoing)
                         is MessageContent.Snap -> SnapMediaBubble(message.content, message.timestamp, message.isOutgoing)
+                        is MessageContent.Call -> CallBubble(
+                            content = message.content,
+                            timestamp = message.timestamp,
+                            isOutgoing = message.isOutgoing,
+                            targetUserName = userName,
+                            onJoinCall = {
+                                val intent = Intent(context, CallActivity::class.java).apply {
+                                    putExtra("callID", message.content.callId)
+                                    putExtra("isVideo", message.content.isVideo)
+                                    putExtra("targetUserName", userName)
+                                }
+                                context.startActivity(intent)
+                            }
+                        )
                     }
                 }
             }
@@ -879,6 +923,26 @@ fun ChatDetailScreen(
             )
         }
     }
+
+    // Incoming Call Ringing Overlay
+    activeIncomingCall?.let { incCall ->
+        IncomingCallAlertModal(
+            callData = incCall,
+            onAccept = {
+                val intent = Intent(context, CallActivity::class.java).apply {
+                    putExtra("callID", incCall.callRoomId)
+                    putExtra("isVideo", incCall.isVideo)
+                    putExtra("targetUserName", incCall.callerName)
+                }
+                context.startActivity(intent)
+                activeIncomingCall = null
+            },
+            onDecline = {
+                dismissedCallIds = dismissedCallIds + incCall.callRoomId
+                activeIncomingCall = null
+            }
+        )
+    }
 }
 
 /**
@@ -1012,8 +1076,22 @@ fun ChatTopBar(
         // 1. Audio Call Button - Free Icon
         IconButton(
             onClick = {
+                val myUserId = UserManager.getCurrentUser(context)?.username ?: "user_me"
+                val callRoomId = "call_" + listOf(myUserId, targetUserId.ifBlank { "partner" }).sorted().joinToString("_")
+                
+                if (targetUserId.isNotEmpty()) {
+                    CloudflareClient.sendCloudflareMessage(
+                        context = context,
+                        receiverId = targetUserId,
+                        text = "مكالمة صوتية واردة",
+                        type = "audio_call",
+                        mediaUrl = callRoomId,
+                        fileName = userName
+                    ) { _, _ -> }
+                }
+
                 val intent = Intent(context, CallActivity::class.java).apply {
-                    putExtra("callID", "call_${System.currentTimeMillis()}")
+                    putExtra("callID", callRoomId)
                     putExtra("isVideo", false)
                     putExtra("targetUserName", userName)
                 }
@@ -1034,8 +1112,22 @@ fun ChatTopBar(
         // 2. Video Call Button - Free Icon
         IconButton(
             onClick = {
+                val myUserId = UserManager.getCurrentUser(context)?.username ?: "user_me"
+                val callRoomId = "call_" + listOf(myUserId, targetUserId.ifBlank { "partner" }).sorted().joinToString("_")
+
+                if (targetUserId.isNotEmpty()) {
+                    CloudflareClient.sendCloudflareMessage(
+                        context = context,
+                        receiverId = targetUserId,
+                        text = "مكالمة فيديو واردة",
+                        type = "video_call",
+                        mediaUrl = callRoomId,
+                        fileName = userName
+                    ) { _, _ -> }
+                }
+
                 val intent = Intent(context, CallActivity::class.java).apply {
-                    putExtra("callID", "call_${System.currentTimeMillis()}")
+                    putExtra("callID", callRoomId)
                     putExtra("isVideo", true)
                     putExtra("targetUserName", userName)
                 }
@@ -1951,41 +2043,94 @@ fun MapCardBubble(content: MessageContent.Location, timestamp: String, isOutgoin
 }
 
 @Composable
-fun SnapMediaBubble(content: MessageContent.Snap, timestamp: String, isOutgoing: Boolean) {
+fun CallBubble(
+    content: MessageContent.Call,
+    timestamp: String,
+    isOutgoing: Boolean,
+    targetUserName: String,
+    onJoinCall: () -> Unit
+) {
+    val isVideo = content.isVideo
+    val accentColor = if (isVideo) Color(0xFF2563EB) else Color(0xFF10B981)
+    val bgLight = if (isVideo) Color(0xFFEFF6FF) else Color(0xFFECFDF5)
+    val callTitle = if (isVideo) "مكالمة فيديو" else "مكالمة صوتية"
+    val callIcon = if (isVideo) Icons.Default.Videocam else Icons.Default.Call
+
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (isOutgoing) Arrangement.End else Arrangement.Start
     ) {
-        Row(
+        Column(
             modifier = Modifier
-                .fillMaxWidth(0.6f)
-                .background(Color.White, RoundedCornerShape(16.dp))
+                .widthIn(min = 230.dp, max = 290.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(Color.White)
                 .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(16.dp))
-                .padding(10.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .padding(12.dp)
         ) {
-            Icon(
-                imageVector = Icons.Default.LocalFireDepartment,
-                contentDescription = "Snap",
-                tint = Color(0xFFF59E0B),
-                modifier = Modifier.size(24.dp)
-            )
-            Spacer(modifier = Modifier.width(6.dp))
-            Column {
-                Text(
-                    text = "رسالة مؤقتة",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 13.sp,
-                    fontFamily = TajawalFontFamily,
-                    color = Color(0xFF0F172A)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(bgLight),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = callIcon,
+                        contentDescription = callTitle,
+                        tint = accentColor,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = callTitle,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp,
+                        fontFamily = TajawalFontFamily,
+                        color = Color(0xFF0F172A)
+                    )
+                    Text(
+                        text = if (isOutgoing) "مكالمة صادرة • $timestamp" else "مكالمة واردة • $timestamp",
+                        fontSize = 11.5.sp,
+                        fontFamily = TajawalFontFamily,
+                        color = Color(0xFF64748B)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Button(
+                onClick = onJoinCall,
+                colors = ButtonDefaults.buttonColors(containerColor = accentColor),
+                shape = RoundedCornerShape(10.dp),
+                contentPadding = PaddingValues(vertical = 6.dp, horizontal = 12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(36.dp)
+            ) {
+                Icon(
+                    imageVector = callIcon,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(16.dp)
                 )
+                Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = "${content.timer} ثواني",
-                    color = Color(0xFF64748B),
-                    fontSize = 11.sp,
-                    fontFamily = TajawalFontFamily
+                    text = if (isOutgoing) "الانضمام للمكالمة" else "الرد والانضمام",
+                    color = Color.White,
+                    fontSize = 12.5.sp,
+                    fontFamily = TajawalFontFamily,
+                    fontWeight = FontWeight.Bold
                 )
             }
         }
     }
 }
+

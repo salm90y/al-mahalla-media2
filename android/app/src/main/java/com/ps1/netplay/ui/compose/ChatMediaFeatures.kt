@@ -76,40 +76,164 @@ enum class ImageFilterType(val title: String) {
 }
 
 /**
- * 1. Open with System Chooser ("فتح باستخدام")
+ * 1. Open with System Chooser ("فتح باستخدام") + APK installation + ZIP extraction
  */
 fun openWithExternalApp(context: Context, fileName: String, fileUriOrPath: String, mimeType: String) {
-    try {
-        val uri: Uri = if (fileUriOrPath.startsWith("content://") || fileUriOrPath.startsWith("file://") || fileUriOrPath.startsWith("http")) {
-            Uri.parse(fileUriOrPath)
-        } else {
-            val file = File(fileUriOrPath)
-            if (file.exists()) {
-                androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-            } else {
-                Uri.parse(fileUriOrPath)
+    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+        try {
+            var targetFile: File? = null
+
+            // 1. Resolve to a local File if possible or download if HTTP
+            if (fileUriOrPath.startsWith("http://") || fileUriOrPath.startsWith("https://")) {
+                withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    Toast.makeText(context, "جاري تحضير الملف وفتحه...", Toast.LENGTH_SHORT).show()
+                }
+                val cleanName = if (fileName.isNotBlank()) fileName else fileUriOrPath.substringAfterLast("/")
+                val cacheDir = File(context.cacheDir, "downloaded_files").apply { mkdirs() }
+                val downloadedFile = File(cacheDir, cleanName)
+                
+                if (!downloadedFile.exists() || downloadedFile.length() == 0L) {
+                    val url = java.net.URL(fileUriOrPath)
+                    val conn = url.openConnection()
+                    conn.connectTimeout = 15000
+                    conn.readTimeout = 15000
+                    conn.getInputStream().use { input ->
+                        FileOutputStream(downloadedFile).use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+                }
+                targetFile = downloadedFile
+            } else if (fileUriOrPath.startsWith("file://")) {
+                targetFile = File(fileUriOrPath.removePrefix("file://"))
+            } else if (!fileUriOrPath.startsWith("content://")) {
+                val directFile = File(fileUriOrPath)
+                if (directFile.exists()) {
+                    targetFile = directFile
+                }
+            }
+
+            // 2. If it is a ZIP archive, inspect and extract if it contains an APK or other files
+            val isZip = fileName.endsWith(".zip", ignoreCase = true) || fileUriOrPath.endsWith(".zip", ignoreCase = true) || mimeType == "application/zip"
+            if (isZip && targetFile != null && targetFile.exists()) {
+                withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    Toast.makeText(context, "جاري استخراج الملف المضغوط...", Toast.LENGTH_SHORT).show()
+                }
+                val unzipDir = File(context.cacheDir, "unzipped_${targetFile.nameWithoutExtension}").apply { mkdirs() }
+                var extractedApk: File? = null
+                var firstExtractedFile: File? = null
+
+                java.util.zip.ZipInputStream(targetFile.inputStream()).use { zis ->
+                    var entry = zis.nextEntry
+                    while (entry != null) {
+                        if (!entry.isDirectory) {
+                            val outFile = File(unzipDir, entry.name.substringAfterLast("/"))
+                            FileOutputStream(outFile).use { fos ->
+                                zis.copyTo(fos)
+                            }
+                            if (firstExtractedFile == null) firstExtractedFile = outFile
+                            if (outFile.name.endsWith(".apk", ignoreCase = true)) {
+                                extractedApk = outFile
+                            }
+                        }
+                        zis.closeEntry()
+                        entry = zis.nextEntry
+                    }
+                }
+
+                if (extractedApk != null) {
+                    targetFile = extractedApk
+                } else if (firstExtractedFile != null) {
+                    targetFile = firstExtractedFile
+                }
+            }
+
+            // 3. Check if target is an APK file
+            val isApk = targetFile?.name?.endsWith(".apk", ignoreCase = true) == true ||
+                    fileName.endsWith(".apk", ignoreCase = true) ||
+                    fileUriOrPath.endsWith(".apk", ignoreCase = true) ||
+                    mimeType == "application/vnd.android.package-archive"
+
+            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                if (targetFile != null && targetFile.exists()) {
+                    val contentUri = androidx.core.content.FileProvider.getUriForFile(
+                        context,
+                        "${context.packageName}.fileprovider",
+                        targetFile
+                    )
+
+                    if (isApk) {
+                        // Handle APK installation
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                            if (!context.packageManager.canRequestPackageInstalls()) {
+                                Toast.makeText(context, "يرجى السماح بتثبيت التطبيقات من هذا المصدر", Toast.LENGTH_LONG).show()
+                                val settingsIntent = Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
+                                    data = Uri.parse("package:${context.packageName}")
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                }
+                                context.startActivity(settingsIntent)
+                                return@withContext
+                            }
+                        }
+
+                        val installIntent = Intent(Intent.ACTION_VIEW).apply {
+                            setDataAndType(contentUri, "application/vnd.android.package-archive")
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        try {
+                            context.startActivity(installIntent)
+                        } catch (e: Exception) {
+                            val chooser = Intent.createChooser(installIntent, "تثبيت التطبيق")
+                            chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            context.startActivity(chooser)
+                        }
+                    } else {
+                        // Normal file view with chooser
+                        val ext = targetFile.extension.lowercase(Locale.ROOT)
+                        val resolvedMime = if (mimeType.isNotBlank() && mimeType != "file" && mimeType != "*/*") {
+                            mimeType
+                        } else if (ext.isNotBlank()) {
+                            MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: "*/*"
+                        } else {
+                            "*/*"
+                        }
+
+                        val viewIntent = Intent(Intent.ACTION_VIEW).apply {
+                            setDataAndType(contentUri, resolvedMime)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        val chooser = Intent.createChooser(viewIntent, "فتح باستخدام")
+                        chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        context.startActivity(chooser)
+                    }
+                } else {
+                    // Fallback using raw uri
+                    val uri = Uri.parse(fileUriOrPath)
+                    val viewIntent = Intent(Intent.ACTION_VIEW).apply {
+                        val ext = MimeTypeMap.getFileExtensionFromUrl(fileUriOrPath)
+                        val resolvedMime = if (mimeType.isNotBlank() && mimeType != "file" && mimeType != "*/*") {
+                            mimeType
+                        } else if (ext.isNotBlank()) {
+                            MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext.lowercase(Locale.ROOT)) ?: "*/*"
+                        } else {
+                            "*/*"
+                        }
+                        setDataAndType(uri, resolvedMime)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    val chooser = Intent.createChooser(viewIntent, "فتح باستخدام")
+                    chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    context.startActivity(chooser)
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                Toast.makeText(context, "تعذر فتح الملف: ${e.localizedMessage ?: "تأكد من وجود تطبيق مناسب"}", Toast.LENGTH_LONG).show()
             }
         }
-
-        val ext = MimeTypeMap.getFileExtensionFromUrl(fileUriOrPath)
-        val resolvedMime = if (mimeType.isNotBlank() && mimeType != "file" && mimeType != "*/*") {
-            mimeType
-        } else if (ext.isNotBlank()) {
-            MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext.lowercase(Locale.ROOT)) ?: "*/*"
-        } else {
-            "*/*"
-        }
-
-        val intent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(uri, resolvedMime)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-
-        val chooser = Intent.createChooser(intent, "فتح باستخدام")
-        chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        context.startActivity(chooser)
-    } catch (e: Exception) {
-        Toast.makeText(context, "لا يوجد تطبيق مناسب لفتح هذا الملف", Toast.LENGTH_SHORT).show()
     }
 }
 
@@ -842,3 +966,240 @@ fun MessageContextMenuSheet(
         shape = RoundedCornerShape(20.dp)
     )
 }
+
+/**
+ * Data holder for incoming audio/video call signals
+ */
+data class IncomingCallData(
+    val callerId: String,
+    val callerName: String,
+    val callerAvatar: String = "",
+    val callRoomId: String,
+    val isVideo: Boolean,
+    val timestamp: Long = System.currentTimeMillis()
+)
+
+/**
+ * High-end real-time Incoming Call Alert with ringtone, vibration, and accept/decline controls
+ */
+@Composable
+fun IncomingCallAlertModal(
+    callData: IncomingCallData,
+    onAccept: () -> Unit,
+    onDecline: () -> Unit
+) {
+    val context = LocalContext.current
+    
+    // Play system ringtone & vibration while ringing
+    DisposableEffect(callData.callRoomId) {
+        var ringtone: Ringtone? = null
+        var vibrator: Vibrator? = null
+        try {
+            val alertUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+            ringtone = RingtoneManager.getRingtone(context, alertUri)
+            ringtone?.play()
+
+            vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
+                vibratorManager?.defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
+                context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+            }
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                vibrator?.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 800, 1000, 800, 1000), 1))
+            } else {
+                @Suppress("DEPRECATION")
+                vibrator?.vibrate(longArrayOf(0, 800, 1000, 800, 1000), 1)
+            }
+        } catch (_: Exception) {}
+
+        onDispose {
+            try {
+                ringtone?.stop()
+                vibrator?.cancel()
+            } catch (_: Exception) {}
+        }
+    }
+
+    // Auto-dismiss after 45 seconds if unanswered
+    LaunchedEffect(callData.timestamp) {
+        delay(45000)
+        onDecline()
+    }
+
+    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+    val pulseScale by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = 1.25f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1000, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulseScale"
+    )
+
+    Dialog(
+        onDismissRequest = onDecline,
+        properties = DialogProperties(dismissOnBackPress = true, dismissOnClickOutside = false, usePlatformDefaultWidth = false)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color(0xE60B132B)),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth(0.9f)
+                    .clip(RoundedCornerShape(28.dp))
+                    .background(Color(0xFF1E293B))
+                    .border(1.dp, Color(0xFF334155), RoundedCornerShape(28.dp))
+                    .padding(vertical = 32.dp, horizontal = 24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                // Pulsing Avatar with Glow
+                Box(
+                    modifier = Modifier.size(130.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(120.dp * pulseScale)
+                            .clip(CircleShape)
+                            .background(
+                                if (callData.isVideo) Color(0x333B82F6) else Color(0x3310B981)
+                            )
+                    )
+                    Box(
+                        modifier = Modifier
+                            .size(90.dp)
+                            .clip(CircleShape)
+                            .background(if (callData.isVideo) Color(0xFF2563EB) else Color(0xFF10B981)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (callData.callerAvatar.isNotEmpty()) {
+                            AsyncImage(
+                                model = callData.callerAvatar,
+                                contentDescription = callData.callerName,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .clip(CircleShape),
+                                contentScale = ContentScale.Crop
+                            )
+                        } else {
+                            Icon(
+                                imageVector = if (callData.isVideo) Icons.Default.Videocam else Icons.Default.Call,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(44.dp)
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                // Caller Name
+                Text(
+                    text = callData.callerName.ifEmpty { "مستخدم" },
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = TajawalFontFamily,
+                    color = Color.White
+                )
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // Call Type & Subtitle
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = if (callData.isVideo) Icons.Default.Videocam else Icons.Default.PhoneInTalk,
+                        contentDescription = null,
+                        tint = if (callData.isVideo) Color(0xFF60A5FA) else Color(0xFF34D399),
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Text(
+                        text = if (callData.isVideo) "مكالمة فيديو واردة..." else "مكالمة صوتية واردة...",
+                        fontSize = 15.sp,
+                        fontFamily = TajawalFontFamily,
+                        color = Color(0xFF94A3B8)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(36.dp))
+
+                // Action Buttons: Accept & Decline
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Decline Button (Red)
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.clickable { onDecline() }
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(64.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFFEF4444)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CallEnd,
+                                contentDescription = "رفض",
+                                tint = Color.White,
+                                modifier = Modifier.size(30.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "رفض",
+                            color = Color(0xFFEF4444),
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = TajawalFontFamily
+                        )
+                    }
+
+                    // Accept Button (Green)
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.clickable { onAccept() }
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(64.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF10B981)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = if (callData.isVideo) Icons.Default.Videocam else Icons.Default.Call,
+                                contentDescription = "قبول",
+                                tint = Color.White,
+                                modifier = Modifier.size(30.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "قبول",
+                            color = Color(0xFF10B981),
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = TajawalFontFamily
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+

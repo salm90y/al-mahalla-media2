@@ -634,8 +634,22 @@ fun FriendsScreen(
                                         IconButton(
                                             onClick = {
                                                 try {
+                                                    val myUserId = UserManager.getCurrentUser(context)?.username ?: "user_me"
+                                                    val callRoomId = "call_" + listOf(myUserId, friend.id.ifBlank { "partner" }).sorted().joinToString("_")
+
+                                                    if (friend.id.isNotEmpty()) {
+                                                        CloudflareClient.sendCloudflareMessage(
+                                                            context = context,
+                                                            receiverId = friend.id,
+                                                            text = "مكالمة صوتية واردة",
+                                                            type = "audio_call",
+                                                            mediaUrl = callRoomId,
+                                                            fileName = friend.name
+                                                        ) { _, _ -> }
+                                                    }
+
                                                     val intent = Intent(context, CallActivity::class.java).apply {
-                                                        putExtra("callID", "call_${friend.id}_${System.currentTimeMillis()}")
+                                                        putExtra("callID", callRoomId)
                                                         putExtra("isVideo", false)
                                                         putExtra("targetUserName", friend.name)
                                                     }

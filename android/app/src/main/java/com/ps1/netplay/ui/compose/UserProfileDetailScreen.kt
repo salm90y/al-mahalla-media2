@@ -116,8 +116,22 @@ fun UserProfileDetailScreen(
     // Call launcher helper
     fun startRealCall(isVideo: Boolean) {
         try {
+            val myUserId = UserManager.getCurrentUser(context)?.username ?: "user_me"
+            val callRoomId = "call_" + listOf(myUserId, userId.ifBlank { "partner" }).sorted().joinToString("_")
+
+            if (userId.isNotEmpty()) {
+                CloudflareClient.sendCloudflareMessage(
+                    context = context,
+                    receiverId = userId,
+                    text = if (isVideo) "مكالمة فيديو واردة" else "مكالمة صوتية واردة",
+                    type = if (isVideo) "video_call" else "audio_call",
+                    mediaUrl = callRoomId,
+                    fileName = userName
+                ) { _, _ -> }
+            }
+
             val intent = Intent(context, CallActivity::class.java).apply {
-                putExtra("callID", "call_${userId}_${System.currentTimeMillis()}")
+                putExtra("callID", callRoomId)
                 putExtra("isVideo", isVideo)
                 putExtra("targetUserName", userName)
             }
