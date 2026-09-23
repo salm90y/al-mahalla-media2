@@ -1670,4 +1670,46 @@ override fun onResponse(call: Call, response: Response) {
             }
         })
     }
+
+    /**
+     * Check if a specific user is currently online
+     */
+    fun checkUserOnline(context: Context, userId: String, callback: (Boolean) -> Unit) {
+        val token = getAuthToken(context)
+        val url = "${getBaseUrl(context)}/friends/list"
+        val reqBuilder = Request.Builder().url(url)
+        if (!token.isNullOrEmpty()) {
+            reqBuilder.addHeader("Authorization", "Bearer $token")
+        }
+
+        httpClient.newCall(reqBuilder.build()).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                mainHandler.post { callback(false) }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                response.use { resp ->
+                    if (resp.isSuccessful) {
+                        try {
+                            val json = JSONObject(resp.body?.string() ?: "{}")
+                            val friends = json.optJSONArray("friends") ?: JSONArray()
+                            for (i in 0 until friends.length()) {
+                                val f = friends.getJSONObject(i)
+                                val fid = f.optString("id")
+                                val fUsername = f.optString("username")
+                                if (fid.equals(userId, ignoreCase = true) || fUsername.equals(userId, ignoreCase = true)) {
+                                    val status = f.optString("status", "offline")
+                                    val lastSeen = f.optLong("last_seen", 0L)
+                                    val isOnline = status == "online" || (System.currentTimeMillis() - lastSeen < 120000)
+                                    mainHandler.post { callback(isOnline) }
+                                    return
+                                }
+                            }
+                        } catch (_: Exception) {}
+                    }
+                    mainHandler.post { callback(false) }
+                }
+            }
+        })
+    }
 }

@@ -4,27 +4,16 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.media.AudioManager
-import android.media.RingtoneManager
-import android.os.Build
 import android.os.Bundle
-import android.os.VibrationEffect
-import android.os.Vibrator
-import android.os.VibratorManager
 import android.util.Log
-import android.widget.Toast
 import androidx.activity.compose.setContent
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import com.ps1.netplay.ui.compose.CallHistoryManager
-import com.ps1.netplay.ui.compose.CallStatus
+import com.ps1.netplay.network.CallSignalingManager
 import com.ps1.netplay.ui.compose.ModernCallScreen
-import com.ps1.netplay.ui.compose.RealCallRecord
 import com.zegocloud.uikit.prebuilt.call.ZegoUIKitPrebuiltCallConfig
 import com.zegocloud.uikit.prebuilt.call.ZegoUIKitPrebuiltCallFragment
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 class CallActivity : AppCompatActivity() {
 
@@ -33,16 +22,7 @@ class CallActivity : AppCompatActivity() {
         var currentActiveRoomId: String = ""
 
         fun stopAllRingtones(context: Context) {
-            try {
-                val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
-                    vibratorManager?.defaultVibrator
-                } else {
-                    @Suppress("DEPRECATION")
-                    context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
-                }
-                vibrator?.cancel()
-            } catch (_: Exception) {}
+            CallSignalingManager.stopAllSounds(context)
         }
     }
 
@@ -50,6 +30,8 @@ class CallActivity : AppCompatActivity() {
 
     private var callID: String = ""
     private var isVideo: Boolean = false
+    private var isIncoming: Boolean = false
+    private var targetUserId: String = ""
     private var targetUserName: String = ""
     private var targetUserAvatar: String = ""
     private var audioManager: AudioManager? = null
@@ -63,30 +45,35 @@ class CallActivity : AppCompatActivity() {
         callID = intent.getStringExtra("callID") ?: "call_${System.currentTimeMillis()}"
         currentActiveRoomId = callID
         isVideo = intent.getBooleanExtra("isVideo", false)
-        targetUserName = intent.getStringExtra("targetUserName") ?: "أحمد محمد"
+        isIncoming = intent.getBooleanExtra("isIncoming", false)
+        targetUserId = intent.getStringExtra("targetUserId") ?: intent.getStringExtra("targetUserName") ?: "user"
+        targetUserName = intent.getStringExtra("targetUserName") ?: "مستخدم"
         targetUserAvatar = intent.getStringExtra("targetUserAvatar") ?: ""
 
         audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
 
-        // Log call to local history
-        try {
-            val timeStr = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date())
-            CallHistoryManager.addRecord(
-                this,
-                RealCallRecord(
-                    id = callID,
-                    name = targetUserName,
-                    avatar = targetUserAvatar.ifBlank { "https://ui-avatars.com/api/?name=$targetUserName&background=random" },
-                    time = timeStr,
-                    isVideo = isVideo,
-                    status = CallStatus.OUTGOING
-                )
+        // Start Call Signaling Session
+        if (isIncoming) {
+            CallSignalingManager.acceptIncomingCall(
+                context = this,
+                callerId = targetUserId,
+                callerName = targetUserName,
+                callerAvatar = targetUserAvatar,
+                roomId = callID,
+                isVideo = isVideo
             )
-        } catch (e: Exception) {
-            Log.w("CallActivity", "Failed to log call: ${e.message}")
+        } else {
+            CallSignalingManager.startOutgoingCall(
+                context = this,
+                targetUserId = targetUserId,
+                targetUserName = targetUserName,
+                targetUserAvatar = targetUserAvatar,
+                isVideo = isVideo,
+                roomId = callID
+            )
         }
 
-        // Render the new modern call screen
+        // Render Modern Call Screen
         setContent {
             ModernCallScreen(
                 callerName = targetUserName,
@@ -117,6 +104,7 @@ class CallActivity : AppCompatActivity() {
         super.onDestroy()
         isCallActive = false
         currentActiveRoomId = ""
+        CallSignalingManager.stopAllSounds(this)
         try {
             audioManager?.isSpeakerphoneOn = false
             audioManager?.isMicrophoneMute = false
@@ -184,7 +172,6 @@ class CallActivity : AppCompatActivity() {
                         callID,
                         config
                     )
-                    // Zego engine initialized for real background audio/video pipeline
                 } catch (e: Exception) {
                     Log.w("CallActivity", "Zego RTC engine notice: ${e.message}")
                 }
@@ -192,4 +179,3 @@ class CallActivity : AppCompatActivity() {
         }
     }
 }
-

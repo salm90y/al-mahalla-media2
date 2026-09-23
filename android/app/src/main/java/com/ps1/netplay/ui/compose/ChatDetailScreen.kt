@@ -461,6 +461,19 @@ fun ChatDetailScreen(
     // Live Incoming Call state & dismissed cache
     var activeIncomingCall by remember { mutableStateOf<IncomingCallData?>(null) }
     var dismissedCallIds by remember { mutableStateOf(setOf<String>()) }
+    var isTargetOnline by remember { mutableStateOf(isOnline) }
+
+    // Live presence polling for real online/offline status
+    LaunchedEffect(targetUserId) {
+        if (targetUserId.isNotEmpty()) {
+            while (isActive) {
+                CloudflareClient.checkUserOnline(context, targetUserId) { online ->
+                    isTargetOnline = online
+                }
+                delay(5000)
+            }
+        }
+    }
 
     // Live bidirectional sync loop from Cloudflare and R2
     LaunchedEffect(targetUserId) {
@@ -494,6 +507,8 @@ fun ChatDetailScreen(
                                     isVideo = isVid,
                                     timestamp = incomingCallMsg.createdAt
                                 )
+                                // Send ringing acknowledgment so caller switches from "Calling..." to "Ringing..."
+                                CallSignalingManager.sendRingingAck(context, targetUserId, callRoom, isVid)
                             }
                         }
 
@@ -648,7 +663,7 @@ fun ChatDetailScreen(
         ChatTopBar(
             targetUserId = targetUserId,
             userName = userName,
-            isOnline = isOnline,
+            isOnline = isTargetOnline,
             isTyping = isTyping,
             avatarUrl = avatarUrl,
             onAvatarClick = {
@@ -665,6 +680,31 @@ fun ChatDetailScreen(
             },
             onBack = onNavigateBack
         )
+
+        // ONGOING CALL TOP GREEN BANNER (If call is active in background/minimized)
+        val activeCallSession = CallSignalingManager.currentSession
+        if (CallActivity.isCallActive || activeCallSession != null) {
+            OngoingCallTopBanner(
+                callerName = activeCallSession?.targetUserName ?: userName,
+                duration = CallSignalingManager.formatDuration(CallSignalingManager.callDurationSeconds),
+                isVideo = activeCallSession?.isVideo ?: false,
+                onReturnToCall = {
+                    val sess = CallSignalingManager.currentSession
+                    val intent = Intent(context, CallActivity::class.java).apply {
+                        putExtra("callID", sess?.roomId ?: "call_${System.currentTimeMillis()}")
+                        putExtra("isVideo", sess?.isVideo ?: false)
+                        putExtra("isIncoming", sess?.isOutgoing != true)
+                        putExtra("targetUserId", sess?.targetUserId ?: targetUserId)
+                        putExtra("targetUserName", sess?.targetUserName ?: userName)
+                        putExtra("targetUserAvatar", sess?.targetUserAvatar ?: avatarUrl)
+                    }
+                    context.startActivity(intent)
+                },
+                onEndCall = {
+                    CallSignalingManager.endCall(context)
+                }
+            )
+        }
 
         // 2. SCROLLABLE MESSAGES (Always strictly Left-to-Right for chat bubbles: outgoing on Right, incoming on Left)
         CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
@@ -952,6 +992,8 @@ fun ChatDetailScreen(
                 val intent = Intent(context, CallActivity::class.java).apply {
                     putExtra("callID", roomId)
                     putExtra("isVideo", incCall.isVideo)
+                    putExtra("isIncoming", true)
+                    putExtra("targetUserId", incCall.callerId)
                     putExtra("targetUserName", incCall.callerName)
                     putExtra("targetUserAvatar", incCall.callerAvatar)
                 }
@@ -959,6 +1001,7 @@ fun ChatDetailScreen(
             },
             onDecline = {
                 dismissedCallIds = dismissedCallIds + incCall.callRoomId
+                CallSignalingManager.declineIncomingCall(context, incCall.callerId, incCall.callRoomId, incCall.isVideo)
                 activeIncomingCall = null
                 CallActivity.stopAllRingtones(context)
             }
@@ -1099,21 +1142,12 @@ fun ChatTopBar(
             onClick = {
                 val myUserId = UserManager.getCurrentUser(context)?.username ?: "user_me"
                 val callRoomId = "call_" + listOf(myUserId, targetUserId.ifBlank { "partner" }).sorted().joinToString("_")
-                
-                if (targetUserId.isNotEmpty()) {
-                    CloudflareClient.sendCloudflareMessage(
-                        context = context,
-                        receiverId = targetUserId,
-                        text = "مكالمة صوتية واردة",
-                        type = "audio_call",
-                        mediaUrl = callRoomId,
-                        fileName = userName
-                    ) { _, _ -> }
-                }
 
                 val intent = Intent(context, CallActivity::class.java).apply {
                     putExtra("callID", callRoomId)
                     putExtra("isVideo", false)
+                    putExtra("isIncoming", false)
+                    putExtra("targetUserId", targetUserId)
                     putExtra("targetUserName", userName)
                     putExtra("targetUserAvatar", avatarUrl)
                 }
@@ -1137,20 +1171,11 @@ fun ChatTopBar(
                 val myUserId = UserManager.getCurrentUser(context)?.username ?: "user_me"
                 val callRoomId = "call_" + listOf(myUserId, targetUserId.ifBlank { "partner" }).sorted().joinToString("_")
 
-                if (targetUserId.isNotEmpty()) {
-                    CloudflareClient.sendCloudflareMessage(
-                        context = context,
-                        receiverId = targetUserId,
-                        text = "مكالمة فيديو واردة",
-                        type = "video_call",
-                        mediaUrl = callRoomId,
-                        fileName = userName
-                    ) { _, _ -> }
-                }
-
                 val intent = Intent(context, CallActivity::class.java).apply {
                     putExtra("callID", callRoomId)
                     putExtra("isVideo", true)
+                    putExtra("isIncoming", false)
+                    putExtra("targetUserId", targetUserId)
                     putExtra("targetUserName", userName)
                     putExtra("targetUserAvatar", avatarUrl)
                 }
@@ -1164,6 +1189,97 @@ fun ChatTopBar(
                 tint = Color(0xFF2563EB),
                 modifier = Modifier.size(24.dp)
             )
+        }
+    }
+}
+
+/**
+ * Ongoing Call Top Glowing Green Banner
+ */
+@Composable
+fun OngoingCallTopBanner(
+    callerName: String,
+    duration: String,
+    isVideo: Boolean,
+    onReturnToCall: () -> Unit,
+    onEndCall: () -> Unit
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+    val pulseAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.85f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(800, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulseAlpha"
+    )
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onReturnToCall() },
+        color = Color(0xFF10B981).copy(alpha = pulseAlpha),
+        shadowElevation = 4.dp
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    imageVector = if (isVideo) Icons.Default.Videocam else Icons.Default.PhoneInTalk,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(20.dp)
+                )
+                Text(
+                    text = "مكالمة جارية • $callerName • $duration",
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp,
+                    fontFamily = TajawalFontFamily
+                )
+            }
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = "الرجوع",
+                    color = Color(0xFF10B981),
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = TajawalFontFamily,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color.White)
+                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                )
+
+                Box(
+                    modifier = Modifier
+                        .size(30.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFFEF4444))
+                        .clickable { onEndCall() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CallEnd,
+                        contentDescription = "إنهاء",
+                        tint = Color.White,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
         }
     }
 }

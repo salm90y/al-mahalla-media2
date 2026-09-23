@@ -34,14 +34,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
-import kotlinx.coroutines.delay
+import com.ps1.netplay.network.CallSignalingManager
+import com.ps1.netplay.network.CallState
 
 /**
- * High-fidelity, modern Call Screen matching the exact reference design:
+ * High-fidelity, modern Call Screen matching global reference apps:
  * - Soft pastel blue/white gradient background
  * - Top bar with circular back & 3-dots buttons
  * - Large circular avatar with double border ring & green online badge
- * - Bold user name in Tajawal font, status label, and live elapsed timer
+ * - Bold user name in Tajawal font, dynamic status ("يجري الاتصال...", "يرن...", "متصل الآن", "انتهت المكالمة")
+ * - Live elapsed timer only counting up when connected
  * - 6-button rounded action card: Mute, Speaker, Camera, Add Person, Keypad, More
  * - Floating circular red End-Call button at bottom
  */
@@ -57,28 +59,44 @@ fun ModernCallScreen(
     onSwitchCamera: () -> Unit = {}
 ) {
     val context = LocalContext.current
-    var isMuted by remember { mutableStateOf(false) }
-    var isSpeakerOn by remember { mutableStateOf(isVideoCall) }
-    var isCameraOn by remember { mutableStateOf(isVideoCall) }
-    var isConnected by remember { mutableStateOf(false) }
-    var elapsedSeconds by remember { mutableIntStateOf(0) }
+    val callState = CallSignalingManager.callState
+    val durationSeconds = CallSignalingManager.callDurationSeconds
+    val isMuted = CallSignalingManager.isMuted
+    val isSpeakerOn = CallSignalingManager.isSpeakerOn
+    val isCameraOn = CallSignalingManager.isCameraOn
+    val endNotice = CallSignalingManager.endCallNoticeMessage
+
     var showKeypad by remember { mutableStateOf(false) }
     var showMoreMenu by remember { mutableStateOf(false) }
     var showAddPersonDialog by remember { mutableStateOf(false) }
 
-    // Live call duration counter
-    LaunchedEffect(Unit) {
-        delay(1500) // Simulated connection handshake
-        isConnected = true
-        while (true) {
-            delay(1000)
-            elapsedSeconds++
+    // Auto-dismiss screen if call ended or declined
+    LaunchedEffect(callState) {
+        if (callState == CallState.ENDED || callState == CallState.DECLINED || callState == CallState.NO_ANSWER || callState == CallState.BUSY) {
+            kotlinx.coroutines.delay(1800)
+            onEndCall()
         }
     }
 
-    val minutes = elapsedSeconds / 60
-    val seconds = elapsedSeconds % 60
-    val timeFormatted = String.format(java.util.Locale.US, "%02d:%02d", minutes, seconds)
+    // Dynamic status text and color
+    val statusText = when (callState) {
+        CallState.CONNECTING -> "يجري الاتصال..."
+        CallState.RINGING -> "يرن..."
+        CallState.CONNECTED -> "متصل الآن"
+        CallState.BUSY -> "الخط مشغول"
+        CallState.NO_ANSWER -> "لا يوجد رد / غير متاح"
+        CallState.DECLINED -> "تم رفض المكالمة"
+        CallState.ENDED -> endNotice.ifBlank { "انتهت المكالمة" }
+    }
+
+    val statusColor = when (callState) {
+        CallState.CONNECTING -> Color(0xFF3B82F6)
+        CallState.RINGING -> Color(0xFF10B981)
+        CallState.CONNECTED -> Color(0xFF64748B)
+        CallState.BUSY, CallState.NO_ANSWER, CallState.DECLINED, CallState.ENDED -> Color(0xFFEF4444)
+    }
+
+    val timeFormatted = CallSignalingManager.formatDuration(durationSeconds)
 
     Box(
         modifier = Modifier
@@ -135,7 +153,11 @@ fun ModernCallScreen(
                         .clip(CircleShape)
                         .background(Color.White.copy(alpha = 0.85f))
                         .border(1.dp, Color(0xFFE2E8F0), CircleShape)
-                        .clickable { onEndCall() },
+                        .clickable {
+                            CallSignalingManager.endCall(context) {
+                                onEndCall()
+                            }
+                        },
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
@@ -201,7 +223,9 @@ fun ModernCallScreen(
                             .padding(end = 14.dp, bottom = 12.dp)
                             .size(22.dp)
                             .clip(CircleShape)
-                            .background(Color(0xFF10B981))
+                            .background(
+                                if (callState == CallState.CONNECTED || callState == CallState.RINGING) Color(0xFF10B981) else Color(0xFF94A3B8)
+                            )
                             .border(3.dp, Color.White, CircleShape)
                     )
                 }
@@ -210,7 +234,7 @@ fun ModernCallScreen(
 
                 // Caller Name
                 Text(
-                    text = callerName.ifBlank { "أحمد محمد" },
+                    text = callerName.ifBlank { "مستخدم" },
                     fontSize = 28.sp,
                     fontWeight = FontWeight.Bold,
                     fontFamily = TajawalFontFamily,
@@ -222,18 +246,19 @@ fun ModernCallScreen(
 
                 // Status Text
                 Text(
-                    text = if (isConnected) "متصل الآن" else "جارٍ الاتصال...",
-                    fontSize = 15.sp,
+                    text = statusText,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Medium,
                     fontFamily = TajawalFontFamily,
-                    color = if (isConnected) Color(0xFF64748B) else Color(0xFF3B82F6),
+                    color = statusColor,
                     textAlign = TextAlign.Center
                 )
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                // Timer Display
+                // Timer Display (Only counts up when CONNECTED)
                 Text(
-                    text = if (isConnected) timeFormatted else "00:00",
+                    text = if (callState == CallState.CONNECTED) timeFormatted else if (callState == CallState.ENDED) timeFormatted else "00:00",
                     fontSize = 22.sp,
                     fontWeight = FontWeight.Bold,
                     fontFamily = TajawalFontFamily,
@@ -270,8 +295,9 @@ fun ModernCallScreen(
                             activeBgColor = Color(0xFFFEE2E2),
                             activeIconColor = Color(0xFFEF4444),
                             onClick = {
-                                isMuted = !isMuted
-                                onToggleMute(isMuted)
+                                val next = !isMuted
+                                CallSignalingManager.isMuted = next
+                                onToggleMute(next)
                             }
                         )
 
@@ -283,8 +309,9 @@ fun ModernCallScreen(
                             activeBgColor = Color(0xFFEFF6FF),
                             activeIconColor = Color(0xFF2563EB),
                             onClick = {
-                                isSpeakerOn = !isSpeakerOn
-                                onToggleSpeaker(isSpeakerOn)
+                                val next = !isSpeakerOn
+                                CallSignalingManager.isSpeakerOn = next
+                                onToggleSpeaker(next)
                             }
                         )
 
@@ -296,8 +323,9 @@ fun ModernCallScreen(
                             activeBgColor = Color(0xFF3B82F6),
                             activeIconColor = Color.White,
                             onClick = {
-                                isCameraOn = !isCameraOn
-                                onToggleCamera(isCameraOn)
+                                val next = !isCameraOn
+                                CallSignalingManager.isCameraOn = next
+                                onToggleCamera(next)
                             }
                         )
                     }
@@ -345,7 +373,11 @@ fun ModernCallScreen(
                     .shadow(12.dp, CircleShape, spotColor = Color(0x4DEF4444))
                     .clip(CircleShape)
                     .background(Color(0xFFEF4444))
-                    .clickable { onEndCall() },
+                    .clickable {
+                        CallSignalingManager.endCall(context) {
+                            onEndCall()
+                        }
+                    },
                 contentAlignment = Alignment.Center
             ) {
                 Icon(

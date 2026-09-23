@@ -651,6 +651,8 @@ fun FriendsScreen(
                                                     val intent = Intent(context, CallActivity::class.java).apply {
                                                         putExtra("callID", callRoomId)
                                                         putExtra("isVideo", false)
+                                                        putExtra("isIncoming", false)
+                                                        putExtra("targetUserId", friend.id)
                                                         putExtra("targetUserName", friend.name)
                                                         putExtra("targetUserAvatar", friend.avatarUrl)
                                                     }

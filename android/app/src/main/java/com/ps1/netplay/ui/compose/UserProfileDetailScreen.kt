@@ -134,6 +134,8 @@ fun UserProfileDetailScreen(
             val intent = Intent(context, CallActivity::class.java).apply {
                 putExtra("callID", callRoomId)
                 putExtra("isVideo", isVideo)
+                putExtra("isIncoming", false)
+                putExtra("targetUserId", userId)
                 putExtra("targetUserName", userName)
                 putExtra("targetUserAvatar", avatarUrl)
             }
