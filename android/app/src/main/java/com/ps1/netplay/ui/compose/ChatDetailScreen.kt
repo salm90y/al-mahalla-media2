@@ -465,28 +465,35 @@ fun ChatDetailScreen(
     LaunchedEffect(targetUserId) {
         if (targetUserId.isNotEmpty()) {
             val mediaDir = File(context.filesDir, "chat_media")
+            val timeFormatter = SimpleDateFormat("h:mm a", Locale.getDefault())
+
             while (isActive) {
                 CloudflareClient.fetchCloudflareMessages(context, targetUserId) { loaded ->
                     if (loaded.isNotEmpty()) {
-                        // Check for recent incoming call signals (last 45 seconds)
-                        val incomingCallMsg = loaded.lastOrNull { m ->
-                            (m.type == "audio_call" || m.type == "video_call" || m.type == "call") &&
-                            !m.isOutgoing &&
-                            (System.currentTimeMillis() - m.createdAt < 45000) &&
-                            !dismissedCallIds.contains(m.id) &&
-                            !dismissedCallIds.contains(m.mediaUrl)
-                        }
-                        if (incomingCallMsg != null && activeIncomingCall == null) {
-                            val isVid = incomingCallMsg.type == "video_call"
-                            val callRoom = incomingCallMsg.mediaUrl.ifBlank { "call_${listOf(myId, targetUserId).sorted().joinToString("_")}" }
-                            activeIncomingCall = IncomingCallData(
-                                callerId = targetUserId,
-                                callerName = userName,
-                                callerAvatar = avatarUrl,
-                                callRoomId = callRoom,
-                                isVideo = isVid,
-                                timestamp = incomingCallMsg.createdAt
-                            )
+                        // Check for recent incoming call signals (last 45 seconds) & ensure not from self
+                        if (!CallActivity.isCallActive) {
+                            val incomingCallMsg = loaded.lastOrNull { m ->
+                                (m.type == "audio_call" || m.type == "video_call" || m.type == "call") &&
+                                !m.isOutgoing &&
+                                m.senderId != myId &&
+                                m.senderId != myUsername &&
+                                !m.senderId.startsWith("user_me") &&
+                                (System.currentTimeMillis() - m.createdAt < 45000) &&
+                                !dismissedCallIds.contains(m.id) &&
+                                !dismissedCallIds.contains(m.mediaUrl)
+                            }
+                            if (incomingCallMsg != null && activeIncomingCall == null) {
+                                val isVid = incomingCallMsg.type == "video_call"
+                                val callRoom = incomingCallMsg.mediaUrl.ifBlank { "call_${listOf(myId, targetUserId).sorted().joinToString("_")}" }
+                                activeIncomingCall = IncomingCallData(
+                                    callerId = targetUserId,
+                                    callerName = userName,
+                                    callerAvatar = avatarUrl,
+                                    callRoomId = callRoom,
+                                    isVideo = isVid,
+                                    timestamp = incomingCallMsg.createdAt
+                                )
+                            }
                         }
 
                         val currentPhotoMap = messages.associate { curr ->
@@ -517,16 +524,19 @@ fun ChatDetailScreen(
                                 "file", "audio", "video" -> MessageContent.Document(m.fileName.ifEmpty { m.content }, "ملف", m.type)
                                 else -> MessageContent.Text(m.content)
                             }
-                            val time = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(m.createdAt))
+                            val time = timeFormatter.format(Date(m.createdAt))
                             Message(m.id, content, time, m.isOutgoing)
                         }
-                        // Avoid duplicate IDs and preserve pending local outgoing messages
+                        // Avoid unnecessary state re-assignments to keep scrolling 120 FPS buttery smooth
                         val loadedIds = mapped.map { it.id }.toSet()
                         val pending = messages.filter { curr -> curr.isOutgoing && !loadedIds.contains(curr.id) }
-                        messages = (mapped + pending).distinctBy { it.id }
+                        val newMerged = (mapped + pending).distinctBy { it.id }
+                        if (newMerged.size != messages.size || newMerged.map { it.id to it.status } != messages.map { it.id to it.status }) {
+                            messages = newMerged
+                        }
                     }
                 }
-                delay(2000)
+                delay(2500)
             }
         }
     }
@@ -666,7 +676,11 @@ fun ChatDetailScreen(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
                 contentPadding = PaddingValues(vertical = 12.dp)
             ) {
-                items(messages, key = { it.id }) { message ->
+                items(
+                    items = messages,
+                    key = { it.id },
+                    contentType = { it.content::class.java.simpleName }
+                ) { message ->
                     when (message.content) {
                         is MessageContent.Text -> TextBubble(
                             text = message.content.text,
@@ -929,17 +943,23 @@ fun ChatDetailScreen(
         IncomingCallAlertModal(
             callData = incCall,
             onAccept = {
+                val roomId = incCall.callRoomId
+                dismissedCallIds = dismissedCallIds + roomId
+                activeIncomingCall = null
+                CallActivity.stopAllRingtones(context)
+
                 val intent = Intent(context, CallActivity::class.java).apply {
-                    putExtra("callID", incCall.callRoomId)
+                    putExtra("callID", roomId)
                     putExtra("isVideo", incCall.isVideo)
                     putExtra("targetUserName", incCall.callerName)
+                    putExtra("targetUserAvatar", incCall.callerAvatar)
                 }
                 context.startActivity(intent)
-                activeIncomingCall = null
             },
             onDecline = {
                 dismissedCallIds = dismissedCallIds + incCall.callRoomId
                 activeIncomingCall = null
+                CallActivity.stopAllRingtones(context)
             }
         )
     }
@@ -1094,6 +1114,7 @@ fun ChatTopBar(
                     putExtra("callID", callRoomId)
                     putExtra("isVideo", false)
                     putExtra("targetUserName", userName)
+                    putExtra("targetUserAvatar", avatarUrl)
                 }
                 context.startActivity(intent)
             },
@@ -1130,6 +1151,7 @@ fun ChatTopBar(
                     putExtra("callID", callRoomId)
                     putExtra("isVideo", true)
                     putExtra("targetUserName", userName)
+                    putExtra("targetUserAvatar", avatarUrl)
                 }
                 context.startActivity(intent)
             },
@@ -1380,6 +1402,15 @@ fun SinglePhotoBubble(
 ) {
     val context = LocalContext.current
     val imageModel = remember(url) { resolveMediaUrl(context, url) }
+    val coilRequest = remember(imageModel) {
+        ImageRequest.Builder(context)
+            .data(imageModel)
+            .crossfade(true)
+            .diskCachePolicy(CachePolicy.ENABLED)
+            .memoryCachePolicy(CachePolicy.ENABLED)
+            .networkCachePolicy(CachePolicy.ENABLED)
+            .build()
+    }
 
     LaunchedEffect(url) {
         ensureMediaCachedLocally(context, url)
@@ -1407,13 +1438,7 @@ fun SinglePhotoBubble(
                     .clickable { onPhotoClick(url) }
             ) {
                 AsyncImage(
-                    model = ImageRequest.Builder(context)
-                        .data(imageModel)
-                        .crossfade(true)
-                        .diskCachePolicy(CachePolicy.ENABLED)
-                        .memoryCachePolicy(CachePolicy.ENABLED)
-                        .networkCachePolicy(CachePolicy.ENABLED)
-                        .build(),
+                    model = coilRequest,
                     contentDescription = "صورة",
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop
@@ -1536,6 +1561,15 @@ fun MultiPhotoBubble(
                     Row(horizontalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.height(110.dp)) {
                         urls.take(2).forEach { itemUrl ->
                             val model = remember(itemUrl) { resolveMediaUrl(context, itemUrl) }
+                            val coilReq = remember(model) {
+                                ImageRequest.Builder(context)
+                                    .data(model)
+                                    .crossfade(true)
+                                    .diskCachePolicy(CachePolicy.ENABLED)
+                                    .memoryCachePolicy(CachePolicy.ENABLED)
+                                    .networkCachePolicy(CachePolicy.ENABLED)
+                                    .build()
+                            }
                             Box(
                                 modifier = Modifier
                                     .weight(1f)
@@ -1544,13 +1578,7 @@ fun MultiPhotoBubble(
                                     .clickable { onPhotoClick(itemUrl) }
                             ) {
                                 AsyncImage(
-                                    model = ImageRequest.Builder(context)
-                                        .data(model)
-                                        .crossfade(true)
-                                        .diskCachePolicy(CachePolicy.ENABLED)
-                                        .memoryCachePolicy(CachePolicy.ENABLED)
-                                        .networkCachePolicy(CachePolicy.ENABLED)
-                                        .build(),
+                                    model = coilReq,
                                     contentDescription = "صورة",
                                     modifier = Modifier.fillMaxSize(),
                                     contentScale = ContentScale.Crop

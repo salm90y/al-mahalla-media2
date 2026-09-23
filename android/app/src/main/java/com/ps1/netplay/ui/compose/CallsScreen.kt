@@ -384,6 +384,7 @@ fun CallsScreen(
                                         putExtra("callID", "call_${call.name.hashCode()}")
                                         putExtra("isVideo", call.isVideo)
                                         putExtra("targetUserName", call.name)
+                                        putExtra("targetUserAvatar", call.avatar)
                                     }
                                     context.startActivity(intent)
                                 },

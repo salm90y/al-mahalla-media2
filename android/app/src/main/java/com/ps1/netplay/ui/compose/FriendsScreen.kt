@@ -652,6 +652,7 @@ fun FriendsScreen(
                                                         putExtra("callID", callRoomId)
                                                         putExtra("isVideo", false)
                                                         putExtra("targetUserName", friend.name)
+                                                        putExtra("targetUserAvatar", friend.avatarUrl)
                                                     }
                                                     context.startActivity(intent)
                                                 } catch (e: Exception) {
