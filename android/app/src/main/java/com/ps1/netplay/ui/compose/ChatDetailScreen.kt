@@ -400,6 +400,7 @@ fun ChatDetailScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val myId = remember { CloudflareClient.getCurrentUserId(context) }
+    val myUsername = remember { CloudflareClient.getCurrentUsername(context) }
     val convId = remember(targetUserId, myId) {
         CloudflareClient.getConversationId(myId, targetUserId)
     }

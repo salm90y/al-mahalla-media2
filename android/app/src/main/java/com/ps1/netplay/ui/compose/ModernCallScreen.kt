@@ -34,7 +34,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
-import com.ps1.netplay.ui.theme.TajawalFontFamily
 import kotlinx.coroutines.delay
 
 /**

@@ -135,7 +135,7 @@ fun UserProfileDetailScreen(
                 putExtra("callID", callRoomId)
                 putExtra("isVideo", isVideo)
                 putExtra("targetUserName", userName)
-                putExtra("targetUserAvatar", userAvatar)
+                putExtra("targetUserAvatar", avatarUrl)
             }
             context.startActivity(intent)
         } catch (e: Exception) {
