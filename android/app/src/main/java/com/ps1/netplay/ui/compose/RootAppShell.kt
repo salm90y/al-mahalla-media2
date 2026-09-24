@@ -37,6 +37,9 @@ fun RootAppShell() {
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
         Box(modifier = Modifier.fillMaxSize()) {
             Scaffold(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding(),
                 containerColor = Color(0xFFF8FAFC),
                 contentWindowInsets = WindowInsets(0, 0, 0, 0),
                 topBar = {

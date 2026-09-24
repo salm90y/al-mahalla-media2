@@ -683,31 +683,6 @@ fun ChatDetailScreen(
             onBack = onNavigateBack
         )
 
-        // ONGOING CALL TOP GREEN BANNER (If call is active in background/minimized)
-        val activeCallSession = CallSignalingManager.currentSession
-        if (CallActivity.isCallActive || activeCallSession != null) {
-            OngoingCallTopBanner(
-                callerName = activeCallSession?.targetUserName ?: userName,
-                duration = CallSignalingManager.formatDuration(CallSignalingManager.callDurationSeconds),
-                isVideo = activeCallSession?.isVideo ?: false,
-                onReturnToCall = {
-                    val sess = CallSignalingManager.currentSession
-                    val intent = Intent(context, CallActivity::class.java).apply {
-                        putExtra("callID", sess?.roomId ?: "call_${System.currentTimeMillis()}")
-                        putExtra("isVideo", sess?.isVideo ?: false)
-                        putExtra("isIncoming", sess?.isOutgoing != true)
-                        putExtra("targetUserId", sess?.targetUserId ?: targetUserId)
-                        putExtra("targetUserName", sess?.targetUserName ?: userName)
-                        putExtra("targetUserAvatar", sess?.targetUserAvatar ?: avatarUrl)
-                    }
-                    context.startActivity(intent)
-                },
-                onEndCall = {
-                    CallSignalingManager.endCall(context)
-                }
-            )
-        }
-
         // 2. SCROLLABLE MESSAGES (Always strictly Left-to-Right for chat bubbles: outgoing on Right, incoming on Left)
         CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
             LazyColumn(
@@ -1196,7 +1171,7 @@ fun ChatTopBar(
 }
 
 /**
- * Ongoing Call Top Glowing Green Banner
+ * Ongoing Call Top Telegram-Style Banner
  */
 @Composable
 fun OngoingCallTopBanner(
@@ -1207,80 +1182,117 @@ fun OngoingCallTopBanner(
     onEndCall: () -> Unit
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
-    val pulseAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.85f,
+    val dotAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.4f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(800, easing = LinearEasing),
+            animation = tween(700, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
         ),
-        label = "pulseAlpha"
+        label = "dotAlpha"
     )
 
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onReturnToCall() },
-        color = Color(0xFF10B981).copy(alpha = pulseAlpha),
-        shadowElevation = 4.dp
+        color = Color(0xFF1B3D30),
+        shadowElevation = 6.dp
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 9.dp),
+                .background(
+                    Brush.horizontalGradient(
+                        colors = listOf(
+                            Color(0xFF16382B),
+                            Color(0xFF1B4334),
+                            Color(0xFF122E23)
+                        )
+                    )
+                )
+                .padding(horizontal = 14.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
+            // Right section: Pulsing dot + Call icon + Caller info + Time
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.weight(1f)
             ) {
-                Icon(
-                    imageVector = if (isVideo) Icons.Default.Videocam else Icons.Default.PhoneInTalk,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(20.dp)
-                )
-                Text(
-                    text = "مكالمة جارية • $callerName • $duration",
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp,
-                    fontFamily = TajawalFontFamily
-                )
-            }
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Text(
-                    text = "الرجوع",
-                    color = Color(0xFF10B981),
-                    fontSize = 12.5.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = TajawalFontFamily,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Color.White)
-                        .padding(horizontal = 10.dp, vertical = 4.dp)
-                )
-
+                // Pulsing Green Live Badge
                 Box(
                     modifier = Modifier
-                        .size(30.dp)
+                        .size(34.dp)
                         .clip(CircleShape)
-                        .background(Color(0xFFEF4444))
-                        .clickable { onEndCall() },
+                        .background(Color(0xFF22C55E).copy(alpha = 0.2f)),
                     contentAlignment = Alignment.Center
                 ) {
+                    Box(
+                        modifier = Modifier
+                            .size(10.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF22C55E).copy(alpha = dotAlpha))
+                    )
                     Icon(
-                        imageVector = Icons.Default.CallEnd,
-                        contentDescription = "إنهاء",
-                        tint = Color.White,
-                        modifier = Modifier.size(16.dp)
+                        imageVector = if (isVideo) Icons.Default.Videocam else Icons.Default.PhoneInTalk,
+                        contentDescription = null,
+                        tint = Color(0xFF4ADE80),
+                        modifier = Modifier.size(18.dp)
                     )
                 }
+
+                Column(
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = callerName,
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.5.sp,
+                            fontFamily = TajawalFontFamily
+                        )
+                        Text(
+                            text = "•",
+                            color = Color(0xFF86EFAC),
+                            fontSize = 12.sp
+                        )
+                        Text(
+                            text = duration,
+                            color = Color(0xFF86EFAC),
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp
+                        )
+                    }
+                    Text(
+                        text = "مكالمة جارية • اضغط للعودة للشاشة",
+                        color = Color(0xFFCBD5E1),
+                        fontSize = 11.sp,
+                        fontFamily = TajawalFontFamily
+                    )
+                }
+            }
+
+            // Left section: Red End Call Button
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFFEF4444))
+                    .clickable { onEndCall() },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.CallEnd,
+                    contentDescription = "إنهاء المكالمة",
+                    tint = Color.White,
+                    modifier = Modifier.size(18.dp)
+                )
             }
         }
     }

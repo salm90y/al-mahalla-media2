@@ -73,29 +73,8 @@ class CallActivity : AppCompatActivity() {
             )
         }
 
-        // Render Modern Call Screen
-        setContent {
-            ModernCallScreen(
-                callerName = targetUserName,
-                callerAvatar = targetUserAvatar,
-                isVideoCall = isVideo,
-                onEndCall = {
-                    finish()
-                },
-                onToggleMute = { muted ->
-                    try {
-                        audioManager?.isMicrophoneMute = muted
-                    } catch (_: Exception) {}
-                },
-                onToggleSpeaker = { speakerOn ->
-                    try {
-                        audioManager?.isSpeakerphoneOn = speakerOn
-                    } catch (_: Exception) {}
-                },
-                onToggleCamera = { _ -> },
-                onSwitchCamera = { }
-            )
-        }
+        // Set native layout for Zego RTC Fragment
+        setContentView(R.layout.activity_call)
 
         checkAndRequestPermissions()
     }
@@ -103,6 +82,13 @@ class CallActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         isCallActive = false
+        currentActiveRoomId = ""
+        CallSignalingManager.stopAllSounds(this)
+        try {
+            audioManager?.isSpeakerphoneOn = false
+            audioManager?.isMicrophoneMute = false
+        } catch (_: Exception) {}
+    }
         currentActiveRoomId = ""
         CallSignalingManager.stopAllSounds(this)
         try {
@@ -172,6 +158,9 @@ class CallActivity : AppCompatActivity() {
                         callID,
                         config
                     )
+                    supportFragmentManager.beginTransaction()
+                        .replace(R.id.fragment_container, fragment)
+                        .commitAllowingStateLoss()
                 } catch (e: Exception) {
                     Log.w("CallActivity", "Zego RTC engine notice: ${e.message}")
                 }
