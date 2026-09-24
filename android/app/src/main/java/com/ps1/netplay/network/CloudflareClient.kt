@@ -4,6 +4,7 @@ package com.ps1.netplay.network
 import  android.widget.*
 import  android.content.Context 
 import  android.content.SharedPreferences
+import  android.net.Uri
 import  android.os.Handler 
 import  android.os.Looper
 import  android.util.Log 
@@ -13,6 +14,7 @@ import  com.ps1.netplay.model.ChatMessage
 import  com.ps1.netplay.model.FriendItem
 import  com.ps1.netplay.model.FriendRequestItem 
 import  okhttp3.*
+import  okhttp3.MediaType.Companion.toMediaType
 import  okhttp3.MediaType.Companion.toMediaTypeOrNull 
 import  okhttp3.RequestBody.Companion.toRequestBody
 import  org.json.JSONArray 

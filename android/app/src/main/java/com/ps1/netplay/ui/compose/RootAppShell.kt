@@ -210,6 +210,7 @@ fun RootAppShell() {
                     )
                 }
             }
+        }
 
             // Global Incoming Call Alert Modal for the whole app
             incomingCall?.let { incCall ->
