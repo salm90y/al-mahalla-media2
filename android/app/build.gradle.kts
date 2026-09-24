@@ -132,7 +132,6 @@ tasks.register("downloadPs1Core") {
 
 
 dependencies {
-    implementation("com.github.ZEGOCLOUD:zego_uikit_prebuilt_call_android:+")
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.appcompat:appcompat:1.6.1")
     implementation("com.google.android.material:material:1.11.0")
