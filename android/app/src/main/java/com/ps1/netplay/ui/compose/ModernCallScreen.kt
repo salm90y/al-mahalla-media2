@@ -5,6 +5,7 @@ import android.media.AudioManager
 import android.media.ToneGenerator
 import android.widget.Toast
 import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -36,16 +37,16 @@ import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
 import com.ps1.netplay.network.CallSignalingManager
 import com.ps1.netplay.network.CallState
+import com.ps1.netplay.network.RealVoipEngine
 
 /**
  * High-fidelity, modern Call Screen matching global reference apps:
  * - Soft pastel blue/white gradient background
- * - Top bar with circular back & 3-dots buttons
  * - Large circular avatar with double border ring & green online badge
  * - Bold user name in Tajawal font, dynamic status ("يجري الاتصال...", "يرن...", "متصل الآن", "انتهت المكالمة")
  * - Live elapsed timer only counting up when connected
  * - 6-button rounded action card: Mute, Speaker, Camera, Add Person, Keypad, More
- * - Floating circular red End-Call button at bottom
+ * - Floating circular red End-Call button at bottom (Single-tap immediate disconnect)
  */
 @Composable
 fun ModernCallScreen(
@@ -74,7 +75,7 @@ fun ModernCallScreen(
     // Auto-dismiss screen if call ended or declined from remote
     LaunchedEffect(callState) {
         if (callState == CallState.ENDED || callState == CallState.DECLINED || callState == CallState.NO_ANSWER || callState == CallState.BUSY) {
-            kotlinx.coroutines.delay(1200)
+            kotlinx.coroutines.delay(1000)
             onEndCall()
         }
     }
@@ -111,13 +112,13 @@ fun ModernCallScreen(
                     )
                 )
             )
-            .statusBarsPadding()
-            .navigationBarsPadding()
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 24.dp, vertical = 16.dp),
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .padding(horizontal = 24.dp, vertical = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween
         ) {
@@ -296,6 +297,7 @@ fun ModernCallScreen(
                             onClick = {
                                 val next = !isMuted
                                 CallSignalingManager.isMuted = next
+                                RealVoipEngine.setMute(next)
                                 onToggleMute(next)
                             }
                         )
@@ -310,6 +312,7 @@ fun ModernCallScreen(
                             onClick = {
                                 val next = !isSpeakerOn
                                 CallSignalingManager.isSpeakerOn = next
+                                RealVoipEngine.setSpeaker(context, next)
                                 onToggleSpeaker(next)
                             }
                         )
@@ -364,7 +367,7 @@ fun ModernCallScreen(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // 4. BOTTOM END-CALL BUTTON
+            // 4. BOTTOM END-CALL BUTTON (Single tap terminates immediately)
             Box(
                 modifier = Modifier
                     .padding(bottom = 12.dp)
@@ -373,9 +376,7 @@ fun ModernCallScreen(
                     .clip(CircleShape)
                     .background(Color(0xFFEF4444))
                     .clickable {
-                        CallSignalingManager.endCall(context) {
-                            onEndCall()
-                        }
+                        onEndCall()
                     },
                 contentAlignment = Alignment.Center
             ) {
@@ -478,6 +479,271 @@ private fun CallActionButton(
             color = Color(0xFF334155),
             textAlign = TextAlign.Center
         )
+    }
+}
+
+/**
+ * Telegram-Style Ongoing Call Top Banner (شريط المكالمة الجارية كتليجرام)
+ */
+@Composable
+fun OngoingCallTopBanner(
+    callerName: String,
+    duration: String,
+    isVideo: Boolean,
+    onReturnToCall: () -> Unit,
+    onEndCall: () -> Unit
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "wave")
+    val alpha by infiniteTransition.animateFloat(
+        initialValue = 0.4f,
+        targetValue = 1.0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(800, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "alpha"
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .statusBarsPadding()
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .shadow(6.dp, RoundedCornerShape(16.dp), spotColor = Color(0x3310B981))
+                .clip(RoundedCornerShape(16.dp))
+                .background(
+                    Brush.horizontalGradient(
+                        colors = listOf(
+                            Color(0xFF059669),
+                            Color(0xFF10B981)
+                        )
+                    )
+                )
+                .clickable { onReturnToCall() }
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            // Right: Pulsing call icon + Details
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.2f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = if (isVideo) Icons.Default.Videocam else Icons.Default.Call,
+                        contentDescription = "مكالمة جارية",
+                        tint = Color.White.copy(alpha = alpha),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
+                Column {
+                    Text(
+                        text = "مكالمة جارية مع $callerName",
+                        color = Color.White,
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = TajawalFontFamily
+                    )
+                    Text(
+                        text = "انقر للعودة • $duration",
+                        color = Color.White.copy(alpha = 0.85f),
+                        fontSize = 11.5.sp,
+                        fontFamily = TajawalFontFamily
+                    )
+                }
+            }
+
+            // Left: Quick End Button
+            IconButton(
+                onClick = onEndCall,
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFFEF4444))
+            ) {
+                Icon(
+                    imageVector = Icons.Default.CallEnd,
+                    contentDescription = "إنهاء المكالمة",
+                    tint = Color.White,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
+    }
+}
+
+/**
+ * App-wide Incoming Call Alert Modal
+ */
+@Composable
+fun IncomingCallAlertModal(
+    callData: IncomingCallData,
+    onAccept: () -> Unit,
+    onDecline: () -> Unit
+) {
+    Dialog(onDismissRequest = { /* Modal persists until user accepts/declines */ }) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth(0.95f)
+                .shadow(16.dp, RoundedCornerShape(28.dp), spotColor = Color(0x33000000)),
+            shape = RoundedCornerShape(28.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                // Incoming Call Badge
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color(0xFFEFF6FF)
+                ) {
+                    Text(
+                        text = if (callData.isVideo) "مكالمة فيديو واردة" else "مكالمة صوتية واردة",
+                        color = Color(0xFF2563EB),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = TajawalFontFamily,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(18.dp))
+
+                // Caller Avatar
+                Box(
+                    modifier = Modifier
+                        .size(90.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFFEEF4FB))
+                        .border(2.dp, Color(0xFF3B82F6), CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (callData.callerAvatar.isNotBlank()) {
+                        AsyncImage(
+                            model = callData.callerAvatar,
+                            contentDescription = callData.callerName,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clip(CircleShape),
+                            contentScale = ContentScale.Crop
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.Person,
+                            contentDescription = null,
+                            tint = Color(0xFF3B82F6),
+                            modifier = Modifier.size(48.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Caller Name
+                Text(
+                    text = callData.callerName.ifBlank { "مستخدم" },
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = TajawalFontFamily,
+                    color = Color(0xFF0F2942),
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Text(
+                    text = "يرن...",
+                    fontSize = 15.sp,
+                    color = Color(0xFF10B981),
+                    fontWeight = FontWeight.Medium,
+                    fontFamily = TajawalFontFamily
+                )
+
+                Spacer(modifier = Modifier.height(28.dp))
+
+                // Action Buttons: Accept (Green) & Decline (Red)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Decline Button
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.clickable { onDecline() }
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(58.dp)
+                                .shadow(6.dp, CircleShape, spotColor = Color(0x33EF4444))
+                                .clip(CircleShape)
+                                .background(Color(0xFFEF4444)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CallEnd,
+                                contentDescription = "رفض",
+                                tint = Color.White,
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "رفض",
+                            fontSize = 13.sp,
+                            fontFamily = TajawalFontFamily,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFEF4444)
+                        )
+                    }
+
+                    // Accept Button
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.clickable { onAccept() }
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(58.dp)
+                                .shadow(6.dp, CircleShape, spotColor = Color(0x3310B981))
+                                .clip(CircleShape)
+                                .background(Color(0xFF10B981)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = if (callData.isVideo) Icons.Default.Videocam else Icons.Default.Call,
+                                contentDescription = "قبول",
+                                tint = Color.White,
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "قبول",
+                            fontSize = 13.sp,
+                            fontFamily = TajawalFontFamily,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF10B981)
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 

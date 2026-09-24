@@ -2,6 +2,7 @@ package com.ps1.netplay
 
 import android.Manifest
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.AudioManager
 import android.os.Bundle
@@ -10,7 +11,10 @@ import androidx.activity.compose.setContent
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import com.ps1.netplay.network.CallSignalingManager
+import com.ps1.netplay.network.RealVoipEngine
 import com.ps1.netplay.ui.compose.ModernCallScreen
 import com.ps1.netplay.ui.compose.NetPlayTheme
 
@@ -37,6 +41,15 @@ class CallActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // 1. Edge-to-edge status bar: header gradient seamlessly connects behind battery, wifi, and network icons
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        window.statusBarColor = android.graphics.Color.TRANSPARENT
+        window.navigationBarColor = android.graphics.Color.TRANSPARENT
+        WindowInsetsControllerCompat(window, window.decorView).apply {
+            isAppearanceLightStatusBars = true  // dark system icons on soft light background
+            isAppearanceLightNavigationBars = true
+        }
 
         isCallActive = true
         stopAllRingtones(this)
@@ -84,20 +97,24 @@ class CallActivity : AppCompatActivity() {
                     callerAvatar = targetUserAvatar,
                     isVideoCall = isVideo,
                     onEndCall = {
+                        isCallActive = false
                         CallSignalingManager.endCall(this@CallActivity) {
                             finish()
                         }
+                        finish()
                     },
                     onMinimize = {
                         finish()
                     },
                     onToggleMute = { muted ->
                         try {
+                            RealVoipEngine.setMute(muted)
                             audioManager?.isMicrophoneMute = muted
                         } catch (_: Exception) {}
                     },
                     onToggleSpeaker = { speaker ->
                         try {
+                            RealVoipEngine.setSpeaker(this@CallActivity, speaker)
                             audioManager?.isSpeakerphoneOn = speaker
                         } catch (_: Exception) {}
                     }
@@ -108,11 +125,26 @@ class CallActivity : AppCompatActivity() {
         checkAndRequestPermissions()
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() {
+        isCallActive = false
+        CallSignalingManager.endCall(this) {
+            finish()
+        }
+        finish()
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         isCallActive = false
         currentActiveRoomId = ""
         CallSignalingManager.stopAllSounds(this)
+        RealVoipEngine.stopVoipSession(this)
         try {
             audioManager?.mode = AudioManager.MODE_NORMAL
             audioManager?.isSpeakerphoneOn = false

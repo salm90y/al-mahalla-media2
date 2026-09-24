@@ -1171,35 +1171,62 @@ async function startServer() {
 
   const server = http.createServer(app);
 
-  // WebSocket Signaling Server attached to /signaling
-  const wss = new WebSocketServer({ server, path: '/signaling' });
+  // High-performance WebSocket Server for Real-Time VoIP Audio & Signaling
+  const wss = new WebSocketServer({ server });
   const rooms = new Map<string, Set<WebSocket>>();
 
-  wss.on('connection', (ws) => {
+  wss.on('connection', (ws: WebSocket, req: http.IncomingMessage) => {
+    const parsedUrl = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
     let currentRoom = '';
-    ws.on('message', (message) => {
-      const text = message.toString();
-      if (text.startsWith('JOIN:')) {
-        const roomCode = text.substring(5).trim();
-        if (currentRoom && rooms.has(currentRoom)) {
-          rooms.get(currentRoom)?.delete(ws);
-        }
-        currentRoom = roomCode;
-        if (!rooms.has(roomCode)) {
-          rooms.set(roomCode, new Set());
-        }
-        rooms.get(roomCode)?.add(ws);
-        console.log(`[Signaling] Client joined room: ${roomCode}`);
-        return;
+
+    if (parsedUrl.pathname.startsWith('/ws/')) {
+      currentRoom = parsedUrl.pathname.replace('/ws/', '').trim();
+    } else if (parsedUrl.pathname === '/websocket') {
+      currentRoom = parsedUrl.searchParams.get('room') || 'default_room';
+    } else if (parsedUrl.pathname === '/signaling') {
+      currentRoom = '';
+    }
+
+    if (currentRoom) {
+      if (!rooms.has(currentRoom)) {
+        rooms.set(currentRoom, new Set());
       }
+      rooms.get(currentRoom)?.add(ws);
+      console.log(`[VoIP WS] Client joined audio room: ${currentRoom} (active: ${rooms.get(currentRoom)?.size})`);
+    }
+
+    ws.on('message', (message, isBinary) => {
+      // If JOIN: message received on /signaling
+      if (!isBinary) {
+        const text = message.toString();
+        if (text.startsWith('JOIN:')) {
+          const roomCode = text.substring(5).trim();
+          if (currentRoom && rooms.has(currentRoom)) {
+            rooms.get(currentRoom)?.delete(ws);
+          }
+          currentRoom = roomCode;
+          if (!rooms.has(roomCode)) {
+            rooms.set(roomCode, new Set());
+          }
+          rooms.get(roomCode)?.add(ws);
+          console.log(`[Signaling] Client joined room: ${roomCode}`);
+          return;
+        }
+      }
+
+      // Broadcast real-time VoIP audio PCM bytes or signaling messages to other peers in the room
       if (currentRoom && rooms.has(currentRoom)) {
-        for (const client of rooms.get(currentRoom)!) {
-          if (client !== ws && client.readyState === WebSocket.OPEN) {
-            client.send(text);
+        const clients = rooms.get(currentRoom);
+        if (clients) {
+          for (const client of clients) {
+            if (client !== ws && client.readyState === WebSocket.OPEN) {
+              client.send(message, { binary: isBinary });
+            }
           }
         }
       }
     });
+
     ws.on('close', () => {
       if (currentRoom && rooms.has(currentRoom)) {
         const roomSet = rooms.get(currentRoom);
@@ -1207,7 +1234,12 @@ async function startServer() {
         if (roomSet?.size === 0) {
           rooms.delete(currentRoom);
         }
+        console.log(`[VoIP WS] Client left audio room: ${currentRoom}`);
       }
+    });
+
+    ws.on('error', (err) => {
+      console.warn(`[VoIP WS] Socket error in room ${currentRoom}:`, err.message);
     });
   });
 

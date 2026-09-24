@@ -21,8 +21,17 @@ var ChatRoomDO = class {
       this.broadcast(JSON.stringify({ type: "presence", userId, username, status: "online" }), server);
       server.addEventListener("message", async (event) => {
         try {
-          const data = JSON.parse(event.data);
-          this.broadcast(JSON.stringify({ ...data, senderId: userId, senderName: username }), server);
+          if (typeof event.data === "string") {
+            try {
+              const data = JSON.parse(event.data);
+              this.broadcast(JSON.stringify({ ...data, senderId: userId, senderName: username }), server);
+            } catch {
+              this.broadcast(event.data, server);
+            }
+          } else {
+            // Binary audio streaming packet
+            this.broadcast(event.data, server);
+          }
         } catch (err) {
           console.error("WS message error", err);
         }

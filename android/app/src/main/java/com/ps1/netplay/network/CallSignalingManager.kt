@@ -133,7 +133,7 @@ object CallSignalingManager {
                 } catch (e: Exception) {
                     Log.w(TAG, "Watcher error: ${e.message}")
                 }
-                delay(1500)
+                delay(1200)
             }
         }
     }
@@ -237,6 +237,14 @@ object CallSignalingManager {
         isCameraOn = isVideo
         endCallNoticeMessage = ""
 
+        // Start Real VoIP Audio Engine immediately
+        RealVoipEngine.startVoipSession(
+            context = context,
+            roomId = roomId,
+            isOutgoing = false,
+            speakerOn = isVideo
+        )
+
         // Send acceptance signal to caller
         CloudflareClient.respondToCall(context, roomId, "accept")
         CloudflareClient.sendCallSignal(
@@ -270,6 +278,8 @@ object CallSignalingManager {
         dismissCallNotification(context)
         globalIncomingCall = null
         dismissedCallIds = dismissedCallIds + roomId
+
+        RealVoipEngine.stopVoipSession(context)
 
         CloudflareClient.respondToCall(context, roomId, "decline")
         CloudflareClient.sendCallSignal(
@@ -315,6 +325,7 @@ object CallSignalingManager {
 
         stopAllSounds(context)
         dismissCallNotification(context)
+        RealVoipEngine.stopVoipSession(context)
 
         if (session != null) {
             CloudflareClient.respondToCall(context, session.roomId, "end", formattedTime)
@@ -345,8 +356,19 @@ object CallSignalingManager {
         callState = CallState.ENDED
         endCallNoticeMessage = "انتهت المكالمة • $formattedTime"
 
-        resetCallState()
+        signalingJob?.cancel()
+        signalingJob = null
+        durationJob?.cancel()
+        durationJob = null
+        ringbackJob?.cancel()
+        ringbackJob = null
+
         onComplete?.invoke()
+
+        scope.launch {
+            delay(1200)
+            resetCallState()
+        }
     }
 
     /**
@@ -356,6 +378,7 @@ object CallSignalingManager {
         val session = currentSession
         stopAllSounds(context)
         dismissCallNotification(context)
+        RealVoipEngine.stopVoipSession(context)
         callState = reason
         endCallNoticeMessage = notice
 
@@ -379,7 +402,7 @@ object CallSignalingManager {
         } catch (_: Exception) {}
 
         scope.launch {
-            delay(2000)
+            delay(1500)
             resetCallState()
         }
     }
@@ -498,11 +521,18 @@ object CallSignalingManager {
                                 callState = CallState.RINGING
                             }
                         }
-                        "connected" -> {
+                        "connected", "accept" -> {
                             if (callState != CallState.CONNECTED) {
                                 stopAllSounds(context)
                                 callState = CallState.CONNECTED
                                 startLiveCallTimer()
+                                // Launch real-time VoIP audio session for caller
+                                RealVoipEngine.startVoipSession(
+                                    context = context,
+                                    roomId = roomId,
+                                    isOutgoing = isOutgoing,
+                                    speakerOn = isSpeakerOn
+                                )
                             }
                         }
                         "declined" -> {
@@ -511,13 +541,13 @@ object CallSignalingManager {
                             }
                         }
                         "ended" -> {
-                            if (callState != CallState.ENDED && callState == CallState.CONNECTED) {
+                            if (callState != CallState.ENDED && (callState == CallState.CONNECTED || callState == CallState.RINGING)) {
                                 endCallWithReason(context, CallState.ENDED, "انتهت المكالمة")
                             }
                         }
                     }
                 }
-                delay(1200)
+                delay(800)
             }
         }
     }

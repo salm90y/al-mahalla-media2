@@ -50,8 +50,17 @@ export class ChatRoomDO {
 
       server.addEventListener("message", async (event) => {
         try {
-          const data = JSON.parse(event.data as string);
-          this.broadcast(JSON.stringify({ ...data, senderId: userId, senderName: username }), server);
+          if (typeof event.data === "string") {
+            try {
+              const data = JSON.parse(event.data);
+              this.broadcast(JSON.stringify({ ...data, senderId: userId, senderName: username }), server);
+            } catch {
+              this.broadcast(event.data, server);
+            }
+          } else {
+            // Binary audio streaming packet (PCM / raw audio buffer)
+            this.broadcast(event.data as ArrayBuffer, server);
+          }
         } catch (err) {
           console.error("WS message error", err);
         }
@@ -68,11 +77,11 @@ export class ChatRoomDO {
     return new Response("Not found", { status: 404 });
   }
 
-  broadcast(message: string, sender: WebSocket | null) {
+  broadcast(message: string | ArrayBuffer | ArrayBufferView, sender: WebSocket | null) {
     for (const [ws] of this.sessions) {
       if (ws !== sender) {
         try {
-          ws.send(message);
+          ws.send(message as any);
         } catch {
           this.sessions.delete(ws);
         }

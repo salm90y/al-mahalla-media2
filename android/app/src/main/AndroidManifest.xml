@@ -92,6 +92,11 @@
                 <data android:scheme="ps1netplay" android:host="join" />
             </intent-filter>
         </activity>
-        <activity android:name=".CallActivity" android:exported="false" android:screenOrientation="portrait" />
+        <activity
+            android:name=".CallActivity"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.PS1Netplay.Fullscreen" />
     </application>
 </manifest>
