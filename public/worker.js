@@ -21,8 +21,16 @@ var ChatRoomDO = class {
       this.broadcast(JSON.stringify({ type: "presence", userId, username, status: "online" }), server);
       server.addEventListener("message", async (event) => {
         try {
-          const data = JSON.parse(event.data);
-          this.broadcast(JSON.stringify({ ...data, senderId: userId, senderName: username }), server);
+          if (typeof event.data === "string") {
+            try {
+              const data = JSON.parse(event.data);
+              this.broadcast(JSON.stringify({ ...data, senderId: userId, senderName: username }), server);
+            } catch {
+              this.broadcast(event.data, server);
+            }
+          } else {
+            this.broadcast(event.data, server);
+          }
         } catch (err) {
           console.error("WS message error", err);
         }
@@ -204,23 +212,43 @@ var index_default = {
       headers: { "Content-Type": "application/json; charset=utf-8", ...corsHeaders }
     });
     async function getAuthUser() {
-      const authHeader = request.headers.get("Authorization");
-      if (!authHeader || !authHeader.startsWith("Bearer ")) return null;
-      const token = authHeader.substring(7);
-      if (env.SESSIONS) {
-        const sessionData = await env.SESSIONS.get(`session:${token}`);
-        if (sessionData) {
-          try {
-            return JSON.parse(sessionData);
-          } catch {
+      const authHeader = request.headers.get("Authorization") || request.headers.get("authorization");
+      if (authHeader && authHeader.startsWith("Bearer ")) {
+        const token = authHeader.substring(7);
+        if (env.SESSIONS) {
+          const sessionData = await env.SESSIONS.get(`session:${token}`);
+          if (sessionData) {
+            try {
+              const s = JSON.parse(sessionData);
+              if (s && s.id) return s;
+            } catch {
+            }
           }
         }
+        const verified = await verifyJwt(token, jwtSecret);
+        if (verified) {
+          if (env.SESSIONS) {
+            await env.SESSIONS.put(`session:${token}`, JSON.stringify(verified), { expirationTtl: 86400 });
+          }
+          return verified;
+        }
       }
-      const verified = await verifyJwt(token, jwtSecret);
-      if (verified && env.SESSIONS) {
-        await env.SESSIONS.put(`session:${token}`, JSON.stringify(verified), { expirationTtl: 86400 });
+      const headerUserId = request.headers.get("x-user-id") || request.headers.get("X-User-Id");
+      if (headerUserId && headerUserId !== "null" && headerUserId !== "undefined" && headerUserId.trim() !== "") {
+        const cleanHeaderId = headerUserId.trim();
+        if (env.DB) {
+          try {
+            const user = await env.DB.prepare("SELECT id, username FROM users WHERE id = ? OR LOWER(username) = ?").bind(cleanHeaderId, cleanHeaderId.toLowerCase()).first();
+            if (user) {
+              return { id: user.id, username: user.username };
+            }
+          } catch (_) {
+          }
+        }
+        const headerUserName = request.headers.get("x-user-name") || request.headers.get("X-User-Name") || cleanHeaderId;
+        return { id: cleanHeaderId, username: headerUserName };
       }
-      return verified;
+      return null;
     }
     try {
       if (url.pathname.startsWith("/ws/")) {
@@ -574,8 +602,8 @@ var index_default = {
       if (url.pathname === "/messages/send" && method === "POST") {
         const auth = await getAuthUser();
         const body = await request.json();
-        const senderId = auth?.id || body.sender_id || request.headers.get("x-user-id");
-        if (!senderId) return json({ error: "Unauthorized" }, 401);
+        const rawSender = auth?.id || body.sender_id || request.headers.get("x-user-id");
+        if (!rawSender) return json({ error: "Unauthorized" }, 401);
         const {
           receiver_id,
           type = "text",
@@ -587,15 +615,26 @@ var index_default = {
           location_lat = 0,
           location_lng = 0
         } = body;
-        const u1 = String(senderId).trim().toLowerCase();
-        const u2 = String(receiver_id).trim().toLowerCase();
-        const calculatedConvId = [u1, u2].sort().join("_");
-        const convId = body.conversation_id && body.conversation_id.includes("_") ? body.conversation_id.trim().toLowerCase() : calculatedConvId;
-        const messageId = crypto.randomUUID();
-        const now = Date.now();
+        if (!receiver_id) return json({ error: "Receiver ID is required" }, 400);
+        if (env.DB) await ensureAllTables(env.DB);
+        let senderId = String(rawSender).trim();
+        let receiverId = String(receiver_id).trim();
         if (env.DB) {
           try {
-            await ensureAllTables(env.DB);
+            const sDb = await env.DB.prepare("SELECT id, username FROM users WHERE id = ? OR LOWER(username) = ?").bind(senderId, senderId.toLowerCase()).first();
+            if (sDb) senderId = sDb.id;
+            const rDb = await env.DB.prepare("SELECT id, username FROM users WHERE id = ? OR LOWER(username) = ?").bind(receiverId, receiverId.toLowerCase()).first();
+            if (rDb) receiverId = rDb.id;
+          } catch (_) {
+          }
+        }
+        const sortedIds = [senderId.toLowerCase(), receiverId.toLowerCase()].sort();
+        const canonicalConvId = `${sortedIds[0]}_${sortedIds[1]}`;
+        const clientConvId = body.conversation_id && String(body.conversation_id).trim() ? String(body.conversation_id).trim().toLowerCase() : canonicalConvId;
+        const messageId = body.id || crypto.randomUUID();
+        const now = body.created_at || Date.now();
+        if (env.DB) {
+          try {
             await env.DB.batch([
               env.DB.prepare(
                 `INSERT INTO private_messages 
@@ -603,9 +642,9 @@ var index_default = {
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1)`
               ).bind(
                 messageId,
-                convId,
+                canonicalConvId,
                 senderId,
-                receiver_id,
+                receiverId,
                 type,
                 content,
                 media_url,
@@ -618,24 +657,19 @@ var index_default = {
               ),
               env.DB.prepare(
                 `INSERT INTO conversations (id, user1_id, user2_id, last_message_id, last_message_text, last_message_at, unread_count_user1, unread_count_user2)
-                 VALUES (?, ?, ?, ?, ?, ?, CASE WHEN ? = ? THEN 0 ELSE 1 END, CASE WHEN ? = ? THEN 1 ELSE 0 END)
+                 VALUES (?, ?, ?, ?, ?, ?, 0, 1)
                  ON CONFLICT(id) DO UPDATE SET
                    last_message_id = excluded.last_message_id,
                    last_message_text = excluded.last_message_text,
                    last_message_at = excluded.last_message_at,
-                   unread_count_user1 = unread_count_user1 + excluded.unread_count_user1,
-                   unread_count_user2 = unread_count_user2 + excluded.unread_count_user2`
+                   unread_count_user2 = unread_count_user2 + 1`
               ).bind(
-                convId,
-                u1,
-                u2,
+                canonicalConvId,
+                sortedIds[0],
+                sortedIds[1],
                 messageId,
                 content || `[${type}]`,
-                now,
-                senderId,
-                u1,
-                senderId,
-                u1
+                now
               )
             ]);
           } catch (d1Err) {
@@ -646,9 +680,9 @@ var index_default = {
           try {
             const r2Payload = JSON.stringify({
               id: messageId,
-              conversation_id: convId,
+              conversation_id: canonicalConvId,
               sender_id: senderId,
-              receiver_id,
+              receiver_id: receiverId,
               type,
               content,
               media_url,
@@ -662,10 +696,17 @@ var index_default = {
               is_delivered: 1
             });
             await env.MEDIA_BUCKET.put(
-              `messages/${convId}/${now}_${messageId}.json`,
+              `messages/${canonicalConvId}/${now}_${messageId}.json`,
               r2Payload,
               { httpMetadata: { contentType: "application/json" } }
             );
+            if (clientConvId !== canonicalConvId) {
+              await env.MEDIA_BUCKET.put(
+                `messages/${clientConvId}/${now}_${messageId}.json`,
+                r2Payload,
+                { httpMetadata: { contentType: "application/json" } }
+              );
+            }
           } catch (r2Err) {
             console.error("R2 message storage error:", r2Err);
           }
@@ -674,9 +715,9 @@ var index_default = {
           success: true,
           message: {
             id: messageId,
-            conversation_id: convId,
+            conversation_id: canonicalConvId,
             sender_id: senderId,
-            receiver_id,
+            receiver_id: receiverId,
             type,
             content,
             media_url,
@@ -693,33 +734,69 @@ var index_default = {
         const auth = await getAuthUser();
         const currentUserId = auth?.id || request.headers.get("x-user-id");
         if (!currentUserId) return json({ error: "Unauthorized" }, 401);
-        const conversationId = url.pathname.replace("/messages/", "").trim().toLowerCase();
-        const limit = Number(url.searchParams.get("limit")) || 100;
+        const reqConvParam = url.pathname.replace("/messages/", "").trim();
+        const limit = Number(url.searchParams.get("limit")) || 200;
+        if (env.DB) await ensureAllTables(env.DB);
+        const myIdentifiers = [String(currentUserId).trim().toLowerCase()];
+        if (auth?.username) myIdentifiers.push(auth.username.trim().toLowerCase());
+        if (env.DB) {
+          try {
+            const meDb = await env.DB.prepare(
+              "SELECT id, username FROM users WHERE id = ? OR LOWER(username) = ?"
+            ).bind(currentUserId, String(currentUserId).toLowerCase()).first();
+            if (meDb) {
+              if (!myIdentifiers.includes(meDb.id.toLowerCase())) myIdentifiers.push(meDb.id.toLowerCase());
+              if (!myIdentifiers.includes(meDb.username.toLowerCase())) myIdentifiers.push(meDb.username.toLowerCase());
+            }
+          } catch (_) {
+          }
+        }
+        const lowerParam = reqConvParam.toLowerCase();
         let d1Messages = [];
         if (env.DB) {
           try {
-            await ensureAllTables(env.DB);
-            if (conversationId.includes("_")) {
-              const parts = conversationId.split("_");
-              const u1 = parts[0];
-              const u2 = parts[1];
-              const altConvId = `${u2}_${u1}`;
-              const res = await env.DB.prepare(
+            const direct = await env.DB.prepare(
+              `SELECT * FROM private_messages 
+               WHERE LOWER(conversation_id) = ? 
+               ORDER BY created_at ASC LIMIT ?`
+            ).bind(lowerParam, limit).all();
+            d1Messages = direct.results || [];
+            const allUsersRes = await env.DB.prepare("SELECT id, username FROM users").all();
+            const allUsers = allUsersRes.results || [];
+            let otherUser = null;
+            for (const u of allUsers) {
+              const uid = u.id.toLowerCase();
+              const uname = u.username.toLowerCase();
+              if (myIdentifiers.includes(uid) || myIdentifiers.includes(uname)) continue;
+              if (lowerParam === uid || lowerParam === uname || lowerParam.includes(uid) || lowerParam.includes(uname)) {
+                otherUser = u;
+                break;
+              }
+            }
+            if (otherUser) {
+              const otherIds = [otherUser.id.toLowerCase(), otherUser.username.toLowerCase()];
+              const sortedPair = [myIdentifiers[0], otherIds[0]].sort();
+              const canonicalKey = `${sortedPair[0]}_${sortedPair[1]}`;
+              const paired = await env.DB.prepare(
                 `SELECT * FROM private_messages 
-                 WHERE conversation_id = ? OR conversation_id = ? OR (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)
+                 WHERE LOWER(conversation_id) = ? 
+                    OR LOWER(conversation_id) = ?
+                    OR (LOWER(sender_id) IN (${myIdentifiers.map(() => "?").join(",")}) AND LOWER(receiver_id) IN (${otherIds.map(() => "?").join(",")}))
+                    OR (LOWER(sender_id) IN (${otherIds.map(() => "?").join(",")}) AND LOWER(receiver_id) IN (${myIdentifiers.map(() => "?").join(",")}))
                  ORDER BY created_at ASC LIMIT ?`
-              ).bind(conversationId, altConvId, u1, u2, u2, u1, limit).all();
-              d1Messages = res.results || [];
-            } else {
-              const u1 = String(currentUserId).trim().toLowerCase();
-              const u2 = conversationId;
-              const c1 = [u1, u2].sort().join("_");
-              const res = await env.DB.prepare(
-                `SELECT * FROM private_messages 
-                 WHERE conversation_id = ? OR (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)
-                 ORDER BY created_at ASC LIMIT ?`
-              ).bind(c1, u1, u2, u2, u1, limit).all();
-              d1Messages = res.results || [];
+              ).bind(
+                canonicalKey,
+                lowerParam,
+                ...myIdentifiers,
+                ...otherIds,
+                ...otherIds,
+                ...myIdentifiers,
+                limit
+              ).all();
+              const pairedMsgs = paired.results || [];
+              if (pairedMsgs.length >= d1Messages.length) {
+                d1Messages = pairedMsgs;
+              }
             }
           } catch (e) {
             console.error("D1 read messages error:", e);
@@ -732,7 +809,7 @@ var index_default = {
         if (env.MEDIA_BUCKET && combined.size < limit) {
           try {
             const list = await env.MEDIA_BUCKET.list({
-              prefix: `messages/${conversationId}/`,
+              prefix: `messages/${lowerParam}/`,
               limit
             });
             for (const obj of list.objects) {
@@ -753,29 +830,197 @@ var index_default = {
         try {
           if (env.DB) {
             await env.DB.prepare(
-              "UPDATE private_messages SET is_read = 1 WHERE (conversation_id = ? OR receiver_id = ?) AND receiver_id = ?"
-            ).bind(conversationId, currentUserId, currentUserId).run();
+              "UPDATE private_messages SET is_read = 1 WHERE (LOWER(conversation_id) = ? OR LOWER(receiver_id) = ?) AND LOWER(receiver_id) = ?"
+            ).bind(lowerParam, String(currentUserId).toLowerCase(), String(currentUserId).toLowerCase()).run();
           }
         } catch (_) {
         }
         return json({ messages: finalMessages });
       }
+      if (url.pathname === "/calls/signal" && method === "POST") {
+        const auth = await getAuthUser();
+        const body = await request.json();
+        const senderId = auth?.id || body.caller_id || request.headers.get("x-user-id") || "user_me";
+        const senderName = auth?.username || body.caller_name || senderId;
+        const receiverId = String(body.receiver_id || "").trim().toLowerCase();
+        const roomId = String(body.room_id || `call_${Date.now()}`).trim();
+        const isVideo = !!body.is_video;
+        const signalType = String(body.type || "call_init").trim();
+        const extra = String(body.extra || "").trim();
+        const now = Date.now();
+        if (env.DB) {
+          try {
+            await ensureAllTables(env.DB);
+            await env.DB.prepare(
+              `CREATE TABLE IF NOT EXISTS active_calls (
+                room_id TEXT PRIMARY KEY,
+                caller_id TEXT,
+                caller_name TEXT,
+                caller_avatar TEXT,
+                receiver_id TEXT,
+                is_video INTEGER,
+                status TEXT,
+                created_at INTEGER,
+                updated_at INTEGER,
+                duration TEXT
+              )`
+            ).run();
+            if (signalType === "call_init") {
+              const avatar = body.caller_avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(senderName)}&background=random`;
+              await env.DB.prepare(
+                `INSERT INTO active_calls (room_id, caller_id, caller_name, caller_avatar, receiver_id, is_video, status, created_at, updated_at, duration)
+                 VALUES (?, ?, ?, ?, ?, ?, 'calling', ?, ?, '')
+                 ON CONFLICT(room_id) DO UPDATE SET status='calling', caller_id=excluded.caller_id, caller_name=excluded.caller_name, caller_avatar=excluded.caller_avatar, receiver_id=excluded.receiver_id, is_video=excluded.is_video, created_at=excluded.created_at, updated_at=excluded.updated_at, duration=''`
+              ).bind(roomId, senderId, senderName, avatar, receiverId, isVideo ? 1 : 0, now, now).run();
+            } else if (signalType === "call_ringing") {
+              await env.DB.prepare("UPDATE active_calls SET status='ringing', updated_at=? WHERE room_id=?").bind(now, roomId).run();
+            } else if (signalType === "call_accepted") {
+              await env.DB.prepare("UPDATE active_calls SET status='connected', updated_at=? WHERE room_id=?").bind(now, roomId).run();
+            } else if (signalType === "call_declined") {
+              await env.DB.prepare("UPDATE active_calls SET status='declined', updated_at=? WHERE room_id=?").bind(now, roomId).run();
+            } else if (signalType === "call_ended") {
+              await env.DB.prepare("UPDATE active_calls SET status='ended', duration=?, updated_at=? WHERE room_id=?").bind(extra, now, roomId).run();
+            }
+            const u1 = String(senderId).trim().toLowerCase();
+            const u2 = String(receiverId).trim().toLowerCase();
+            const convId = [u1, u2].sort().join("_");
+            await env.DB.prepare(
+              `INSERT INTO private_messages (id, conversation_id, sender_id, receiver_id, type, content, media_url, file_name, created_at, is_read, is_delivered)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1)`
+            ).bind(crypto.randomUUID(), convId, senderId, receiverId, signalType, signalType === "call_init" ? isVideo ? "\u0645\u0643\u0627\u0644\u0645\u0629 \u0641\u064A\u062F\u064A\u0648 \u0648\u0627\u0631\u062F\u0629" : "\u0645\u0643\u0627\u0644\u0645\u0629 \u0635\u0648\u062A\u064A\u0629 \u0648\u0627\u0631\u062F\u0629" : signalType, roomId, extra || senderName, now).run();
+          } catch (callErr) {
+            console.error("Call signaling error:", callErr);
+          }
+        }
+        return json({ success: true, room_id: roomId });
+      }
+      if (url.pathname === "/calls/incoming" && method === "GET") {
+        const auth = await getAuthUser();
+        const myId = String(auth?.id || request.headers.get("x-user-id") || url.searchParams.get("userId") || "").trim().toLowerCase();
+        const myUsername = String(auth?.username || request.headers.get("x-user-name") || url.searchParams.get("username") || "").trim().toLowerCase();
+        const now = Date.now();
+        if (env.DB) {
+          try {
+            await ensureAllTables(env.DB);
+            await env.DB.prepare(
+              `CREATE TABLE IF NOT EXISTS active_calls (
+                room_id TEXT PRIMARY KEY,
+                caller_id TEXT,
+                caller_name TEXT,
+                caller_avatar TEXT,
+                receiver_id TEXT,
+                is_video INTEGER,
+                status TEXT,
+                created_at INTEGER,
+                updated_at INTEGER,
+                duration TEXT
+              )`
+            ).run();
+            const myIdentifiers = [];
+            if (myId) myIdentifiers.push(myId);
+            if (myUsername && !myIdentifiers.includes(myUsername)) myIdentifiers.push(myUsername);
+            try {
+              if (myId) {
+                const uDb = await env.DB.prepare("SELECT id, username FROM users WHERE id = ? OR LOWER(username) = ?").bind(myId, myId).first();
+                if (uDb) {
+                  if (!myIdentifiers.includes(uDb.id.toLowerCase())) myIdentifiers.push(uDb.id.toLowerCase());
+                  if (!myIdentifiers.includes(uDb.username.toLowerCase())) myIdentifiers.push(uDb.username.toLowerCase());
+                }
+              }
+            } catch (_) {
+            }
+            if (myIdentifiers.length > 0) {
+              const placeholders = myIdentifiers.map(() => "?").join(",");
+              const res = await env.DB.prepare(
+                `SELECT * FROM active_calls 
+                 WHERE (LOWER(receiver_id) IN (${placeholders}) OR LOWER(receiver_id) = ? OR LOWER(receiver_id) = ?) 
+                   AND (status = 'calling' OR status = 'ringing') 
+                   AND created_at > ?
+                 ORDER BY created_at DESC LIMIT 1`
+              ).bind(...myIdentifiers, myId, myUsername, now - 45e3).first();
+              if (res) {
+                return json({
+                  has_incoming_call: true,
+                  call: {
+                    room_id: res.room_id,
+                    caller_id: res.caller_id,
+                    caller_name: res.caller_name,
+                    caller_avatar: res.caller_avatar,
+                    is_video: res.is_video === 1,
+                    status: res.status,
+                    created_at: res.created_at
+                  }
+                });
+              }
+            }
+          } catch (e) {
+            console.error("Error checking incoming call:", e);
+          }
+        }
+        return json({ has_incoming_call: false });
+      }
+      if (url.pathname === "/calls/status" && method === "GET") {
+        const roomId = url.searchParams.get("room_id") || "";
+        if (env.DB && roomId) {
+          try {
+            const res = await env.DB.prepare("SELECT * FROM active_calls WHERE room_id = ?").bind(roomId).first();
+            if (res) {
+              return json({ success: true, status: res.status, call: res });
+            }
+          } catch (_) {
+          }
+        }
+        return json({ success: true, status: "ended" });
+      }
+      if (url.pathname === "/calls/respond" && method === "POST") {
+        const body = await request.json();
+        const { room_id, action, duration = "" } = body;
+        const now = Date.now();
+        if (env.DB && room_id) {
+          try {
+            let newStatus = "ended";
+            if (action === "ringing") newStatus = "ringing";
+            if (action === "accept") newStatus = "connected";
+            if (action === "decline") newStatus = "declined";
+            if (action === "end") newStatus = "ended";
+            await env.DB.prepare(
+              "UPDATE active_calls SET status=?, duration=?, updated_at=? WHERE room_id=?"
+            ).bind(newStatus, duration, now, room_id).run();
+            return json({ success: true, status: newStatus });
+          } catch (_) {
+          }
+        }
+        return json({ success: false, status: "ended" });
+      }
       if (url.pathname === "/conversations" && method === "GET") {
         const auth = await getAuthUser();
         const currentUserId = auth?.id || request.headers.get("x-user-id");
         if (!currentUserId) return json({ error: "Unauthorized" }, 401);
+        if (env.DB) await ensureAllTables(env.DB);
+        let userIds = [String(currentUserId).trim().toLowerCase()];
+        if (auth?.username) userIds.push(auth.username.trim().toLowerCase());
+        try {
+          const uDb = await env.DB.prepare("SELECT id, username FROM users WHERE id = ? OR LOWER(username) = ?").bind(currentUserId, String(currentUserId).toLowerCase()).first();
+          if (uDb) {
+            if (!userIds.includes(uDb.id.toLowerCase())) userIds.push(uDb.id.toLowerCase());
+            if (!userIds.includes(uDb.username.toLowerCase())) userIds.push(uDb.username.toLowerCase());
+          }
+        } catch (_) {
+        }
+        const placeholders = userIds.map(() => "?").join(",");
         const convs = await env.DB.prepare(
           `SELECT c.*, 
-                  COALESCE(u.id, CASE WHEN c.user1_id = ? THEN c.user2_id ELSE c.user1_id END) as other_user_id,
-                  COALESCE(u.username, CASE WHEN c.user1_id = ? THEN c.user2_id ELSE c.user1_id END) as other_username,
+                  COALESCE(u.id, CASE WHEN LOWER(c.user1_id) IN (${placeholders}) THEN c.user2_id ELSE c.user1_id END) as other_user_id,
+                  COALESCE(u.username, CASE WHEN LOWER(c.user1_id) IN (${placeholders}) THEN c.user2_id ELSE c.user1_id END) as other_username,
                   COALESCE(u.avatar_url, '') as other_avatar,
                   COALESCE(u.status, 'offline') as other_status
            FROM conversations c
-           LEFT JOIN users u ON (u.id = CASE WHEN c.user1_id = ? THEN c.user2_id ELSE c.user1_id END)
-           WHERE c.user1_id = ? OR c.user2_id = ?
+           LEFT JOIN users u ON (LOWER(u.id) = LOWER(CASE WHEN LOWER(c.user1_id) IN (${placeholders}) THEN c.user2_id ELSE c.user1_id END)
+                                 OR LOWER(u.username) = LOWER(CASE WHEN LOWER(c.user1_id) IN (${placeholders}) THEN c.user2_id ELSE c.user1_id END))
+           WHERE LOWER(c.user1_id) IN (${placeholders}) OR LOWER(c.user2_id) IN (${placeholders})
            ORDER BY c.last_message_at DESC`
-        ).bind(currentUserId, currentUserId, currentUserId, currentUserId, currentUserId).all();
-        return json({ conversations: convs.results });
+        ).bind(...userIds, ...userIds, ...userIds, ...userIds, ...userIds, ...userIds).all();
+        return json({ conversations: convs.results || [] });
       }
       if (url.pathname === "/friends/list" && method === "GET") {
         const auth = await getAuthUser();

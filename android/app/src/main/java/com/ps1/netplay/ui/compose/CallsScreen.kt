@@ -145,6 +145,7 @@ fun CallsScreen(
                         val intent = Intent(context, CallActivity::class.java).apply {
                             putExtra("callID", "call_${System.currentTimeMillis()}")
                             putExtra("isVideo", false)
+                            putExtra("targetUserId", nameToCall)
                             putExtra("targetUserName", nameToCall)
                         }
                         showStartCallDialog = false

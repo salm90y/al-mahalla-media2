@@ -756,9 +756,11 @@ fun ChatDetailScreen(
                             targetUserName = userName,
                             onJoinCall = {
                                 val intent = Intent(context, CallActivity::class.java).apply {
-                                    putExtra("callID", message.content.callId)
+                                    putExtra("callID", message.content.callId.ifEmpty { "call_" + System.currentTimeMillis() })
                                     putExtra("isVideo", message.content.isVideo)
+                                    putExtra("targetUserId", targetUserId)
                                     putExtra("targetUserName", userName)
+                                    putExtra("targetUserAvatar", avatarUrl)
                                 }
                                 context.startActivity(intent)
                             }
@@ -1118,7 +1120,7 @@ fun ChatTopBar(
         IconButton(
             onClick = {
                 val myUserId = UserManager.getCurrentUser(context)?.username ?: "user_me"
-                val callRoomId = "call_" + listOf(myUserId, targetUserId.ifBlank { "partner" }).sorted().joinToString("_")
+                val callRoomId = "call_" + listOf(myUserId, targetUserId.ifBlank { "partner" }).sorted().joinToString("_") + "_" + System.currentTimeMillis()
 
                 val intent = Intent(context, CallActivity::class.java).apply {
                     putExtra("callID", callRoomId)
@@ -1146,7 +1148,7 @@ fun ChatTopBar(
         IconButton(
             onClick = {
                 val myUserId = UserManager.getCurrentUser(context)?.username ?: "user_me"
-                val callRoomId = "call_" + listOf(myUserId, targetUserId.ifBlank { "partner" }).sorted().joinToString("_")
+                val callRoomId = "call_" + listOf(myUserId, targetUserId.ifBlank { "partner" }).sorted().joinToString("_") + "_" + System.currentTimeMillis()
 
                 val intent = Intent(context, CallActivity::class.java).apply {
                     putExtra("callID", callRoomId)

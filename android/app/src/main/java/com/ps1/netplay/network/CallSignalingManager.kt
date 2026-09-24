@@ -133,7 +133,7 @@ object CallSignalingManager {
                 } catch (e: Exception) {
                     Log.w(TAG, "Watcher error: ${e.message}")
                 }
-                delay(1200)
+                delay(800)
             }
         }
     }
@@ -547,7 +547,7 @@ object CallSignalingManager {
                         }
                     }
                 }
-                delay(800)
+                delay(500)
             }
         }
     }

@@ -173,5 +173,12 @@ class CallActivity : AppCompatActivity() {
         grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == PERMISSION_REQUEST_CODE) {
+            val audioIdx = permissions.indexOf(Manifest.permission.RECORD_AUDIO)
+            if (audioIdx != -1 && grantResults.getOrNull(audioIdx) == PackageManager.PERMISSION_GRANTED) {
+                Log.d("CallActivity", "Audio permission granted, ensuring VoIP capture starts")
+                RealVoipEngine.ensureAudioCaptureStarted(this)
+            }
+        }
     }
 }

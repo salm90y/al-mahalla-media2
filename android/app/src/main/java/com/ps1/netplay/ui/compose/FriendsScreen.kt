@@ -635,7 +635,7 @@ fun FriendsScreen(
                                             onClick = {
                                                 try {
                                                     val myUserId = UserManager.getCurrentUser(context)?.username ?: "user_me"
-                                                    val callRoomId = "call_" + listOf(myUserId, friend.id.ifBlank { "partner" }).sorted().joinToString("_")
+                                                    val callRoomId = "call_" + listOf(myUserId, friend.id.ifBlank { "partner" }).sorted().joinToString("_") + "_" + System.currentTimeMillis()
 
                                                     if (friend.id.isNotEmpty()) {
                                                         CloudflareClient.sendCloudflareMessage(

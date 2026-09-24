@@ -901,8 +901,8 @@ export default {
               await env.DB.prepare(
                 `INSERT INTO active_calls (room_id, caller_id, caller_name, caller_avatar, receiver_id, is_video, status, created_at, updated_at, duration)
                  VALUES (?, ?, ?, ?, ?, ?, 'calling', ?, ?, '')
-                 ON CONFLICT(room_id) DO UPDATE SET status='calling', updated_at=?`
-              ).bind(roomId, senderId, senderName, avatar, receiverId, isVideo ? 1 : 0, now, now, now).run();
+                 ON CONFLICT(room_id) DO UPDATE SET status='calling', caller_id=excluded.caller_id, caller_name=excluded.caller_name, caller_avatar=excluded.caller_avatar, receiver_id=excluded.receiver_id, is_video=excluded.is_video, created_at=excluded.created_at, updated_at=excluded.updated_at, duration=''`
+              ).bind(roomId, senderId, senderName, avatar, receiverId, isVideo ? 1 : 0, now, now).run();
             } else if (signalType === "call_ringing") {
               await env.DB.prepare("UPDATE active_calls SET status='ringing', updated_at=? WHERE room_id=?").bind(now, roomId).run();
             } else if (signalType === "call_accepted") {

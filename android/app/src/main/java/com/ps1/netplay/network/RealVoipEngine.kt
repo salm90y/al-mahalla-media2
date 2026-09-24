@@ -104,12 +104,27 @@ object RealVoipEngine {
      * Play incoming raw PCM 16-bit 16kHz audio data with low latency
      */
     fun playIncomingAudio(pcmData: ByteArray) {
-        if (pcmData.isNotEmpty() && isPlaying.get()) {
-            try {
-                audioTrack?.write(pcmData, 0, pcmData.size)
-            } catch (e: Exception) {
-                Log.w(TAG, "AudioTrack write error: ${e.message}")
+        if (pcmData.isEmpty()) return
+        try {
+            val track = audioTrack ?: return
+            if (track.state == AudioTrack.STATE_INITIALIZED) {
+                if (track.playState != AudioTrack.PLAYSTATE_PLAYING) {
+                    track.play()
+                    isPlaying.set(true)
+                }
+                track.write(pcmData, 0, pcmData.size)
             }
+        } catch (e: Exception) {
+            Log.w(TAG, "AudioTrack write error: ${e.message}")
+        }
+    }
+
+    /**
+     * Re-check and start audio capture if permission was just granted
+     */
+    fun ensureAudioCaptureStarted(context: Context) {
+        if (!isRecording.get()) {
+            startNativeAudioCaptureAndPlayback(context)
         }
     }
 
@@ -119,15 +134,60 @@ object RealVoipEngine {
     private fun startNativeAudioCaptureAndPlayback(context: Context) {
         voipScope.launch {
             try {
+                val hasPermission = androidx.core.content.ContextCompat.checkSelfPermission(
+                    context,
+                    android.Manifest.permission.RECORD_AUDIO
+                ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
                 val minRecBufferSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_IN, AUDIO_ENCODING)
                 val recBufferSize = (minRecBufferSize * BUFFER_SIZE_FACTOR).coerceAtLeast(2048)
 
                 val minTrackBufferSize = AudioTrack.getMinBufferSize(SAMPLE_RATE, CHANNEL_OUT, AUDIO_ENCODING)
                 val trackBufferSize = (minTrackBufferSize * BUFFER_SIZE_FACTOR).coerceAtLeast(2048)
 
-                // Initialize AudioRecord
+                // Initialize AudioTrack for incoming remote voice playback
                 try {
-                    audioRecord = AudioRecord(
+                    if (audioTrack == null || audioTrack?.state != AudioTrack.STATE_INITIALIZED) {
+                        val audioAttributes = AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                            .build()
+
+                        val audioFormat = AudioFormat.Builder()
+                            .setSampleRate(SAMPLE_RATE)
+                            .setChannelMask(CHANNEL_OUT)
+                            .setEncoding(AUDIO_ENCODING)
+                            .build()
+
+                        audioTrack = AudioTrack(
+                            audioAttributes,
+                            audioFormat,
+                            trackBufferSize,
+                            AudioTrack.MODE_STREAM,
+                            AudioManager.AUDIO_SESSION_ID_GENERATE
+                        )
+                        if (audioTrack?.state == AudioTrack.STATE_INITIALIZED) {
+                            audioTrack?.play()
+                            isPlaying.set(true)
+                            Log.d(TAG, "AudioTrack initialized and playing successfully")
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "AudioTrack init failed: ${e.message}")
+                }
+
+                // If permission not granted yet, wait for permission callback
+                if (!hasPermission) {
+                    Log.w(TAG, "RECORD_AUDIO permission not granted yet; waiting for user grant")
+                    return@launch
+                }
+
+                // Initialize AudioRecord with VOICE_COMMUNICATION, fallback to MIC
+                try {
+                    audioRecord?.release()
+                    audioRecord = null
+
+                    var record = AudioRecord(
                         MediaRecorder.AudioSource.VOICE_COMMUNICATION,
                         SAMPLE_RATE,
                         CHANNEL_IN,
@@ -135,71 +195,67 @@ object RealVoipEngine {
                         recBufferSize
                     )
 
-                    // Enable Hardware Acoustic Echo Canceler
-                    if (AcousticEchoCanceler.isAvailable()) {
-                        audioRecord?.audioSessionId?.let { sessionId ->
-                            echoCanceler = AcousticEchoCanceler.create(sessionId)?.apply {
-                                enabled = true
-                            }
-                        }
+                    if (record.state != AudioRecord.STATE_INITIALIZED) {
+                        Log.w(TAG, "VOICE_COMMUNICATION uninitialized; falling back to MIC source")
+                        record.release()
+                        record = AudioRecord(
+                            MediaRecorder.AudioSource.MIC,
+                            SAMPLE_RATE,
+                            CHANNEL_IN,
+                            AUDIO_ENCODING,
+                            recBufferSize
+                        )
                     }
 
-                    // Enable Hardware Noise Suppressor
-                    if (NoiseSuppressor.isAvailable()) {
-                        audioRecord?.audioSessionId?.let { sessionId ->
-                            noiseSuppressor = NoiseSuppressor.create(sessionId)?.apply {
-                                enabled = true
-                            }
+                    if (record.state == AudioRecord.STATE_INITIALIZED) {
+                        audioRecord = record
+
+                        // Enable Hardware Acoustic Echo Canceler if available
+                        if (AcousticEchoCanceler.isAvailable()) {
+                            try {
+                                echoCanceler = AcousticEchoCanceler.create(record.audioSessionId)?.apply {
+                                    enabled = true
+                                }
+                            } catch (_: Exception) {}
                         }
+
+                        // Enable Hardware Noise Suppressor if available
+                        if (NoiseSuppressor.isAvailable()) {
+                            try {
+                                noiseSuppressor = NoiseSuppressor.create(record.audioSessionId)?.apply {
+                                    enabled = true
+                                }
+                            } catch (_: Exception) {}
+                        }
+
+                        record.startRecording()
+                        isRecording.set(true)
+                        Log.d(TAG, "AudioRecord started recording successfully")
+                    } else {
+                        Log.e(TAG, "AudioRecord could not be initialized")
                     }
-
-                    audioRecord?.startRecording()
-                    isRecording.set(true)
                 } catch (e: Exception) {
-                    Log.e(TAG, "AudioRecord init failed: ${e.message}")
+                    Log.e(TAG, "AudioRecord start failed: ${e.message}")
                 }
 
-                // Initialize AudioTrack
-                try {
-                    val audioAttributes = AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                        .build()
-
-                    val audioFormat = AudioFormat.Builder()
-                        .setSampleRate(SAMPLE_RATE)
-                        .setChannelMask(CHANNEL_OUT)
-                        .setEncoding(AUDIO_ENCODING)
-                        .build()
-
-                    audioTrack = AudioTrack(
-                        audioAttributes,
-                        audioFormat,
-                        trackBufferSize,
-                        AudioTrack.MODE_STREAM,
-                        AudioManager.AUDIO_SESSION_ID_GENERATE
-                    )
-                    audioTrack?.play()
-                    isPlaying.set(true)
-                } catch (e: Exception) {
-                    Log.e(TAG, "AudioTrack init failed: ${e.message}")
-                }
-
-                // Launch Audio Capture Loop (Mic -> Network)
+                // Launch Audio Capture Loop (Local Mic -> Network to Peer)
+                recordJob?.cancel()
                 recordJob = launch {
                     val buffer = ByteArray(640) // 20ms of 16kHz 16-bit PCM
                     while (isActive && isRecording.get()) {
                         val record = audioRecord ?: break
                         val readBytes = record.read(buffer, 0, buffer.size)
                         if (readBytes > 0 && !isMuted.get()) {
-                            // Send audio packet via WebSocket relay
-                            audioWebSocket?.send(buffer.toByteString(0, readBytes))
-                            // Also send via LiveKit binary channel for maximum redundancy
+                            val audioSlice = buffer.toByteString(0, readBytes)
+                            // Send audio packet via WebSocket relay directly to other party
+                            audioWebSocket?.send(audioSlice)
+                            // Also send via LiveKit binary channel for dual redundancy
                             LiveKitNetplayManager.publishData(buffer.copyOf(readBytes), reliable = false)
+                        } else if (readBytes <= 0) {
+                            delay(10)
                         }
                     }
                 }
-
             } catch (e: Exception) {
                 Log.e(TAG, "VoIP capture setup failed: ${e.message}")
             }
@@ -227,6 +283,16 @@ object RealVoipEngine {
 
                 override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
                     playIncomingAudio(bytes.toByteArray())
+                }
+
+                override fun onMessage(webSocket: WebSocket, text: String) {
+                    try {
+                        if (text.startsWith("pcm:") || text.startsWith("audio:")) {
+                            val raw = text.substringAfter(':')
+                            val decoded = android.util.Base64.decode(raw, android.util.Base64.NO_WRAP)
+                            playIncomingAudio(decoded)
+                        }
+                    } catch (_: Exception) {}
                 }
 
                 override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {

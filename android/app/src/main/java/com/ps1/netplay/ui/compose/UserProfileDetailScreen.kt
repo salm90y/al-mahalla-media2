@@ -118,7 +118,7 @@ fun UserProfileDetailScreen(
     fun startRealCall(isVideo: Boolean) {
         try {
             val myUserId = UserManager.getCurrentUser(context)?.username ?: "user_me"
-            val callRoomId = "call_" + listOf(myUserId, userId.ifBlank { "partner" }).sorted().joinToString("_")
+            val callRoomId = "call_" + listOf(myUserId, userId.ifBlank { "partner" }).sorted().joinToString("_") + "_" + System.currentTimeMillis()
 
             if (userId.isNotEmpty()) {
                 CloudflareClient.sendCloudflareMessage(
