@@ -89,13 +89,6 @@ class CallActivity : AppCompatActivity() {
             audioManager?.isMicrophoneMute = false
         } catch (_: Exception) {}
     }
-        currentActiveRoomId = ""
-        CallSignalingManager.stopAllSounds(this)
-        try {
-            audioManager?.isSpeakerphoneOn = false
-            audioManager?.isMicrophoneMute = false
-        } catch (_: Exception) {}
-    }
 
     private fun checkAndRequestPermissions() {
         val permissions = mutableListOf(Manifest.permission.RECORD_AUDIO)
