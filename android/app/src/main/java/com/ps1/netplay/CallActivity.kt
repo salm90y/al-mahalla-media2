@@ -12,8 +12,7 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.ps1.netplay.network.CallSignalingManager
 import com.ps1.netplay.ui.compose.ModernCallScreen
-import com.zegocloud.uikit.prebuilt.call.ZegoUIKitPrebuiltCallConfig
-import com.zegocloud.uikit.prebuilt.call.ZegoUIKitPrebuiltCallFragment
+import com.ps1.netplay.ui.compose.NetPlayTheme
 
 class CallActivity : AppCompatActivity() {
 
@@ -51,6 +50,10 @@ class CallActivity : AppCompatActivity() {
         targetUserAvatar = intent.getStringExtra("targetUserAvatar") ?: ""
 
         audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+        try {
+            audioManager?.mode = AudioManager.MODE_IN_COMMUNICATION
+            audioManager?.isSpeakerphoneOn = isVideo
+        } catch (_: Exception) {}
 
         // Start Call Signaling Session
         if (isIncoming) {
@@ -73,8 +76,34 @@ class CallActivity : AppCompatActivity() {
             )
         }
 
-        // Set native layout for Zego RTC Fragment
-        setContentView(R.layout.activity_call)
+        // Set modern Compose Call Screen matching app's theme and Arabic design
+        setContent {
+            NetPlayTheme {
+                ModernCallScreen(
+                    callerName = targetUserName,
+                    callerAvatar = targetUserAvatar,
+                    isVideoCall = isVideo,
+                    onEndCall = {
+                        CallSignalingManager.endCall(this@CallActivity) {
+                            finish()
+                        }
+                    },
+                    onMinimize = {
+                        finish()
+                    },
+                    onToggleMute = { muted ->
+                        try {
+                            audioManager?.isMicrophoneMute = muted
+                        } catch (_: Exception) {}
+                    },
+                    onToggleSpeaker = { speaker ->
+                        try {
+                            audioManager?.isSpeakerphoneOn = speaker
+                        } catch (_: Exception) {}
+                    }
+                )
+            }
+        }
 
         checkAndRequestPermissions()
     }
@@ -85,6 +114,7 @@ class CallActivity : AppCompatActivity() {
         currentActiveRoomId = ""
         CallSignalingManager.stopAllSounds(this)
         try {
+            audioManager?.mode = AudioManager.MODE_NORMAL
             audioManager?.isSpeakerphoneOn = false
             audioManager?.isMicrophoneMute = false
         } catch (_: Exception) {}
@@ -102,8 +132,6 @@ class CallActivity : AppCompatActivity() {
 
         if (missing.isNotEmpty()) {
             ActivityCompat.requestPermissions(this, missing.toTypedArray(), PERMISSION_REQUEST_CODE)
-        } else {
-            initZegoAudioEngine()
         }
     }
 
@@ -113,51 +141,5 @@ class CallActivity : AppCompatActivity() {
         grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == PERMISSION_REQUEST_CODE) {
-            val allGranted = grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }
-            if (allGranted) {
-                initZegoAudioEngine()
-            }
-        }
-    }
-
-    private fun initZegoAudioEngine() {
-        if (isFinishing || isDestroyed) return
-
-        val currentUser = UserManager.getCurrentUser(this)
-        val userID = currentUser?.username?.ifEmpty { "user_${System.currentTimeMillis()}" } ?: "user_${System.currentTimeMillis()}"
-        val userName = currentUser?.fullName?.ifEmpty { currentUser.username } ?: "User"
-
-        val config = if (isVideo) {
-            ZegoUIKitPrebuiltCallConfig.oneOnOneVideoCall()
-        } else {
-            ZegoUIKitPrebuiltCallConfig.oneOnOneVoiceCall()
-        }
-
-        com.ps1.netplay.network.CloudflareClient.getZegoConfig(this) { success, fetchedAppID, fetchedAppSign ->
-            if (isFinishing || isDestroyed) return@getZegoConfig
-
-            val effectiveAppID = if (success && fetchedAppID > 0L) fetchedAppID else 1477087305L
-            val effectiveAppSign = if (success && fetchedAppSign.isNotBlank()) fetchedAppSign else "29c005b621138958b88eea14c91bd62b2189095171ce962ffe3680974493b41d"
-
-            runOnUiThread {
-                if (isFinishing || isDestroyed) return@runOnUiThread
-                try {
-                    val fragment = ZegoUIKitPrebuiltCallFragment.newInstance(
-                        effectiveAppID,
-                        effectiveAppSign,
-                        userID,
-                        userName,
-                        callID,
-                        config
-                    )
-                    supportFragmentManager.beginTransaction()
-                        .replace(R.id.fragment_container, fragment)
-                        .commitAllowingStateLoss()
-                } catch (e: Exception) {
-                    Log.w("CallActivity", "Zego RTC engine notice: ${e.message}")
-                }
-            }
-        }
     }
 }

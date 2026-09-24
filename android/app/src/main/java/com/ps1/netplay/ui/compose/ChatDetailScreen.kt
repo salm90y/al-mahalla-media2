@@ -1211,7 +1211,8 @@ fun OngoingCallTopBanner(
                         )
                     )
                 )
-                .padding(horizontal = 14.dp, vertical = 8.dp),
+                .statusBarsPadding()
+                .padding(horizontal = 14.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {

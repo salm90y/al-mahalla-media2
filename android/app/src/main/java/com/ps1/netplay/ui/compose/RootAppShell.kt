@@ -37,10 +37,8 @@ fun RootAppShell() {
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
         Box(modifier = Modifier.fillMaxSize()) {
             Scaffold(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .statusBarsPadding(),
-                containerColor = Color(0xFFF8FAFC),
+                modifier = Modifier.fillMaxSize(),
+                containerColor = MaterialTheme.colorScheme.background,
                 contentWindowInsets = WindowInsets(0, 0, 0, 0),
                 topBar = {
                     if (CallActivity.isCallActive || activeCallSession != null) {

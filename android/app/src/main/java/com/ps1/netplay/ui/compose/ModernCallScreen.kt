@@ -53,6 +53,7 @@ fun ModernCallScreen(
     callerAvatar: String = "",
     isVideoCall: Boolean = false,
     onEndCall: () -> Unit,
+    onMinimize: () -> Unit = onEndCall,
     onToggleMute: (Boolean) -> Unit = {},
     onToggleSpeaker: (Boolean) -> Unit = {},
     onToggleCamera: (Boolean) -> Unit = {},
@@ -70,10 +71,10 @@ fun ModernCallScreen(
     var showMoreMenu by remember { mutableStateOf(false) }
     var showAddPersonDialog by remember { mutableStateOf(false) }
 
-    // Auto-dismiss screen if call ended or declined
+    // Auto-dismiss screen if call ended or declined from remote
     LaunchedEffect(callState) {
         if (callState == CallState.ENDED || callState == CallState.DECLINED || callState == CallState.NO_ANSWER || callState == CallState.BUSY) {
-            kotlinx.coroutines.delay(1800)
+            kotlinx.coroutines.delay(1200)
             onEndCall()
         }
     }
@@ -146,7 +147,7 @@ fun ModernCallScreen(
                     )
                 }
 
-                // Right: Back / Minimize Button
+                // Right: Back / Minimize Button (Returns to app while call remains active)
                 Box(
                     modifier = Modifier
                         .size(44.dp)
@@ -154,9 +155,7 @@ fun ModernCallScreen(
                         .background(Color.White.copy(alpha = 0.85f))
                         .border(1.dp, Color(0xFFE2E8F0), CircleShape)
                         .clickable {
-                            CallSignalingManager.endCall(context) {
-                                onEndCall()
-                            }
+                            onMinimize()
                         },
                     contentAlignment = Alignment.Center
                 ) {

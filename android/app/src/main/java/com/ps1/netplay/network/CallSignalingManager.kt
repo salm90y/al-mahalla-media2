@@ -345,11 +345,8 @@ object CallSignalingManager {
         callState = CallState.ENDED
         endCallNoticeMessage = "انتهت المكالمة • $formattedTime"
 
-        scope.launch {
-            delay(1200)
-            resetCallState()
-            onComplete?.invoke()
-        }
+        resetCallState()
+        onComplete?.invoke()
     }
 
     /**
