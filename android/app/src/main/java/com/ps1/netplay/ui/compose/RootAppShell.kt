@@ -1,45 +1,83 @@
 package com.ps1.netplay.ui.compose
+
+import android.content.Context
+import android.content.Intent
 import android.widget.*
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Scaffold
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.ps1.netplay.CallActivity
+import com.ps1.netplay.network.CallSignalingManager
 
 @Composable
 fun RootAppShell() {
     val navController = rememberNavController()
+    val context = LocalContext.current
+
+    // Start App-wide Incoming Call Watcher
+    LaunchedEffect(Unit) {
+        CallSignalingManager.startGlobalIncomingCallWatcher(context)
+    }
+
+    val incomingCall = CallSignalingManager.globalIncomingCall
+    val activeCallSession = CallSignalingManager.currentSession
+
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
-        Scaffold(
-            containerColor = Color(0xFFF8FAFC),
-            contentWindowInsets = WindowInsets(0, 0, 0, 0),
-            bottomBar = {
-                val navBackStackEntry by navController.currentBackStackEntryAsState()
-                val currentRoute = navBackStackEntry?.destination?.route
-                val isBottomTab = currentRoute in listOf(
-                    BottomTab.Chat.route,
-                    BottomTab.Stories.route,
-                    BottomTab.Rooms.route,
-                    BottomTab.Calls.route,
-                    BottomTab.Friends.route
-                )
-                if (isBottomTab) {
-                    AppBottomNavigationBar(navController = navController)
+        Box(modifier = Modifier.fillMaxSize()) {
+            Scaffold(
+                containerColor = Color(0xFFF8FAFC),
+                contentWindowInsets = WindowInsets(0, 0, 0, 0),
+                topBar = {
+                    if (CallActivity.isCallActive || activeCallSession != null) {
+                        OngoingCallTopBanner(
+                            callerName = activeCallSession?.targetUserName ?: "مكالمة جارية",
+                            duration = CallSignalingManager.formatDuration(CallSignalingManager.callDurationSeconds),
+                            isVideo = activeCallSession?.isVideo ?: false,
+                            onReturnToCall = {
+                                val sess = CallSignalingManager.currentSession
+                                val intent = Intent(context, CallActivity::class.java).apply {
+                                    putExtra("callID", sess?.roomId ?: "call_${System.currentTimeMillis()}")
+                                    putExtra("isVideo", sess?.isVideo ?: false)
+                                    putExtra("isIncoming", sess?.isOutgoing != true)
+                                    putExtra("targetUserId", sess?.targetUserId ?: "")
+                                    putExtra("targetUserName", sess?.targetUserName ?: "مستخدم")
+                                    putExtra("targetUserAvatar", sess?.targetUserAvatar ?: "")
+                                }
+                                context.startActivity(intent)
+                            },
+                            onEndCall = {
+                                CallSignalingManager.endCall(context)
+                            }
+                        )
+                    }
+                },
+                bottomBar = {
+                    val navBackStackEntry by navController.currentBackStackEntryAsState()
+                    val currentRoute = navBackStackEntry?.destination?.route
+                    val isBottomTab = currentRoute in listOf(
+                        BottomTab.Chat.route,
+                        BottomTab.Stories.route,
+                        BottomTab.Rooms.route,
+                        BottomTab.Calls.route,
+                        BottomTab.Friends.route
+                    )
+                    if (isBottomTab) {
+                        AppBottomNavigationBar(navController = navController)
+                    }
                 }
-            }
-        ) { innerPadding ->
+            ) { innerPadding ->
             NavHost(
                 navController = navController,
                 startDestination = BottomTab.Chat.route,
@@ -171,6 +209,32 @@ fun RootAppShell() {
                         }
                     )
                 }
+            }
+
+            // Global Incoming Call Alert Modal for the whole app
+            incomingCall?.let { incCall ->
+                IncomingCallAlertModal(
+                    callData = incCall,
+                    onAccept = {
+                        val intent = Intent(context, CallActivity::class.java).apply {
+                            putExtra("callID", incCall.callRoomId)
+                            putExtra("isVideo", incCall.isVideo)
+                            putExtra("isIncoming", true)
+                            putExtra("targetUserId", incCall.callerId)
+                            putExtra("targetUserName", incCall.callerName)
+                            putExtra("targetUserAvatar", incCall.callerAvatar)
+                        }
+                        context.startActivity(intent)
+                    },
+                    onDecline = {
+                        CallSignalingManager.declineIncomingCall(
+                            context = context,
+                            callerId = incCall.callerId,
+                            roomId = incCall.callRoomId,
+                            isVideo = incCall.isVideo
+                        )
+                    }
+                )
             }
         }
     }

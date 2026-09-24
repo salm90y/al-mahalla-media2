@@ -1712,4 +1712,163 @@ override fun onResponse(call: Call, response: Response) {
             }
         })
     }
+
+    /**
+     * Send Real-Time Call Signal
+     */
+    fun sendCallSignal(
+        context: Context,
+        callerId: String,
+        callerName: String,
+        callerAvatar: String,
+        receiverId: String,
+        roomId: String,
+        isVideo: Boolean,
+        signalType: String,
+        extraInfo: String = "",
+        callback: (Boolean) -> Unit = {}
+    ) {
+        val token = getAuthToken(context)
+        val url = "${getBaseUrl(context)}/calls/signal"
+
+        val bodyJson = JSONObject().apply {
+            put("caller_id", callerId)
+            put("caller_name", callerName)
+            put("caller_avatar", callerAvatar)
+            put("receiver_id", receiverId)
+            put("room_id", roomId)
+            put("is_video", isVideo)
+            put("type", signalType)
+            put("extra", extraInfo)
+        }
+
+        val requestBody = bodyJson.toString().toRequestBody("application/json".toMediaType())
+        val reqBuilder = Request.Builder().url(url).post(requestBody)
+        if (!token.isNullOrEmpty()) {
+            reqBuilder.addHeader("Authorization", "Bearer $token")
+        }
+        val myId = getCurrentUserId(context)
+        if (myId.isNotEmpty()) {
+            reqBuilder.addHeader("x-user-id", myId)
+        }
+
+        httpClient.newCall(reqBuilder.build()).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                mainHandler.post { callback(false) }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                response.use { resp ->
+                    mainHandler.post { callback(resp.isSuccessful) }
+                }
+            }
+        })
+    }
+
+    /**
+     * Check if current user has an incoming call
+     */
+    fun checkIncomingCall(context: Context, callback: (JSONObject?) -> Unit) {
+        val token = getAuthToken(context)
+        val myId = getCurrentUserId(context)
+        val url = "${getBaseUrl(context)}/calls/incoming"
+
+        val reqBuilder = Request.Builder().url(url)
+        if (!token.isNullOrEmpty()) {
+            reqBuilder.addHeader("Authorization", "Bearer $token")
+        }
+        if (myId.isNotEmpty()) {
+            reqBuilder.addHeader("x-user-id", myId)
+        }
+
+        httpClient.newCall(reqBuilder.build()).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                mainHandler.post { callback(null) }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                response.use { resp ->
+                    if (resp.isSuccessful) {
+                        try {
+                            val json = JSONObject(resp.body?.string() ?: "{}")
+                            if (json.optBoolean("has_incoming_call", false)) {
+                                val callObj = json.optJSONObject("call")
+                                mainHandler.post { callback(callObj) }
+                                return
+                            }
+                        } catch (_: Exception) {}
+                    }
+                    mainHandler.post { callback(null) }
+                }
+            }
+        })
+    }
+
+    /**
+     * Get active call status by roomId
+     */
+    fun getCallStatus(context: Context, roomId: String, callback: (String) -> Unit) {
+        val url = "${getBaseUrl(context)}/calls/status?room_id=${Uri.encode(roomId)}"
+        val token = getAuthToken(context)
+        val reqBuilder = Request.Builder().url(url)
+        if (!token.isNullOrEmpty()) {
+            reqBuilder.addHeader("Authorization", "Bearer $token")
+        }
+
+        httpClient.newCall(reqBuilder.build()).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                mainHandler.post { callback("ended") }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                response.use { resp ->
+                    if (resp.isSuccessful) {
+                        try {
+                            val json = JSONObject(resp.body?.string() ?: "{}")
+                            val st = json.optString("status", "ended")
+                            mainHandler.post { callback(st) }
+                            return
+                        } catch (_: Exception) {}
+                    }
+                    mainHandler.post { callback("ended") }
+                }
+            }
+        })
+    }
+
+    /**
+     * Respond to an active call (Ringing / Accept / Decline / End)
+     */
+    fun respondToCall(
+        context: Context,
+        roomId: String,
+        action: String,
+        duration: String = "",
+        callback: (Boolean) -> Unit = {}
+    ) {
+        val url = "${getBaseUrl(context)}/calls/respond"
+        val bodyJson = JSONObject().apply {
+            put("room_id", roomId)
+            put("action", action)
+            put("duration", duration)
+        }
+        val requestBody = bodyJson.toString().toRequestBody("application/json".toMediaType())
+        val token = getAuthToken(context)
+        val reqBuilder = Request.Builder().url(url).post(requestBody)
+        if (!token.isNullOrEmpty()) {
+            reqBuilder.addHeader("Authorization", "Bearer $token")
+        }
+
+        httpClient.newCall(reqBuilder.build()).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                mainHandler.post { callback(false) }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                response.use { resp ->
+                    mainHandler.post { callback(resp.isSuccessful) }
+                }
+            }
+        })
+    }
 }

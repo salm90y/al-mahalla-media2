@@ -855,6 +855,158 @@ export default {
         return json({ messages: finalMessages });
       }
 
+      // ----------------- Real-Time Call Signaling Engine -----------------
+      if (url.pathname === "/calls/signal" && method === "POST") {
+        const auth = await getAuthUser();
+        const body = await request.json<any>();
+        const senderId = auth?.id || body.caller_id || request.headers.get("x-user-id") || "user_me";
+        const senderName = auth?.username || body.caller_name || senderId;
+        const receiverId = String(body.receiver_id || "").trim().toLowerCase();
+        const roomId = String(body.room_id || `call_${Date.now()}`).trim();
+        const isVideo = !!body.is_video;
+        const signalType = String(body.type || "call_init").trim();
+        const extra = String(body.extra || "").trim();
+        const now = Date.now();
+
+        if (env.DB) {
+          try {
+            await ensureAllTables(env.DB);
+            // Ensure calls table exists
+            await env.DB.prepare(
+              `CREATE TABLE IF NOT EXISTS active_calls (
+                room_id TEXT PRIMARY KEY,
+                caller_id TEXT,
+                caller_name TEXT,
+                caller_avatar TEXT,
+                receiver_id TEXT,
+                is_video INTEGER,
+                status TEXT,
+                created_at INTEGER,
+                updated_at INTEGER,
+                duration TEXT
+              )`
+            ).run();
+
+            if (signalType === "call_init") {
+              const avatar = body.caller_avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(senderName)}&background=random`;
+              await env.DB.prepare(
+                `INSERT INTO active_calls (room_id, caller_id, caller_name, caller_avatar, receiver_id, is_video, status, created_at, updated_at, duration)
+                 VALUES (?, ?, ?, ?, ?, ?, 'calling', ?, ?, '')
+                 ON CONFLICT(room_id) DO UPDATE SET status='calling', updated_at=?`
+              ).bind(roomId, senderId, senderName, avatar, receiverId, isVideo ? 1 : 0, now, now, now).run();
+            } else if (signalType === "call_ringing") {
+              await env.DB.prepare("UPDATE active_calls SET status='ringing', updated_at=? WHERE room_id=?").bind(now, roomId).run();
+            } else if (signalType === "call_accepted") {
+              await env.DB.prepare("UPDATE active_calls SET status='connected', updated_at=? WHERE room_id=?").bind(now, roomId).run();
+            } else if (signalType === "call_declined") {
+              await env.DB.prepare("UPDATE active_calls SET status='declined', updated_at=? WHERE room_id=?").bind(now, roomId).run();
+            } else if (signalType === "call_ended") {
+              await env.DB.prepare("UPDATE active_calls SET status='ended', duration=?, updated_at=? WHERE room_id=?").bind(extra, now, roomId).run();
+            }
+
+            // Also dual backup as private_message
+            const u1 = String(senderId).trim().toLowerCase();
+            const u2 = String(receiverId).trim().toLowerCase();
+            const convId = [u1, u2].sort().join("_");
+            await env.DB.prepare(
+              `INSERT INTO private_messages (id, conversation_id, sender_id, receiver_id, type, content, media_url, file_name, created_at, is_read, is_delivered)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1)`
+            ).bind(crypto.randomUUID(), convId, senderId, receiverId, signalType, signalType === "call_init" ? (isVideo ? "مكالمة فيديو واردة" : "مكالمة صوتية واردة") : signalType, roomId, extra || senderName, now).run();
+          } catch (callErr) {
+            console.error("Call signaling error:", callErr);
+          }
+        }
+
+        return json({ success: true, room_id: roomId });
+      }
+
+      if (url.pathname === "/calls/incoming" && method === "GET") {
+        const auth = await getAuthUser();
+        const myId = String(auth?.id || request.headers.get("x-user-id") || "").trim().toLowerCase();
+        const myUsername = String(auth?.username || "").trim().toLowerCase();
+        const now = Date.now();
+
+        if (env.DB) {
+          try {
+            await ensureAllTables(env.DB);
+            await env.DB.prepare(
+              `CREATE TABLE IF NOT EXISTS active_calls (
+                room_id TEXT PRIMARY KEY,
+                caller_id TEXT,
+                caller_name TEXT,
+                caller_avatar TEXT,
+                receiver_id TEXT,
+                is_video INTEGER,
+                status TEXT,
+                created_at INTEGER,
+                updated_at INTEGER,
+                duration TEXT
+              )`
+            ).run();
+
+            const res = await env.DB.prepare(
+              `SELECT * FROM active_calls 
+               WHERE (receiver_id = ? OR receiver_id = ? OR lower(receiver_id) = ?) 
+                 AND (status = 'calling' OR status = 'ringing') 
+                 AND created_at > ?
+               ORDER BY created_at DESC LIMIT 1`
+            ).bind(myId, myUsername, myId, now - 45000).first();
+
+            if (res) {
+              return json({
+                has_incoming_call: true,
+                call: {
+                  room_id: res.room_id,
+                  caller_id: res.caller_id,
+                  caller_name: res.caller_name,
+                  caller_avatar: res.caller_avatar,
+                  is_video: res.is_video === 1,
+                  status: res.status,
+                  created_at: res.created_at
+                }
+              });
+            }
+          } catch (e) {
+            console.error("Error checking incoming call:", e);
+          }
+        }
+        return json({ has_incoming_call: false });
+      }
+
+      if (url.pathname === "/calls/status" && method === "GET") {
+        const roomId = url.searchParams.get("room_id") || "";
+        if (env.DB && roomId) {
+          try {
+            const res: any = await env.DB.prepare("SELECT * FROM active_calls WHERE room_id = ?").bind(roomId).first();
+            if (res) {
+              return json({ success: true, status: res.status, call: res });
+            }
+          } catch (_) {}
+        }
+        return json({ success: true, status: "ended" });
+      }
+
+      if (url.pathname === "/calls/respond" && method === "POST") {
+        const body = await request.json<any>();
+        const { room_id, action, duration = "" } = body;
+        const now = Date.now();
+        if (env.DB && room_id) {
+          try {
+            let newStatus = "ended";
+            if (action === "ringing") newStatus = "ringing";
+            if (action === "accept") newStatus = "connected";
+            if (action === "decline") newStatus = "declined";
+            if (action === "end") newStatus = "ended";
+
+            await env.DB.prepare(
+              "UPDATE active_calls SET status=?, duration=?, updated_at=? WHERE room_id=?"
+            ).bind(newStatus, duration, now, room_id).run();
+            return json({ success: true, status: newStatus });
+          } catch (_) {}
+        }
+        return json({ success: false, status: "ended" });
+      }
+
       if (url.pathname === "/conversations" && method === "GET") {
         const auth = await getAuthUser();
         const currentUserId = auth?.id || request.headers.get("x-user-id");

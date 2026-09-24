@@ -1,6 +1,11 @@
 package com.ps1.netplay.network
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
+import android.media.AudioAttributes
 import android.media.AudioManager
 import android.media.Ringtone
 import android.media.RingtoneManager
@@ -13,9 +18,12 @@ import android.os.Vibrator
 import android.os.VibratorManager
 import android.util.Log
 import androidx.compose.runtime.*
+import androidx.core.app.NotificationCompat
 import com.ps1.netplay.CallActivity
+import com.ps1.netplay.UserManager
 import com.ps1.netplay.ui.compose.CallHistoryManager
 import com.ps1.netplay.ui.compose.CallStatus
+import com.ps1.netplay.ui.compose.IncomingCallData
 import com.ps1.netplay.ui.compose.RealCallRecord
 import kotlinx.coroutines.*
 import java.text.SimpleDateFormat
@@ -44,6 +52,8 @@ data class ActiveCallSession(
 
 object CallSignalingManager {
     private const val TAG = "CallSignalingManager"
+    private const val NOTIFICATION_CHANNEL_ID = "almahalla_calls_channel"
+    private const val CALL_NOTIFICATION_ID = 998811
 
     // Observable states for Jetpack Compose
     var currentSession by mutableStateOf<ActiveCallSession?>(null)
@@ -54,14 +64,79 @@ object CallSignalingManager {
     var isCameraOn by mutableStateOf(false)
     var endCallNoticeMessage by mutableStateOf("")
 
+    // App-wide Incoming Call Alert State
+    var globalIncomingCall by mutableStateOf<IncomingCallData?>(null)
+    var dismissedCallIds by mutableStateOf(setOf<String>())
+
     private var toneGenerator: ToneGenerator? = null
     private var ringbackJob: Job? = null
     private var durationJob: Job? = null
     private var signalingJob: Job? = null
+    private var globalWatcherJob: Job? = null
     private var incomingRingtone: Ringtone? = null
     private var vibrator: Vibrator? = null
 
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+
+    /**
+     * Start Global Incoming Call Watcher across the entire application
+     */
+    fun startGlobalIncomingCallWatcher(context: Context) {
+        if (globalWatcherJob != null && globalWatcherJob?.isActive == true) return
+
+        createCallNotificationChannel(context)
+
+        globalWatcherJob = scope.launch(Dispatchers.IO) {
+            while (isActive) {
+                try {
+                    val myUser = UserManager.getCurrentUser(context)
+                    val myId = myUser?.username ?: CloudflareClient.getCurrentUserId(context)
+
+                    if (myId.isNotBlank() && !CallActivity.isCallActive) {
+                        CloudflareClient.checkIncomingCall(context) { callObj ->
+                            if (callObj != null) {
+                                val roomId = callObj.optString("room_id", "")
+                                val callerId = callObj.optString("caller_id", "")
+                                val callerName = callObj.optString("caller_name", callerId).ifBlank { "مستخدم" }
+                                val callerAvatar = callObj.optString("caller_avatar", "")
+                                val isVideo = callObj.optBoolean("is_video", false)
+                                val createdAt = callObj.optLong("created_at", System.currentTimeMillis())
+
+                                if (roomId.isNotEmpty() && !dismissedCallIds.contains(roomId) && (System.currentTimeMillis() - createdAt < 45000)) {
+                                    val incData = IncomingCallData(
+                                        callerId = callerId,
+                                        callerName = callerName,
+                                        callerAvatar = callerAvatar,
+                                        callRoomId = roomId,
+                                        isVideo = isVideo,
+                                        timestamp = createdAt
+                                    )
+
+                                    if (globalIncomingCall?.callRoomId != roomId) {
+                                        globalIncomingCall = incData
+                                        startRecipientRingtone(context)
+                                        showIncomingCallNotification(context, incData)
+                                        // Acknowledge ringing back to caller
+                                        sendRingingAck(context, callerId, roomId, isVideo)
+                                    }
+                                }
+                            } else {
+                                if (globalIncomingCall != null && !CallActivity.isCallActive) {
+                                    // Call was cancelled or answered elsewhere
+                                    globalIncomingCall = null
+                                    stopAllSounds(context)
+                                    dismissCallNotification(context)
+                                }
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Watcher error: ${e.message}")
+                }
+                delay(1500)
+            }
+        }
+    }
 
     /**
      * Start an outgoing call (Caller side)
@@ -102,10 +177,18 @@ object CallSignalingManager {
         // Start Caller Ringback Tone (نغمة انتظار / رنين للمتصل)
         startCallerRingbackTone()
 
-        // Send initial call invite signal to recipient
-        sendSignal(
+        val myUser = UserManager.getCurrentUser(context)
+        val myId = myUser?.username ?: CloudflareClient.getCurrentUserId(context)
+        val myName = myUser?.fullName?.ifEmpty { myId } ?: myId
+        val myAvatar = myUser?.avatarUrl ?: ""
+
+        // Send real-time call signal
+        CloudflareClient.sendCallSignal(
             context = context,
-            targetUserId = targetUserId,
+            callerId = myId,
+            callerName = myName,
+            callerAvatar = myAvatar,
+            receiverId = targetUserId,
             roomId = roomId,
             isVideo = isVideo,
             signalType = "call_init"
@@ -135,6 +218,8 @@ object CallSignalingManager {
         isVideo: Boolean
     ) {
         stopAllSounds(context)
+        dismissCallNotification(context)
+        globalIncomingCall = null
 
         val session = ActiveCallSession(
             roomId = roomId,
@@ -153,9 +238,13 @@ object CallSignalingManager {
         endCallNoticeMessage = ""
 
         // Send acceptance signal to caller
-        sendSignal(
+        CloudflareClient.respondToCall(context, roomId, "accept")
+        CloudflareClient.sendCallSignal(
             context = context,
-            targetUserId = callerId,
+            callerId = CloudflareClient.getCurrentUserId(context),
+            callerName = UserManager.getCurrentUser(context)?.username ?: "user",
+            callerAvatar = UserManager.getCurrentUser(context)?.avatarUrl ?: "",
+            receiverId = callerId,
             roomId = roomId,
             isVideo = isVideo,
             signalType = "call_accepted"
@@ -178,13 +267,22 @@ object CallSignalingManager {
         isVideo: Boolean
     ) {
         stopAllSounds(context)
-        sendSignal(
+        dismissCallNotification(context)
+        globalIncomingCall = null
+        dismissedCallIds = dismissedCallIds + roomId
+
+        CloudflareClient.respondToCall(context, roomId, "decline")
+        CloudflareClient.sendCallSignal(
             context = context,
-            targetUserId = callerId,
+            callerId = CloudflareClient.getCurrentUserId(context),
+            callerName = UserManager.getCurrentUser(context)?.username ?: "user",
+            callerAvatar = "",
+            receiverId = callerId,
             roomId = roomId,
             isVideo = isVideo,
             signalType = "call_declined"
         )
+
         // Log missed/declined call
         logCallRecord(context, callerId, "مكالمة واردة مرفوضة", isVideo, CallStatus.MISSED)
         resetCallState()
@@ -194,9 +292,13 @@ object CallSignalingManager {
      * Acknowledge incoming call and notify caller that device is ringing
      */
     fun sendRingingAck(context: Context, callerId: String, roomId: String, isVideo: Boolean) {
-        sendSignal(
+        CloudflareClient.respondToCall(context, roomId, "ringing")
+        CloudflareClient.sendCallSignal(
             context = context,
-            targetUserId = callerId,
+            callerId = CloudflareClient.getCurrentUserId(context),
+            callerName = UserManager.getCurrentUser(context)?.username ?: "user",
+            callerAvatar = "",
+            receiverId = callerId,
             roomId = roomId,
             isVideo = isVideo,
             signalType = "call_ringing"
@@ -212,12 +314,16 @@ object CallSignalingManager {
         val formattedTime = formatDuration(duration)
 
         stopAllSounds(context)
+        dismissCallNotification(context)
 
         if (session != null) {
-            // Send end signal to other party with duration
-            sendSignal(
+            CloudflareClient.respondToCall(context, session.roomId, "end", formattedTime)
+            CloudflareClient.sendCallSignal(
                 context = context,
-                targetUserId = session.targetUserId,
+                callerId = CloudflareClient.getCurrentUserId(context),
+                callerName = UserManager.getCurrentUser(context)?.username ?: "user",
+                callerAvatar = "",
+                receiverId = session.targetUserId,
                 roomId = session.roomId,
                 isVideo = session.isVideo,
                 signalType = "call_ended",
@@ -252,17 +358,17 @@ object CallSignalingManager {
     fun endCallWithReason(context: Context, reason: CallState, notice: String) {
         val session = currentSession
         stopAllSounds(context)
+        dismissCallNotification(context)
         callState = reason
         endCallNoticeMessage = notice
 
         if (session != null) {
-            val status = if (reason == CallState.DECLINED) CallStatus.MISSED else CallStatus.MISSED
             logCallRecord(
                 context,
                 session.targetUserName,
                 notice,
                 session.isVideo,
-                status
+                CallStatus.MISSED
             )
         }
 
@@ -385,79 +491,99 @@ object CallSignalingManager {
         isOutgoing: Boolean
     ) {
         signalingJob?.cancel()
-        signalingJob = scope.launch {
-            val myId = CloudflareClient.getCurrentUserId(context)
+        signalingJob = scope.launch(Dispatchers.IO) {
             while (isActive && currentSession != null) {
-                CloudflareClient.fetchCloudflareMessages(context, targetUserId) { messages ->
-                    val recentSignals = messages.filter { m ->
-                        (m.type.startsWith("call_") || m.type == "audio_call" || m.type == "video_call") &&
-                        (m.mediaUrl == roomId || m.content.contains(roomId) || (System.currentTimeMillis() - m.createdAt < 60000))
-                    }
-
-                    for (sig in recentSignals) {
-                        if (sig.senderId == myId) continue // ignore own messages
-
-                        when (sig.type) {
-                            "call_ringing" -> {
-                                if (callState == CallState.CONNECTING) {
-                                    callState = CallState.RINGING
-                                }
+                // 1. Direct active call status polling
+                CloudflareClient.getCallStatus(context, roomId) { status ->
+                    when (status) {
+                        "ringing" -> {
+                            if (callState == CallState.CONNECTING) {
+                                callState = CallState.RINGING
                             }
-                            "call_accepted" -> {
-                                if (callState != CallState.CONNECTED) {
-                                    stopAllSounds(context)
-                                    callState = CallState.CONNECTED
-                                    startLiveCallTimer()
-                                }
+                        }
+                        "connected" -> {
+                            if (callState != CallState.CONNECTED) {
+                                stopAllSounds(context)
+                                callState = CallState.CONNECTED
+                                startLiveCallTimer()
                             }
-                            "call_declined" -> {
-                                if (callState != CallState.ENDED && callState != CallState.DECLINED) {
-                                    endCallWithReason(context, CallState.DECLINED, "تم رفض المكالمة")
-                                }
+                        }
+                        "declined" -> {
+                            if (callState != CallState.ENDED && callState != CallState.DECLINED) {
+                                endCallWithReason(context, CallState.DECLINED, "تم رفض المكالمة")
                             }
-                            "call_ended" -> {
-                                if (callState != CallState.ENDED) {
-                                    val durationStr = sig.fileName.ifEmpty { formatDuration(callDurationSeconds) }
-                                    endCallWithReason(context, CallState.ENDED, "انتهت المكالمة • $durationStr")
-                                }
+                        }
+                        "ended" -> {
+                            if (callState != CallState.ENDED && callState == CallState.CONNECTED) {
+                                endCallWithReason(context, CallState.ENDED, "انتهت المكالمة")
                             }
                         }
                     }
                 }
-                delay(1500)
+                delay(1200)
             }
         }
     }
 
-    /**
-     * Send signal message over Cloudflare / backend
-     */
-    private fun sendSignal(
-        context: Context,
-        targetUserId: String,
-        roomId: String,
-        isVideo: Boolean,
-        signalType: String,
-        extraInfo: String = ""
-    ) {
-        val typeLabel = if (isVideo) "مكالمة فيديو" else "مكالمة صوتية"
-        val displayText = when (signalType) {
-            "call_init" -> "$typeLabel صادرة"
-            "call_ringing" -> "رنين..."
-            "call_accepted" -> "تم بدء المكالمة"
-            "call_declined" -> "مكالمة مرفوضة"
-            "call_ended" -> "$typeLabel • $extraInfo"
-            else -> signalType
+    private fun createCallNotificationChannel(context: Context) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val name = "المكالمات الواردة"
+            val descriptionText = "إشعارات ونغمات المكالمات الصوتية والفيديو"
+            val importance = NotificationManager.IMPORTANCE_HIGH
+            val channel = NotificationChannel(NOTIFICATION_CHANNEL_ID, name, importance).apply {
+                description = descriptionText
+                enableVibration(true)
+                val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+                setSound(soundUri, AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build())
+            }
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            notificationManager?.createNotificationChannel(channel)
         }
+    }
 
-        CloudflareClient.sendCloudflareMessage(
-            context = context,
-            receiverId = targetUserId,
-            text = displayText,
-            type = signalType,
-            mediaUrl = roomId,
-            fileName = extraInfo
-        ) { _, _ -> }
+    private fun showIncomingCallNotification(context: Context, callData: IncomingCallData) {
+        try {
+            val intent = Intent(context, CallActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                putExtra("callID", callData.callRoomId)
+                putExtra("isVideo", callData.isVideo)
+                putExtra("isIncoming", true)
+                putExtra("targetUserId", callData.callerId)
+                putExtra("targetUserName", callData.callerName)
+                putExtra("targetUserAvatar", callData.callerAvatar)
+            }
+            val pendingIntent = PendingIntent.getActivity(
+                context,
+                0,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val callTypeStr = if (callData.isVideo) "مكالمة فيديو واردة" else "مكالمة صوتية واردة"
+            val builder = NotificationCompat.Builder(context, NOTIFICATION_CHANNEL_ID)
+                .setSmallIcon(android.R.drawable.ic_menu_call)
+                .setContentTitle(callTypeStr)
+                .setContentText(callData.callerName)
+                .setPriority(NotificationCompat.PRIORITY_MAX)
+                .setCategory(NotificationCompat.CATEGORY_CALL)
+                .setAutoCancel(true)
+                .setOngoing(true)
+                .setFullScreenIntent(pendingIntent, true)
+                .setContentIntent(pendingIntent)
+
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            notificationManager?.notify(CALL_NOTIFICATION_ID, builder.build())
+        } catch (_: Exception) {}
+    }
+
+    fun dismissCallNotification(context: Context) {
+        try {
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            notificationManager?.cancel(CALL_NOTIFICATION_ID)
+        } catch (_: Exception) {}
     }
 
     /**

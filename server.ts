@@ -548,6 +548,155 @@ async function startServer() {
     res.json({ messages: msgs });
   });
 
+  // ----------------- Real-Time Call Signaling Engine -----------------
+  interface ActiveCall {
+    room_id: string;
+    caller_id: string;
+    caller_name: string;
+    caller_avatar: string;
+    receiver_id: string;
+    is_video: boolean;
+    status: 'calling' | 'ringing' | 'connected' | 'declined' | 'ended' | 'no_answer';
+    created_at: number;
+    updated_at: number;
+    duration?: string;
+  }
+
+  const activeServerCalls = new Map<string, ActiveCall>();
+
+  // POST /calls/signal - Broadcast signal
+  app.post(['/calls/signal', '/api/calls/signal'], (req, res) => {
+    const auth = getAuth(req);
+    const body = req.body || {};
+    const senderId = auth?.id || body.caller_id || (req.headers['x-user-id'] as string) || "user_me";
+    const senderName = auth?.username || body.caller_name || senderId;
+    const receiverId = String(body.receiver_id || "").trim().toLowerCase();
+    const roomId = String(body.room_id || `call_${Date.now()}`).trim();
+    const isVideo = !!body.is_video;
+    const signalType = String(body.type || "call_init").trim();
+    const extra = String(body.extra || "").trim();
+    const now = Date.now();
+
+    let call = activeServerCalls.get(roomId);
+
+    if (signalType === "call_init") {
+      call = {
+        room_id: roomId,
+        caller_id: senderId,
+        caller_name: senderName,
+        caller_avatar: body.caller_avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(senderName)}&background=random`,
+        receiver_id: receiverId,
+        is_video: isVideo,
+        status: 'calling',
+        created_at: now,
+        updated_at: now
+      };
+      activeServerCalls.set(roomId, call);
+    } else if (call) {
+      call.updated_at = now;
+      if (signalType === "call_ringing") {
+        if (call.status === "calling") call.status = "ringing";
+      } else if (signalType === "call_accepted") {
+        call.status = "connected";
+      } else if (signalType === "call_declined") {
+        call.status = "declined";
+      } else if (signalType === "call_ended") {
+        call.status = "ended";
+        call.duration = extra;
+      }
+    }
+
+    // Also push a message record into dbMessages for chat history
+    const [u1, u2] = [senderId, receiverId || "user_target"].sort();
+    const convId = `${u1}_${u2}`;
+    dbMessages.push({
+      id: crypto.randomUUID(),
+      conversation_id: convId,
+      sender_id: senderId,
+      receiver_id: receiverId,
+      type: signalType,
+      content: signalType === "call_init" ? (isVideo ? "مكالمة فيديو واردة" : "مكالمة صوتية واردة") : signalType,
+      media_url: roomId,
+      file_name: extra || senderName,
+      file_size: 0,
+      created_at: now,
+      is_read: 0,
+      is_delivered: 1
+    });
+
+    res.json({ success: true, call });
+  });
+
+  // GET /calls/incoming - Check if there is an active incoming call for the current user
+  app.get(['/calls/incoming', '/api/calls/incoming'], (req, res) => {
+    const auth = getAuth(req);
+    const myId = String(auth?.id || (req.headers['x-user-id'] as string) || "").trim().toLowerCase();
+    const myUsername = String(auth?.username || "").trim().toLowerCase();
+    const now = Date.now();
+
+    // Clean up calls older than 3 minutes
+    for (const [rid, c] of activeServerCalls.entries()) {
+      if (now - c.created_at > 180000 || c.status === "ended" || c.status === "declined") {
+        if (now - c.updated_at > 10000) {
+          activeServerCalls.delete(rid);
+        }
+      }
+    }
+
+    // Find active ringing/calling for this user
+    let foundCall: ActiveCall | null = null;
+    for (const c of activeServerCalls.values()) {
+      const rec = c.receiver_id.toLowerCase();
+      const isTarget = (myId && rec === myId) || (myUsername && rec === myUsername) || (myId && rec.includes(myId));
+      if (isTarget && (c.status === "calling" || c.status === "ringing") && (now - c.created_at < 45000)) {
+        foundCall = c;
+        break;
+      }
+    }
+
+    if (foundCall) {
+      res.json({
+        has_incoming_call: true,
+        call: foundCall
+      });
+    } else {
+      res.json({
+        has_incoming_call: false
+      });
+    }
+  });
+
+  // GET /calls/status - Check call status for caller
+  app.get(['/calls/status', '/api/calls/status'], (req, res) => {
+    const roomId = String(req.query.room_id || "").trim();
+    const call = activeServerCalls.get(roomId);
+    if (call) {
+      res.json({ success: true, status: call.status, call });
+    } else {
+      res.json({ success: true, status: "ended" });
+    }
+  });
+
+  // POST /calls/respond - Answer, Decline, or Ringing ack
+  app.post(['/calls/respond', '/api/calls/respond'], (req, res) => {
+    const { room_id, action, duration } = req.body || {};
+    const call = activeServerCalls.get(String(room_id || ""));
+    const now = Date.now();
+    if (call) {
+      call.updated_at = now;
+      if (action === "ringing") call.status = "ringing";
+      if (action === "accept") call.status = "connected";
+      if (action === "decline") call.status = "declined";
+      if (action === "end") {
+        call.status = "ended";
+        call.duration = duration || "";
+      }
+      res.json({ success: true, status: call.status, call });
+    } else {
+      res.json({ success: false, status: "ended" });
+    }
+  });
+
   app.get(['/conversations', '/api/conversations'], (req, res) => {
     const auth = getAuth(req);
     const myId = auth?.id || (req.headers['x-user-id'] as string) || "u_ahmed_1986";
