@@ -858,30 +858,31 @@ fun ChatDetailScreen(
 
                     // Read bytes immediately and cache to local app storage
                     var localSavedPath = uri.toString()
-                    var fileBytes: ByteArray? = null
-                    try {
-                        fileBytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                        if (fileBytes != null && fileBytes.isNotEmpty()) {
-                            val mediaDir = File(context.filesDir, "chat_media").apply { mkdirs() }
-                            val localFile = File(mediaDir, "img_${msgId}_$displayName")
-                            localFile.writeBytes(fileBytes)
-                            localSavedPath = localFile.absolutePath
-
-                            try {
-                                val altFile1 = File(mediaDir, "img_$msgId")
-                                altFile1.writeBytes(fileBytes)
-                                val altFile2 = File(mediaDir, msgId)
-                                altFile2.writeBytes(fileBytes)
-                                val altFile3 = File(mediaDir, displayName)
-                                altFile3.writeBytes(fileBytes)
-                            } catch (_: Exception) {}
-
-                            ChatMediaCache.register(context, msgId, localSavedPath)
-                            ChatMediaCache.register(context, displayName, localSavedPath)
-                            ChatMediaCache.register(context, "img_$msgId", localSavedPath)
-                        }
+                    val fileBytes: ByteArray? = try {
+                        context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
                     } catch (e: Exception) {
                         e.printStackTrace()
+                        null
+                    }
+
+                    if (fileBytes != null && fileBytes.isNotEmpty()) {
+                        val mediaDir = File(context.filesDir, "chat_media").apply { mkdirs() }
+                        val localFile = File(mediaDir, "img_${msgId}_$displayName")
+                        localFile.writeBytes(fileBytes)
+                        localSavedPath = localFile.absolutePath
+
+                        try {
+                            val altFile1 = File(mediaDir, "img_$msgId")
+                            altFile1.writeBytes(fileBytes)
+                            val altFile2 = File(mediaDir, msgId)
+                            altFile2.writeBytes(fileBytes)
+                            val altFile3 = File(mediaDir, displayName)
+                            altFile3.writeBytes(fileBytes)
+                        } catch (_: Exception) {}
+
+                        ChatMediaCache.register(context, msgId, localSavedPath)
+                        ChatMediaCache.register(context, displayName, localSavedPath)
+                        ChatMediaCache.register(context, "img_$msgId", localSavedPath)
                     }
 
                     val localMsg = Message(
@@ -971,28 +972,29 @@ fun ChatDetailScreen(
                     val displayName = "photo_${System.currentTimeMillis()}.jpg"
 
                     var localSavedPath = editedUri.toString()
-                    var fileBytes: ByteArray? = null
-                    try {
-                        fileBytes = context.contentResolver.openInputStream(editedUri)?.use { it.readBytes() }
-                        if (fileBytes != null && fileBytes.isNotEmpty()) {
-                            val mediaDir = File(context.filesDir, "chat_media").apply { mkdirs() }
-                            val localFile = File(mediaDir, "img_${msgId}_$displayName")
-                            localFile.writeBytes(fileBytes)
-                            localSavedPath = localFile.absolutePath
-
-                            try {
-                                val altFile1 = File(mediaDir, "img_$msgId")
-                                altFile1.writeBytes(fileBytes)
-                                val altFile2 = File(mediaDir, msgId)
-                                altFile2.writeBytes(fileBytes)
-                            } catch (_: Exception) {}
-
-                            ChatMediaCache.register(context, msgId, localSavedPath)
-                            ChatMediaCache.register(context, displayName, localSavedPath)
-                            ChatMediaCache.register(context, "img_$msgId", localSavedPath)
-                        }
+                    val fileBytes: ByteArray? = try {
+                        context.contentResolver.openInputStream(editedUri)?.use { it.readBytes() }
                     } catch (e: Exception) {
                         e.printStackTrace()
+                        null
+                    }
+
+                    if (fileBytes != null && fileBytes.isNotEmpty()) {
+                        val mediaDir = File(context.filesDir, "chat_media").apply { mkdirs() }
+                        val localFile = File(mediaDir, "img_${msgId}_$displayName")
+                        localFile.writeBytes(fileBytes)
+                        localSavedPath = localFile.absolutePath
+
+                        try {
+                            val altFile1 = File(mediaDir, "img_$msgId")
+                            altFile1.writeBytes(fileBytes)
+                            val altFile2 = File(mediaDir, msgId)
+                            altFile2.writeBytes(fileBytes)
+                        } catch (_: Exception) {}
+
+                        ChatMediaCache.register(context, msgId, localSavedPath)
+                        ChatMediaCache.register(context, displayName, localSavedPath)
+                        ChatMediaCache.register(context, "img_$msgId", localSavedPath)
                     }
 
                     val localMsg = Message(
@@ -1075,7 +1077,11 @@ fun ChatDetailScreen(
                     val locText = if (address.isNotBlank()) address else "موقع جغرافي ($lat, $lng)"
                     val localMsg = Message(
                         id = msgId,
-                        content = MessageContent.Location(lat, lng, address, dist, dur),
+                        content = MessageContent.Location(
+                            address = locText,
+                            city = if (dist.isNotBlank()) "المسافة: $dist" else "المحلة",
+                            country = if (dur > 0) "الوقت التقريبي: $dur دقيقة" else "مصر"
+                        ),
                         timestamp = now,
                         isOutgoing = true,
                         status = MessageStatus.DELIVERED
