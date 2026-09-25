@@ -80,10 +80,21 @@ android {
                 "/META-INF/NOTICE*",
                 "/META-INF/LICENSE*",
                 "**/*.proto",
-                "**/*.bin"
+                "**/*.bin",
+                "**/attach_hotspot_windows.dll",
+                "META-INF/INDEX.LIST",
+                "META-INF/DEPENDENCIES"
             )
         }
         jniLibs {
+            excludes += listOf(
+                "lib/armeabi/**",
+                "lib/armeabi-v7a/**",
+                "lib/mips/**",
+                "lib/mips64/**",
+                "lib/x86/**",
+                "lib/x86_64/**"
+            )
             pickFirsts += listOf("**/libc++_shared.so")
             useLegacyPackaging = false
             keepDebugSymbols.clear()
