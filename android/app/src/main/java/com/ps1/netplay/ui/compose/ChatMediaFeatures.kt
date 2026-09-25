@@ -74,6 +74,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
+import com.ps1.netplay.network.CloudflareClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -1081,7 +1082,7 @@ fun IncomingCallAlertModal(
     var isCallerOnline by remember { mutableStateOf(true) }
     LaunchedEffect(callData.callerId) {
         if (callData.callerId.isNotBlank()) {
-            CloudflareClient.checkUserOnline(context, callData.callerId) { online ->
+            CloudflareClient.checkUserOnline(context, callData.callerId) { online: Boolean ->
                 isCallerOnline = online
             }
         }

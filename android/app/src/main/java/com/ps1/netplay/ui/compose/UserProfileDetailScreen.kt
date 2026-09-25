@@ -41,6 +41,8 @@ import com.ps1.netplay.UserManager
 import com.ps1.netplay.model.FriendItem
 import com.ps1.netplay.model.FriendRequestItem
 import com.ps1.netplay.network.CloudflareClient
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -63,20 +65,6 @@ fun UserProfileDetailScreen(
     var showBlockConfirmDialog by remember { mutableStateOf(false) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
 
-    // Real-Time Online / Offline Presence Tracking
-    var isUserOnline by remember { mutableStateOf(matchedFriend?.isOnline ?: false) }
-    LaunchedEffect(userId, userName) {
-        val targetQuery = userId.ifBlank { userName }
-        if (targetQuery.isNotBlank()) {
-            while (isActive) {
-                CloudflareClient.checkUserOnline(context, targetQuery) { online ->
-                    isUserOnline = online
-                }
-                delay(2500)
-            }
-        }
-    }
-
     // Resolve current relationship state
     val normalizedTargetName = userName.trim().lowercase()
     val normalizedTargetId = userId.trim().lowercase()
@@ -88,6 +76,20 @@ fun UserProfileDetailScreen(
         "u_${it.username.trim().lowercase()}" == normalizedTargetId
     }
     val isFriend = matchedFriend != null
+
+    // Real-Time Online / Offline Presence Tracking
+    var isUserOnline by remember { mutableStateOf(matchedFriend?.isOnline ?: false) }
+    LaunchedEffect(userId, userName) {
+        val targetQuery = userId.ifBlank { userName }
+        if (targetQuery.isNotBlank()) {
+            while (isActive) {
+                CloudflareClient.checkUserOnline(context, targetQuery) { online: Boolean ->
+                    isUserOnline = online
+                }
+                delay(2500)
+            }
+        }
+    }
 
     val incomingReq = incomingRequests.find {
         it.fromUserId.equals(userId, ignoreCase = true) ||
