@@ -18,50 +18,38 @@ object HeartbeatManager {
     private val heartbeatRunnable = object : Runnable {
 
         override fun run() {
-
             val context = mContext
-
             if (context != null) {
-
                 CoroutineScope(Dispatchers.IO).launch {
-
                     try {
-
+                        CloudflareClient.sendHeartbeat(context)
                         ApiService.post(context, "/api/users/heartbeat", "{}")
-
                     } catch (e: Exception) {
-
                         e.printStackTrace()
-
                     }
-
                 }
-
             }
-
-            handler.postDelayed(this, 30000)
-
+            handler.postDelayed(this, 15000)
         }
-
     }
 
     fun startHeartbeat(context: Context) {
-
         mContext = context.applicationContext
-
         if (isRunning) return
-
         isRunning = true
-
         handler.post(heartbeatRunnable)
-
     }
 
-    fun stopHeartbeat() {
-
+    fun stopHeartbeat(context: Context? = null) {
         isRunning = false
-
         handler.removeCallbacks(heartbeatRunnable)
-
+        val ctx = context ?: mContext
+        if (ctx != null) {
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    CloudflareClient.sendOffline(ctx)
+                } catch (_: Exception) {}
+            }
+        }
     }
 }

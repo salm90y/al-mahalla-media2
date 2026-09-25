@@ -15,6 +15,7 @@ data class FriendItem(
     val createdAt: Long = 0L
 ) {
     val name: String get() = username
+    val isOnline: Boolean get() = status == "online" || (System.currentTimeMillis() - lastSeen < 120_000)
 }
 
 data class FriendRequestItem(
@@ -60,8 +61,11 @@ data class ConversationItem(
     val otherStatus: String,
     val lastMessageText: String,
     val lastMessageAt: Long,
-    val unreadCount: Int = 0
-)
+    val unreadCount: Int = 0,
+    val otherLastSeen: Long = 0L
+) {
+    val isOnline: Boolean get() = otherStatus == "online" || (System.currentTimeMillis() - otherLastSeen < 120_000)
+}
 
 data class AdminBroadcastItem(
     val id: String,

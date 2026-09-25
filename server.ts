@@ -232,6 +232,64 @@ async function startServer() {
     });
   });
 
+  // ----------------- Real-Time User Presence Status -----------------
+  app.get(['/users/status', '/api/users/status'], (req, res) => {
+    const targetUserId = String(req.query.userId || req.query.username || "").trim().toLowerCase();
+    if (!targetUserId) {
+      return res.status(400).json({ error: "Missing userId" });
+    }
+
+    const user = findDbUser(targetUserId);
+    if (user) {
+      const now = Date.now();
+      const lastSeen = Number(user.last_seen || 0);
+      const isOnline = user.status === "online" || (now - lastSeen < 120000);
+      return res.json({
+        success: true,
+        user_id: user.id,
+        username: user.username,
+        avatar_url: user.avatar_url || "",
+        is_online: isOnline,
+        status: isOnline ? "online" : "offline",
+        last_seen: lastSeen
+      });
+    }
+
+    return res.json({ success: true, is_online: false, status: "offline", last_seen: 0 });
+  });
+
+  // ----------------- User Heartbeat -----------------
+  app.post(['/users/heartbeat', '/api/users/heartbeat'], (req, res) => {
+    const auth = getAuth(req);
+    const userId = auth?.id || (req.headers['x-user-id'] as string);
+    const username = auth?.username || (req.headers['x-user-name'] as string);
+    const now = Date.now();
+
+    if (userId || username) {
+      const u = findDbUser(userId || username || "");
+      if (u) {
+        u.status = 'online';
+        u.last_seen = now;
+      }
+    }
+    return res.json({ success: true, status: "online", last_seen: now });
+  });
+
+  // ----------------- User Offline -----------------
+  app.post(['/users/offline', '/api/users/offline'], (req, res) => {
+    const auth = getAuth(req);
+    const userId = auth?.id || (req.headers['x-user-id'] as string);
+    const username = auth?.username || (req.headers['x-user-name'] as string);
+    if (userId || username) {
+      const u = findDbUser(userId || username || "");
+      if (u) {
+        u.status = 'offline';
+        u.last_seen = Date.now();
+      }
+    }
+    return res.json({ success: true, status: "offline" });
+  });
+
   // ----------------- R2: POST /upload/avatar -----------------
   app.post(['/upload/avatar', '/api/upload/avatar'], (req, res) => {
     const auth = getAuth(req);
@@ -713,7 +771,8 @@ async function startServer() {
             other_user_id: otherId,
             other_username: otherUser?.username || otherId,
             other_avatar: otherUser?.avatar_url || "",
-            other_status: otherUser?.status || "online",
+            other_status: (otherUser?.status === "online" || (Date.now() - (otherUser?.last_seen || 0) < 120000)) ? "online" : "offline",
+            other_last_seen: otherUser?.last_seen || 0,
             last_message_text: m.content || `[${m.type}]`,
             last_message_at: m.created_at,
             unread_count: 0

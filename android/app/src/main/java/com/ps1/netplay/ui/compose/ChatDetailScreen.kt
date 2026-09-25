@@ -472,7 +472,7 @@ fun ChatDetailScreen(
                 CloudflareClient.checkUserOnline(context, targetUserId) { online ->
                     isTargetOnline = online
                 }
-                delay(5000)
+                delay(2500)
             }
         }
     }
@@ -1058,15 +1058,14 @@ fun ChatTopBar(
                     .border(1.dp, Color(0xFFE2E8F0), CircleShape),
                 contentScale = ContentScale.Crop
             )
-            if (isOnline) {
-                Box(
-                    modifier = Modifier
-                        .size(11.dp)
-                        .align(Alignment.BottomEnd)
-                        .background(Color(0xFF10B981), CircleShape)
-                        .border(2.dp, Color.White, CircleShape)
-                )
-            }
+            // Online/Offline presence indicator dot (Green for online, Red for offline)
+            Box(
+                modifier = Modifier
+                    .size(11.dp)
+                    .align(Alignment.BottomEnd)
+                    .background(if (isOnline) Color(0xFF10B981) else Color(0xFFEF4444), CircleShape)
+                    .border(2.dp, Color.White, CircleShape)
+            )
         }
 
         Spacer(modifier = Modifier.width(10.dp))
@@ -1099,7 +1098,7 @@ fun ChatTopBar(
                 )
             } else if (isOnline) {
                 Text(
-                    text = "متصل الآن",
+                    text = "متصل",
                     color = Color(0xFF10B981),
                     fontSize = 11.5.sp,
                     fontFamily = TajawalFontFamily,
@@ -1107,8 +1106,8 @@ fun ChatTopBar(
                 )
             } else {
                 Text(
-                    text = "نشط مؤخراً",
-                    color = Color(0xFF64748B),
+                    text = "غير متصل",
+                    color = Color(0xFFEF4444),
                     fontSize = 11.5.sp,
                     fontFamily = TajawalFontFamily,
                     maxLines = 1

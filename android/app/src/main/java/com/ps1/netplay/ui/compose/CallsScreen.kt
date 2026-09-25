@@ -33,6 +33,9 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.ps1.netplay.CallActivity
 import com.ps1.netplay.SettingsActivity
+import com.ps1.netplay.network.CloudflareClient
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -344,17 +347,45 @@ fun CallsScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Box(
-                                    modifier = Modifier
-                                        .size(48.dp)
-                                        .background(Color(0xFFEEF4FB), CircleShape),
-                                    contentAlignment = Alignment.Center
+                                    modifier = Modifier.size(48.dp)
                                 ) {
-                                    Text(
-                                        text = call.name.take(1).uppercase().ifEmpty { "ص" },
-                                        fontSize = 18.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF2563EB),
-                                        fontFamily = TajawalFontFamily
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .clip(CircleShape)
+                                            .background(Color(0xFFEEF4FB)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        if (call.avatar.isNotBlank()) {
+                                            AsyncImage(
+                                                model = call.avatar,
+                                                contentDescription = call.name,
+                                                modifier = Modifier
+                                                    .fillMaxSize()
+                                                    .clip(CircleShape),
+                                                contentScale = ContentScale.Crop
+                                            )
+                                        } else {
+                                            Text(
+                                                text = call.name.take(1).uppercase().ifEmpty { "ص" },
+                                                fontSize = 18.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFF2563EB),
+                                                fontFamily = TajawalFontFamily
+                                            )
+                                        }
+                                    }
+
+                                    // Presence Dot: Green if online, Red if offline
+                                    val isCallUserOnline = remember(call.name) {
+                                        CloudflareClient.getLocalFriends(context).find { it.name.equals(call.name, ignoreCase = true) }?.isOnline ?: false
+                                    }
+                                    Box(
+                                        modifier = Modifier
+                                            .size(12.dp)
+                                            .align(Alignment.BottomEnd)
+                                            .background(if (isCallUserOnline) Color(0xFF10B981) else Color(0xFFEF4444), CircleShape)
+                                            .border(2.dp, Color.White, CircleShape)
                                     )
                                 }
 
@@ -382,7 +413,7 @@ fun CallsScreen(
                             IconButton(
                                 onClick = {
                                     val intent = Intent(context, CallActivity::class.java).apply {
-                                        putExtra("callID", "call_${call.name.hashCode()}")
+                                        putExtra("callID", "call_${call.name.hashCode()}_${System.currentTimeMillis()}")
                                         putExtra("isVideo", call.isVideo)
                                         putExtra("isIncoming", false)
                                         putExtra("targetUserId", call.name)

@@ -86,7 +86,7 @@ fun ModernCallScreen(
         CallState.RINGING -> "يرن..."
         CallState.CONNECTED -> "متصل الآن"
         CallState.BUSY -> "الخط مشغول"
-        CallState.NO_ANSWER -> "لا يوجد رد / غير متاح"
+        CallState.NO_ANSWER -> "غير متصل / لا يوجد رد"
         CallState.DECLINED -> "تم رفض المكالمة"
         CallState.ENDED -> endNotice.ifBlank { "انتهت المكالمة" }
     }
@@ -94,7 +94,7 @@ fun ModernCallScreen(
     val statusColor = when (callState) {
         CallState.CONNECTING -> Color(0xFF3B82F6)
         CallState.RINGING -> Color(0xFF10B981)
-        CallState.CONNECTED -> Color(0xFF64748B)
+        CallState.CONNECTED -> Color(0xFF10B981)
         CallState.BUSY, CallState.NO_ANSWER, CallState.DECLINED, CallState.ENDED -> Color(0xFFEF4444)
     }
 
@@ -216,7 +216,7 @@ fun ModernCallScreen(
                         }
                     }
 
-                    // Green Online Status Badge
+                    // Online / Offline Status Badge: Green if connected/ringing, Red if offline/ended
                     Box(
                         modifier = Modifier
                             .align(Alignment.BottomEnd)
@@ -224,7 +224,7 @@ fun ModernCallScreen(
                             .size(22.dp)
                             .clip(CircleShape)
                             .background(
-                                if (callState == CallState.CONNECTED || callState == CallState.RINGING) Color(0xFF10B981) else Color(0xFF94A3B8)
+                                if (callState == CallState.CONNECTED || callState == CallState.RINGING) Color(0xFF10B981) else Color(0xFFEF4444)
                             )
                             .border(3.dp, Color.White, CircleShape)
                     )

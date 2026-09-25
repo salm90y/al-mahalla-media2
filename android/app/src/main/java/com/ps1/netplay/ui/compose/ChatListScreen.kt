@@ -32,6 +32,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
 import com.ps1.netplay.SettingsActivity
 import com.ps1.netplay.UserManager
 import com.ps1.netplay.network.CloudflareClient
@@ -75,6 +77,7 @@ fun ChatListScreen(
                 lastMsg = c.lastMessageText.ifBlank { "محادثة جديدة" },
                 time = timeStr,
                 avatar = c.otherAvatar,
+                isOnline = c.isOnline,
                 unreadCount = c.unreadCount,
                 isRead = c.unreadCount == 0,
                 category = "All"
@@ -108,6 +111,7 @@ fun ChatListScreen(
                             lastMsg = c.lastMessageText.ifBlank { "محادثة جديدة" },
                             time = timeStr,
                             avatar = c.otherAvatar,
+                            isOnline = c.isOnline,
                             unreadCount = c.unreadCount,
                             isRead = c.unreadCount == 0,
                             category = "All"
@@ -426,18 +430,44 @@ fun ChatListScreen(
                                 Box(
                                     modifier = Modifier
                                         .size(50.dp)
-                                        .background(Color(0xFFEEF4FB), CircleShape)
                                         .clickable {
                                             navController.navigate("user_profile/${conv.id}/$encodedName")
-                                        },
-                                    contentAlignment = Alignment.Center
+                                        }
                                 ) {
-                                    Text(
-                                        text = conv.name.take(1).uppercase().ifEmpty { "ص" },
-                                        fontSize = 18.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF2563EB),
-                                        fontFamily = TajawalFontFamily
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .clip(CircleShape)
+                                            .background(Color(0xFFEEF4FB)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        if (conv.avatar.isNotBlank()) {
+                                            AsyncImage(
+                                                model = conv.avatar,
+                                                contentDescription = conv.name,
+                                                modifier = Modifier
+                                                    .fillMaxSize()
+                                                    .clip(CircleShape),
+                                                contentScale = ContentScale.Crop
+                                            )
+                                        } else {
+                                            Text(
+                                                text = conv.name.take(1).uppercase().ifEmpty { "ص" },
+                                                fontSize = 18.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFF2563EB),
+                                                fontFamily = TajawalFontFamily
+                                            )
+                                        }
+                                    }
+
+                                    // Presence Dot: Green if online, Red if offline
+                                    Box(
+                                        modifier = Modifier
+                                            .size(13.dp)
+                                            .align(Alignment.BottomEnd)
+                                            .background(if (conv.isOnline) Color(0xFF10B981) else Color(0xFFEF4444), CircleShape)
+                                            .border(2.dp, Color.White, CircleShape)
                                     )
                                 }
 

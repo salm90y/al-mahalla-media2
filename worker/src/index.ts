@@ -656,6 +656,70 @@ export default {
         });
       }
 
+      // GET /users/status or /api/users/status - Real-time online/offline presence check
+      if ((url.pathname === "/users/status" || url.pathname === "/api/users/status") && method === "GET") {
+        const targetUserId = String(url.searchParams.get("userId") || url.searchParams.get("username") || "").trim().toLowerCase();
+        if (!targetUserId) return json({ error: "Missing userId" }, 400);
+
+        if (env.DB) {
+          await ensureAllTables(env.DB);
+          const uDb = await env.DB.prepare(
+            "SELECT id, username, avatar_url, status, last_seen FROM users WHERE LOWER(id) = ? OR LOWER(username) = ?"
+          ).bind(targetUserId, targetUserId).first<any>();
+
+          if (uDb) {
+            const now = Date.now();
+            const lastSeen = Number(uDb.last_seen || 0);
+            const isOnline = uDb.status === "online" || (now - lastSeen < 120000);
+            return json({
+              success: true,
+              user_id: uDb.id,
+              username: uDb.username,
+              avatar_url: uDb.avatar_url || "",
+              is_online: isOnline,
+              status: isOnline ? "online" : "offline",
+              last_seen: lastSeen
+            });
+          }
+        }
+        return json({ success: true, is_online: false, status: "offline", last_seen: 0 });
+      }
+
+      // POST /users/heartbeat or /api/users/heartbeat - Keep user online
+      if ((url.pathname === "/users/heartbeat" || url.pathname === "/api/users/heartbeat") && method === "POST") {
+        const auth = await getAuthUser();
+        const userId = auth?.id || request.headers.get("x-user-id");
+        const username = auth?.username || request.headers.get("x-user-name");
+        const now = Date.now();
+
+        if (env.DB && (userId || username)) {
+          await ensureAllTables(env.DB);
+          const target = String(userId || username).trim().toLowerCase();
+          await env.DB.prepare(
+            "UPDATE users SET status = 'online', last_seen = ? WHERE LOWER(id) = ? OR LOWER(username) = ?"
+          ).bind(now, target, target).run();
+          return json({ success: true, status: "online", last_seen: now });
+        }
+        return json({ success: true, status: "online", last_seen: now });
+      }
+
+      // POST /users/offline or /api/users/offline - Mark user offline
+      if ((url.pathname === "/users/offline" || url.pathname === "/api/users/offline") && method === "POST") {
+        const auth = await getAuthUser();
+        const userId = auth?.id || request.headers.get("x-user-id");
+        const username = auth?.username || request.headers.get("x-user-name");
+        const now = Date.now();
+
+        if (env.DB && (userId || username)) {
+          await ensureAllTables(env.DB);
+          const target = String(userId || username).trim().toLowerCase();
+          await env.DB.prepare(
+            "UPDATE users SET status = 'offline', last_seen = ? WHERE LOWER(id) = ? OR LOWER(username) = ?"
+          ).bind(now, target, target).run();
+        }
+        return json({ success: true, status: "offline" });
+      }
+
       // POST /media/upload
       if (url.pathname === "/media/upload" && method === "POST") {
         const auth = await getAuthUser();
@@ -1143,7 +1207,8 @@ export default {
                   COALESCE(u.id, CASE WHEN LOWER(c.user1_id) IN (${placeholders}) THEN c.user2_id ELSE c.user1_id END) as other_user_id,
                   COALESCE(u.username, CASE WHEN LOWER(c.user1_id) IN (${placeholders}) THEN c.user2_id ELSE c.user1_id END) as other_username,
                   COALESCE(u.avatar_url, '') as other_avatar,
-                  COALESCE(u.status, 'offline') as other_status
+                  COALESCE(u.status, 'offline') as other_status,
+                  COALESCE(u.last_seen, 0) as other_last_seen
            FROM conversations c
            LEFT JOIN users u ON (LOWER(u.id) = LOWER(CASE WHEN LOWER(c.user1_id) IN (${placeholders}) THEN c.user2_id ELSE c.user1_id END)
                                  OR LOWER(u.username) = LOWER(CASE WHEN LOWER(c.user1_id) IN (${placeholders}) THEN c.user2_id ELSE c.user1_id END))

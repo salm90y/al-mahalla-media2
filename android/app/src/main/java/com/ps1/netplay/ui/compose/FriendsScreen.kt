@@ -42,6 +42,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.layout.ContentScale
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import com.ps1.netplay.CallActivity
@@ -591,17 +592,42 @@ fun FriendsScreen(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Box(
-                                            modifier = Modifier
-                                                .size(48.dp)
-                                                .background(Color(0xFFEEF4FB), CircleShape),
-                                            contentAlignment = Alignment.Center
+                                            modifier = Modifier.size(48.dp)
                                         ) {
-                                            Text(
-                                                text = friend.name.take(1).uppercase().ifEmpty { "ص" },
-                                                fontSize = 18.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = Color(0xFF2563EB),
-                                                fontFamily = TajawalFontFamily
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxSize()
+                                                    .clip(CircleShape)
+                                                    .background(Color(0xFFEEF4FB)),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                if (friend.avatarUrl.isNotBlank()) {
+                                                    AsyncImage(
+                                                        model = friend.avatarUrl,
+                                                        contentDescription = friend.name,
+                                                        modifier = Modifier
+                                                            .fillMaxSize()
+                                                            .clip(CircleShape),
+                                                        contentScale = ContentScale.Crop
+                                                    )
+                                                } else {
+                                                    Text(
+                                                        text = friend.name.take(1).uppercase().ifEmpty { "ص" },
+                                                        fontSize = 18.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = Color(0xFF2563EB),
+                                                        fontFamily = TajawalFontFamily
+                                                    )
+                                                }
+                                            }
+
+                                            // Presence Dot (Green if online, Red if offline)
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(12.dp)
+                                                    .align(Alignment.BottomEnd)
+                                                    .background(if (friend.isOnline) Color(0xFF10B981) else Color(0xFFEF4444), CircleShape)
+                                                    .border(2.dp, Color.White, CircleShape)
                                             )
                                         }
 
@@ -617,9 +643,9 @@ fun FriendsScreen(
                                             )
                                             Spacer(modifier = Modifier.height(2.dp))
                                             Text(
-                                                text = "متصل",
+                                                text = if (friend.isOnline) "متصل" else "غير متصل",
                                                 fontSize = 12.sp,
-                                                color = Color(0xFF10B981),
+                                                color = if (friend.isOnline) Color(0xFF10B981) else Color(0xFFEF4444),
                                                 fontFamily = TajawalFontFamily
                                             )
                                         }

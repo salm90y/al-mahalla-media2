@@ -1334,8 +1334,12 @@ override fun onResponse(call: Call, response: Response) {
         val otherAvatar: String,
         val lastMessageText: String,
         val lastMessageAt: Long,
-        val unreadCount: Int = 0
-    )
+        val unreadCount: Int = 0,
+        val otherStatus: String = "offline",
+        val otherLastSeen: Long = 0L
+    ) {
+        val isOnline: Boolean get() = otherStatus == "online" || (System.currentTimeMillis() - otherLastSeen < 120_000)
+    }
 
     fun getLocalConversations(context: Context): List<StoredConversation> {
         val prefs = getPrefs(context)
@@ -1352,7 +1356,9 @@ override fun onResponse(call: Call, response: Response) {
                         otherAvatar = obj.optString("other_avatar", ""),
                         lastMessageText = obj.optString("last_message_text", ""),
                         lastMessageAt = obj.optLong("last_message_at", System.currentTimeMillis()),
-                        unreadCount = obj.optInt("unread_count", 0)
+                        unreadCount = obj.optInt("unread_count", 0),
+                        otherStatus = obj.optString("other_status", "offline"),
+                        otherLastSeen = obj.optLong("other_last_seen", 0L)
                     )
                 )
             }
@@ -1366,13 +1372,17 @@ override fun onResponse(call: Call, response: Response) {
         otherUsername: String,
         otherAvatar: String,
         lastText: String,
-        timestamp: Long
+        timestamp: Long,
+        status: String = "offline",
+        lastSeen: Long = 0L
     ) {
         if (otherUserId.isBlank()) return
         val current = getLocalConversations(context).toMutableList()
         val existingIndex = current.indexOfFirst { it.otherUserId.equals(otherUserId, ignoreCase = true) }
         val finalName = if (otherUsername.isNotBlank()) otherUsername else (current.getOrNull(existingIndex)?.otherUsername ?: otherUserId)
         val finalAvatar = if (otherAvatar.isNotBlank()) otherAvatar else (current.getOrNull(existingIndex)?.otherAvatar ?: "")
+        val finalStatus = if (status != "offline") status else (current.getOrNull(existingIndex)?.otherStatus ?: "offline")
+        val finalLastSeen = if (lastSeen > 0) lastSeen else (current.getOrNull(existingIndex)?.otherLastSeen ?: 0L)
         
         val updated = StoredConversation(
             otherUserId = otherUserId,
@@ -1380,7 +1390,9 @@ override fun onResponse(call: Call, response: Response) {
             otherAvatar = finalAvatar,
             lastMessageText = lastText,
             lastMessageAt = if (timestamp > 0) timestamp else System.currentTimeMillis(),
-            unreadCount = 0
+            unreadCount = 0,
+            otherStatus = finalStatus,
+            otherLastSeen = finalLastSeen
         )
         if (existingIndex >= 0) {
             current.removeAt(existingIndex)
@@ -1396,6 +1408,8 @@ override fun onResponse(call: Call, response: Response) {
                 put("last_message_text", c.lastMessageText)
                 put("last_message_at", c.lastMessageAt)
                 put("unread_count", c.unreadCount)
+                put("other_status", c.otherStatus)
+                put("other_last_seen", c.otherLastSeen)
             })
         }
         getPrefs(context).edit().putString("local_conversations_list", arr.toString()).apply()
@@ -1432,6 +1446,8 @@ override fun onResponse(call: Call, response: Response) {
                                 val otherName = obj.optString("other_username", obj.optString("name", otherId))
                                 val avatar = obj.optString("other_avatar", obj.optString("avatar_url", ""))
                                 val rawText = obj.optString("last_message_text", "")
+                                val otherStatus = obj.optString("other_status", "offline")
+                                val otherLastSeen = obj.optLong("other_last_seen", 0L)
                                 val convId = getConversationId(myId, otherId)
                                 val decryptedText = if (rawText.startsWith("ENC::")) {
                                     ChatCryptoHelper.decrypt(rawText, convId)
@@ -1439,7 +1455,7 @@ override fun onResponse(call: Call, response: Response) {
                                     rawText
                                 }
                                 val lastAt = obj.optLong("last_message_at", System.currentTimeMillis())
-                                updateLocalConversation(context, otherId, otherName, avatar, decryptedText, lastAt)
+                                updateLocalConversation(context, otherId, otherName, avatar, decryptedText, lastAt, otherStatus, otherLastSeen)
                             }
                         } catch (_: Exception) {}
                     }
@@ -1674,9 +1690,47 @@ override fun onResponse(call: Call, response: Response) {
     }
 
     /**
-     * Check if a specific user is currently online
+     * Check if a specific user is currently online (Real-time Presence)
      */
     fun checkUserOnline(context: Context, userId: String, callback: (Boolean) -> Unit) {
+        if (userId.isBlank()) {
+            mainHandler.post { callback(false) }
+            return
+        }
+        val token = getAuthToken(context)
+        val encodedId = Uri.encode(userId.trim())
+        val url = "${getBaseUrl(context)}/users/status?userId=$encodedId"
+        val reqBuilder = Request.Builder().url(url)
+        if (!token.isNullOrEmpty()) {
+            reqBuilder.addHeader("Authorization", "Bearer $token")
+        }
+
+        httpClient.newCall(reqBuilder.build()).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                // Fallback to checking friends list
+                checkUserOnlineViaFriends(context, userId, callback)
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                response.use { resp ->
+                    if (resp.isSuccessful) {
+                        try {
+                            val json = JSONObject(resp.body?.string() ?: "{}")
+                            if (json.has("is_online")) {
+                                val isOnline = json.optBoolean("is_online", false)
+                                mainHandler.post { callback(isOnline) }
+                                return
+                            }
+                        } catch (_: Exception) {}
+                    }
+                    // Fallback to checking friends list
+                    checkUserOnlineViaFriends(context, userId, callback)
+                }
+            }
+        })
+    }
+
+    private fun checkUserOnlineViaFriends(context: Context, userId: String, callback: (Boolean) -> Unit) {
         val token = getAuthToken(context)
         val url = "${getBaseUrl(context)}/friends/list"
         val reqBuilder = Request.Builder().url(url)
@@ -1712,6 +1766,46 @@ override fun onResponse(call: Call, response: Response) {
                     mainHandler.post { callback(false) }
                 }
             }
+        })
+    }
+
+    /**
+     * Send heartbeat to keep presence marked as 'online'
+     */
+    fun sendHeartbeat(context: Context) {
+        val token = getAuthToken(context)
+        val myId = getCurrentUserId(context)
+        val myUsername = getCurrentUsername(context)
+        val url = "${getBaseUrl(context)}/users/heartbeat"
+        val emptyBody = "{}".toRequestBody("application/json".toMediaType())
+        val reqBuilder = Request.Builder().url(url).post(emptyBody)
+        if (!token.isNullOrEmpty()) reqBuilder.addHeader("Authorization", "Bearer $token")
+        if (myId.isNotEmpty()) reqBuilder.addHeader("x-user-id", myId)
+        if (myUsername.isNotEmpty()) reqBuilder.addHeader("x-user-name", myUsername)
+
+        httpClient.newCall(reqBuilder.build()).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {}
+            override fun onResponse(call: Call, response: Response) { response.close() }
+        })
+    }
+
+    /**
+     * Send offline signal when app closes or goes to background
+     */
+    fun sendOffline(context: Context) {
+        val token = getAuthToken(context)
+        val myId = getCurrentUserId(context)
+        val myUsername = getCurrentUsername(context)
+        val url = "${getBaseUrl(context)}/users/offline"
+        val emptyBody = "{}".toRequestBody("application/json".toMediaType())
+        val reqBuilder = Request.Builder().url(url).post(emptyBody)
+        if (!token.isNullOrEmpty()) reqBuilder.addHeader("Authorization", "Bearer $token")
+        if (myId.isNotEmpty()) reqBuilder.addHeader("x-user-id", myId)
+        if (myUsername.isNotEmpty()) reqBuilder.addHeader("x-user-name", myUsername)
+
+        httpClient.newCall(reqBuilder.build()).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {}
+            override fun onResponse(call: Call, response: Response) { response.close() }
         })
     }
 
@@ -1773,7 +1867,10 @@ override fun onResponse(call: Call, response: Response) {
     fun checkIncomingCall(context: Context, callback: (JSONObject?) -> Unit) {
         val token = getAuthToken(context)
         val myId = getCurrentUserId(context)
-        val url = "${getBaseUrl(context)}/calls/incoming"
+        val myUsername = getCurrentUsername(context)
+        val encodedId = Uri.encode(myId)
+        val encodedUser = Uri.encode(myUsername)
+        val url = "${getBaseUrl(context)}/calls/incoming?userId=$encodedId&username=$encodedUser"
 
         val reqBuilder = Request.Builder().url(url)
         if (!token.isNullOrEmpty()) {
@@ -1781,6 +1878,9 @@ override fun onResponse(call: Call, response: Response) {
         }
         if (myId.isNotEmpty()) {
             reqBuilder.addHeader("x-user-id", myId)
+        }
+        if (myUsername.isNotEmpty()) {
+            reqBuilder.addHeader("x-user-name", myUsername)
         }
 
         httpClient.newCall(reqBuilder.build()).enqueue(object : Callback {

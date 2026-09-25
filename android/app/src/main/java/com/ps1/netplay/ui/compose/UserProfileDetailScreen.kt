@@ -63,6 +63,20 @@ fun UserProfileDetailScreen(
     var showBlockConfirmDialog by remember { mutableStateOf(false) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
 
+    // Real-Time Online / Offline Presence Tracking
+    var isUserOnline by remember { mutableStateOf(matchedFriend?.isOnline ?: false) }
+    LaunchedEffect(userId, userName) {
+        val targetQuery = userId.ifBlank { userName }
+        if (targetQuery.isNotBlank()) {
+            while (isActive) {
+                CloudflareClient.checkUserOnline(context, targetQuery) { online ->
+                    isUserOnline = online
+                }
+                delay(2500)
+            }
+        }
+    }
+
     // Resolve current relationship state
     val normalizedTargetName = userName.trim().lowercase()
     val normalizedTargetId = userId.trim().lowercase()
@@ -408,11 +422,11 @@ fun UserProfileDetailScreen(
                                     fontFamily = TajawalFontFamily
                                 )
                             }
-                            // Online Green Indicator
+                            // Online/Offline Presence Indicator (Green if online, Red if offline)
                             Box(
                                 modifier = Modifier
                                     .size(22.dp)
-                                    .background(Color(0xFF10B981), CircleShape)
+                                    .background(if (isUserOnline) Color(0xFF10B981) else Color(0xFFEF4444), CircleShape)
                                     .border(2.5.dp, Color.White, CircleShape)
                             )
                         }
@@ -431,12 +445,13 @@ fun UserProfileDetailScreen(
 
                         Spacer(modifier = Modifier.height(4.dp))
 
-                        // User Tag / Status
+                        // User Tag / Status: Never show "متصل" when offline! Show "غير متصل" in Red when offline!
                         Text(
-                            text = "@${userName.replace(" ", "_").lowercase()} • متصل الآن",
+                            text = if (isUserOnline) "@${userName.replace(" ", "_").lowercase()} • متصل الآن" else "@${userName.replace(" ", "_").lowercase()} • غير متصل",
                             fontSize = 13.sp,
                             fontFamily = TajawalFontFamily,
-                            color = Color(0xFF64748B)
+                            fontWeight = FontWeight.Medium,
+                            color = if (isUserOnline) Color(0xFF10B981) else Color(0xFFEF4444)
                         )
 
                         Spacer(modifier = Modifier.height(16.dp))

@@ -552,7 +552,7 @@ object CallSignalingManager {
         }
     }
 
-    private fun createCallNotificationChannel(context: Context) {
+    fun createCallNotificationChannel(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val name = "المكالمات الواردة"
             val descriptionText = "إشعارات ونغمات المكالمات الصوتية والفيديو"
