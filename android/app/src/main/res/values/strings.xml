@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Al-Mahalla</string>
+    <string name="app_name">المحله</string>
     <string name="action_settings">الإعدادات</string>
     <string name="settings_title">لوحة الإعدادات المعزولة</string>
     <string name="cat_rom_bios">💾 إدارة ملفات اللعبة والبيوس (ROM &amp; BIOS)</string>

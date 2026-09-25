@@ -505,7 +505,7 @@ target_link_libraries(
 
     <application
         android:allowBackup="true"
-        android:label="Al-Mahalla"
+        android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.PS1Netplay.Fullscreen">
 
