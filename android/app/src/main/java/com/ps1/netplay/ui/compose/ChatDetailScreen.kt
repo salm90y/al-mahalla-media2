@@ -964,6 +964,136 @@ fun ChatDetailScreen(
                         }
                     }
                 },
+                onSendEditedPhoto = { editedUri, caption, isViewTwice ->
+                    val hasNet = isNetworkAvailable(context)
+                    val now = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date())
+                    val msgId = "msg_${System.currentTimeMillis()}_${(100..999).random()}"
+                    val displayName = "photo_${System.currentTimeMillis()}.jpg"
+
+                    var localSavedPath = editedUri.toString()
+                    var fileBytes: ByteArray? = null
+                    try {
+                        fileBytes = context.contentResolver.openInputStream(editedUri)?.use { it.readBytes() }
+                        if (fileBytes != null && fileBytes.isNotEmpty()) {
+                            val mediaDir = File(context.filesDir, "chat_media").apply { mkdirs() }
+                            val localFile = File(mediaDir, "img_${msgId}_$displayName")
+                            localFile.writeBytes(fileBytes)
+                            localSavedPath = localFile.absolutePath
+
+                            try {
+                                val altFile1 = File(mediaDir, "img_$msgId")
+                                altFile1.writeBytes(fileBytes)
+                                val altFile2 = File(mediaDir, msgId)
+                                altFile2.writeBytes(fileBytes)
+                            } catch (_: Exception) {}
+
+                            ChatMediaCache.register(context, msgId, localSavedPath)
+                            ChatMediaCache.register(context, displayName, localSavedPath)
+                            ChatMediaCache.register(context, "img_$msgId", localSavedPath)
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+
+                    val localMsg = Message(
+                        id = msgId,
+                        content = MessageContent.Photo(listOf(localSavedPath)),
+                        timestamp = now,
+                        isOutgoing = true,
+                        status = if (hasNet) MessageStatus.SENDING else MessageStatus.FAILED
+                    )
+                    messages = messages + localMsg
+
+                    if (!hasNet) {
+                        Toast.makeText(context, "تعذر إرسال الصورة: لا يوجد اتصال بالإنترنت", Toast.LENGTH_SHORT).show()
+                    } else if (targetUserId.isNotEmpty()) {
+                        coroutineScope.launch(Dispatchers.IO) {
+                            try {
+                                val bytes = fileBytes ?: context.contentResolver.openInputStream(editedUri)?.use { it.readBytes() }
+                                if (bytes != null && bytes.isNotEmpty()) {
+                                    CloudflareClient.uploadMediaFile(context, bytes, displayName, "image/jpeg") { success, r2Url ->
+                                        if (success && !r2Url.isNullOrEmpty()) {
+                                            ChatMediaCache.register(context, r2Url, localSavedPath)
+                                            val r2Key = r2Url.substringAfterLast("/")
+                                            ChatMediaCache.register(context, r2Key, localSavedPath)
+
+                                            messages = messages.map { m ->
+                                                if (m.id == msgId) {
+                                                    m.copy(
+                                                        status = MessageStatus.DELIVERED,
+                                                        content = MessageContent.Photo(listOf(localSavedPath))
+                                                    )
+                                                } else m
+                                            }
+
+                                            CloudflareClient.sendCloudflareMessage(
+                                                context = context,
+                                                receiverId = targetUserId,
+                                                text = caption,
+                                                type = "image",
+                                                mediaUrl = r2Url,
+                                                fileName = displayName,
+                                                messageId = msgId
+                                            ) { sendSuccess, _ ->
+                                                if (!sendSuccess) {
+                                                    messages = messages.map { m ->
+                                                        if (m.id == msgId) m.copy(status = MessageStatus.FAILED) else m
+                                                    }
+                                                    Toast.makeText(context, "تعذر إرسال الصورة: خطأ في الاتصال", Toast.LENGTH_SHORT).show()
+                                                }
+                                            }
+                                        } else {
+                                            messages = messages.map { m ->
+                                                if (m.id == msgId) m.copy(status = MessageStatus.FAILED) else m
+                                            }
+                                            Toast.makeText(context, "تعذر إرسال الصورة: تحقق من الاتصال بالإنترنت", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                } else {
+                                    messages = messages.map { m ->
+                                        if (m.id == msgId) m.copy(status = MessageStatus.FAILED) else m
+                                    }
+                                    Toast.makeText(context, "تعذر قراءة ملف الصورة", Toast.LENGTH_SHORT).show()
+                                }
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                                messages = messages.map { m ->
+                                    if (m.id == msgId) m.copy(status = MessageStatus.FAILED) else m
+                                }
+                                Toast.makeText(context, "تعذر الإرسال: فشل النقل", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    } else {
+                        messages = messages.map { m ->
+                            if (m.id == msgId) m.copy(status = MessageStatus.DELIVERED) else m
+                        }
+                    }
+                },
+                onSendLocation = { lat, lng, address, dist, dur ->
+                    val now = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date())
+                    val msgId = "msg_${System.currentTimeMillis()}_${(100..999).random()}"
+                    val locText = if (address.isNotBlank()) address else "موقع جغرافي ($lat, $lng)"
+                    val localMsg = Message(
+                        id = msgId,
+                        content = MessageContent.Location(lat, lng, address, dist, dur),
+                        timestamp = now,
+                        isOutgoing = true,
+                        status = MessageStatus.DELIVERED
+                    )
+                    messages = messages + localMsg
+
+                    if (targetUserId.isNotEmpty()) {
+                        CloudflareClient.sendCloudflareMessage(
+                            context = context,
+                            receiverId = targetUserId,
+                            text = locText,
+                            type = "location",
+                            mediaUrl = "geo:$lat,$lng",
+                            fileName = address,
+                            messageId = msgId
+                        ) { _, _ -> }
+                    }
+                },
                 onTyping = {}
             )
         }

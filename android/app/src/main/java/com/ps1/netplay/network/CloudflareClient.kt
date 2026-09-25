@@ -438,9 +438,16 @@ val avatarUrl = json.optString("avatar_url")
                     if (resp.isSuccessful) {
                         try {
                             val json = JSONObject(resp.body?.string() ?: "{}")
-                            val mediaUrl = json.optString("media_url").ifEmpty { json.optString("url") }
-                            mainHandler.post { callback(mediaUrl.isNotEmpty(), mediaUrl) }
-                            return
+                            var mediaUrl = json.optString("media_url").ifEmpty { json.optString("url") }
+                            if (mediaUrl.isNotEmpty()) {
+                                val baseUrl = getBaseUrl(context).trimEnd('/')
+                                if (mediaUrl.contains("/media/")) {
+                                    val mediaPath = mediaUrl.substringAfter("/media/").trimStart('/')
+                                    mediaUrl = "$baseUrl/media/$mediaPath"
+                                }
+                                mainHandler.post { callback(true, mediaUrl) }
+                                return
+                            }
                         } catch (_: Exception) {}
                     }
                     mainHandler.post { callback(false, null) }
@@ -1887,7 +1894,8 @@ override fun onResponse(call: Call, response: Response) {
 
         httpClient.newCall(reqBuilder.build()).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                mainHandler.post { callback("ended") }
+                // Return unknown on network failure, never abort call prematurely
+                mainHandler.post { callback("unknown") }
             }
 
             override fun onResponse(call: Call, response: Response) {
@@ -1895,12 +1903,12 @@ override fun onResponse(call: Call, response: Response) {
                     if (resp.isSuccessful) {
                         try {
                             val json = JSONObject(resp.body?.string() ?: "{}")
-                            val st = json.optString("status", "ended")
+                            val st = json.optString("status", "").ifBlank { "calling" }
                             mainHandler.post { callback(st) }
                             return
                         } catch (_: Exception) {}
                     }
-                    mainHandler.post { callback("ended") }
+                    mainHandler.post { callback("unknown") }
                 }
             }
         })

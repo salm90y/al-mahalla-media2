@@ -7,7 +7,6 @@ on:
       - master
     paths:
       - 'worker/**'
-      - 'cloudflare-worker/**'
       - 'worker.js'
       - 'wrangler.toml'
       - 'package.json'

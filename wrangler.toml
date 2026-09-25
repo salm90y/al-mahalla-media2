@@ -8,7 +8,7 @@ routes = [
 ]
 
 [vars]
-LIVEKIT_URL = "wss://al-mahalla.livekit.cloud"
+ZEGO_APP_ID = "1477087305"
 DOMAIN = "ahmed1986y.com"
 API_DOMAIN = "al-mahalla.ahmed1986y.com"
 

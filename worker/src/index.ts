@@ -12,9 +12,8 @@ export interface Env {
   MEDIA_BUCKET: R2Bucket;
   CHAT_ROOM: DurableObjectNamespace;
   JWT_SECRET?: string;
-  LIVEKIT_URL?: string;
-  LIVEKIT_API_KEY?: string;
-  LIVEKIT_API_SECRET?: string;
+  ZEGO_APP_ID?: string;
+  ZEGO_APP_SIGN?: string;
   DOMAIN?: string;
   API_DOMAIN?: string;
 }
@@ -149,25 +148,6 @@ async function verifyJwt(token: string, secret: string): Promise<any | null> {
   } catch {
     return null;
   }
-}
-
-// LiveKit Access Token
-async function generateLiveKitToken(apiKey: string, apiSecret: string, identity: string, room: string): Promise<string> {
-  const now = Math.floor(Date.now() / 1000);
-  const payload = {
-    iss: apiKey,
-    sub: identity,
-    nbf: now - 5,
-    exp: now + 3600 * 12,
-    video: {
-      room,
-      roomJoin: true,
-      canPublish: true,
-      canSubscribe: true,
-      canPublishData: true,
-    },
-  };
-  return signJwt(payload, apiSecret);
 }
 
 async function ensureAllTables(db: any) {
@@ -735,7 +715,7 @@ export default {
           customMetadata: { uploader: auth.id, originalName: filename }
         });
 
-        const mediaUrl = `https://api.ahmed1986y.com/media/${key}`;
+        const mediaUrl = `${url.origin}/media/${key}`;
         return json({
           success: true,
           key,
@@ -1160,7 +1140,7 @@ export default {
             }
           } catch (_) {}
         }
-        return json({ success: true, status: "ended" });
+        return json({ success: true, status: "calling" });
       }
 
       if (url.pathname === "/calls/respond" && method === "POST") {
@@ -1408,27 +1388,11 @@ export default {
         return json({ success: true, message: "Database tables initialized" });
       }
 
-      if (url.pathname === "/livekit/token" && method === "POST") {
-        const auth = await getAuthUser();
-        if (!auth) return json({ error: "Unauthorized" }, 401);
-
-        const body = await request.json<any>();
-        const { room_name, is_video = false } = body;
-        const livekitApiKey = env.LIVEKIT_API_KEY || "devkey";
-        const livekitApiSecret = env.LIVEKIT_API_SECRET || "secret_ps1_netplay_token_cloud";
-        const livekitUrl = env.LIVEKIT_URL || "wss://ps1-netplay.livekit.cloud";
-
-        const identity = auth.username || auth.id;
-        const room = room_name || `room_${Date.now()}`;
-
-        const token = await generateLiveKitToken(livekitApiKey, livekitApiSecret, identity, room);
+      if ((url.pathname === "/api/zego/config" || url.pathname === "/zego/config") && method === "GET") {
         return json({
           success: true,
-          token,
-          url: livekitUrl,
-          room,
-          identity,
-          is_video
+          appId: 1477087305,
+          appSign: "29c005b621138958b88eea14c91bd62b2189095171ce962ffe3680974493b41d"
         });
       }
 

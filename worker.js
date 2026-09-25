@@ -101,23 +101,6 @@ async function verifyJwt(token, secret) {
     return null;
   }
 }
-async function generateLiveKitToken(apiKey, apiSecret, identity, room) {
-  const now = Math.floor(Date.now() / 1e3);
-  const payload = {
-    iss: apiKey,
-    sub: identity,
-    nbf: now - 5,
-    exp: now + 3600 * 12,
-    video: {
-      room,
-      roomJoin: true,
-      canPublish: true,
-      canSubscribe: true,
-      canPublishData: true
-    }
-  };
-  return signJwt(payload, apiSecret);
-}
 async function ensureAllTables(db) {
   if (!db) return;
   const queries = [
@@ -633,7 +616,7 @@ var index_default = {
           httpMetadata: { contentType },
           customMetadata: { uploader: auth.id, originalName: filename }
         });
-        const mediaUrl = `https://api.ahmed1986y.com/media/${key}`;
+        const mediaUrl = `${url.origin}/media/${key}`;
         return json({
           success: true,
           key,
@@ -1024,7 +1007,7 @@ var index_default = {
           } catch (_) {
           }
         }
-        return json({ success: true, status: "ended" });
+        return json({ success: true, status: "calling" });
       }
       if (url.pathname === "/calls/respond" && method === "POST") {
         const body = await request.json();
@@ -1246,24 +1229,11 @@ var index_default = {
         if (env.DB) await ensureAllTables(env.DB);
         return json({ success: true, message: "Database tables initialized" });
       }
-      if (url.pathname === "/livekit/token" && method === "POST") {
-        const auth = await getAuthUser();
-        if (!auth) return json({ error: "Unauthorized" }, 401);
-        const body = await request.json();
-        const { room_name, is_video = false } = body;
-        const livekitApiKey = env.LIVEKIT_API_KEY || "devkey";
-        const livekitApiSecret = env.LIVEKIT_API_SECRET || "secret_ps1_netplay_token_cloud";
-        const livekitUrl = env.LIVEKIT_URL || "wss://ps1-netplay.livekit.cloud";
-        const identity = auth.username || auth.id;
-        const room = room_name || `room_${Date.now()}`;
-        const token = await generateLiveKitToken(livekitApiKey, livekitApiSecret, identity, room);
+      if ((url.pathname === "/api/zego/config" || url.pathname === "/zego/config") && method === "GET") {
         return json({
           success: true,
-          token,
-          url: livekitUrl,
-          room,
-          identity,
-          is_video
+          appId: 1477087305,
+          appSign: "29c005b621138958b88eea14c91bd62b2189095171ce962ffe3680974493b41d"
         });
       }
       if (url.pathname === "/" || url.pathname === "/health") {

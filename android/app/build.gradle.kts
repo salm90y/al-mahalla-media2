@@ -74,12 +74,15 @@ android {
                 "/META-INF/*.version",
                 "/META-INF/*.md",
                 "/META-INF/NOTICE*",
-                "/META-INF/LICENSE*"
+                "/META-INF/LICENSE*",
+                "**/*.proto",
+                "**/*.bin"
             )
         }
         jniLibs {
             pickFirsts += listOf("**/libc++_shared.so")
             useLegacyPackaging = false
+            keepDebugSymbols.clear()
         }
     }
 

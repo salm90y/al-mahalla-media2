@@ -566,16 +566,18 @@ object CallSignalingManager {
                 CloudflareClient.getCallStatus(context, roomId) { status ->
                     when (status) {
                         "ringing" -> {
-                            if (callState == CallState.CONNECTING) {
+                            if (callState == CallState.CONNECTING || callState == CallState.OUTGOING) {
                                 callState = CallState.RINGING
                             }
+                        }
+                        "calling", "waiting", "unknown" -> {
+                            // Call is pending / waiting for recipient response
                         }
                         "connected", "accept" -> {
                             if (callState != CallState.CONNECTED) {
                                 stopAllSounds(context)
                                 callState = CallState.CONNECTED
                                 startLiveCallTimer()
-                                // Launch real-time VoIP audio session for caller
                                 RealVoipEngine.startVoipSession(
                                     context = context,
                                     roomId = roomId,
@@ -590,7 +592,8 @@ object CallSignalingManager {
                             }
                         }
                         "ended" -> {
-                            if (callState != CallState.ENDED && (callState == CallState.CONNECTED || callState == CallState.RINGING)) {
+                            val elapsed = System.currentTimeMillis() - (currentSession?.startTimeMs ?: 0L)
+                            if (elapsed > 4000L && callState != CallState.ENDED && (callState == CallState.CONNECTED || callState == CallState.RINGING)) {
                                 endCallWithReason(context, CallState.ENDED, "انتهت المكالمة")
                             }
                         }

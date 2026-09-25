@@ -154,12 +154,14 @@ object ZegoCallManager {
                 // 4. Log in to Zego Room
                 engine.loginRoom(roomId, user, roomConfig)
 
-                // 5. Start publishing audio/video stream
-                val streamId = "stream_${roomId}_${userId}"
+                // 5. Start publishing audio/video stream with safe characters
+                val safeRoomId = roomId.replace(Regex("[^a-zA-Z0-9_]"), "_").take(24)
+                val safeUserId = userId.replace(Regex("[^a-zA-Z0-9_]"), "_").take(24)
+                val streamId = "s_${safeRoomId}_${safeUserId}"
                 engine.startPublishingStream(streamId)
                 isPublishing.set(true)
 
-                Log.d(TAG, "Zego call initiated: room=$roomId, isVideo=$isVideo, streamId=$streamId")
+                Log.d(TAG, "Zego call initiated: room=$roomId, safeStreamId=$streamId, isVideo=$isVideo")
             } catch (e: Throwable) {
                 Log.e(TAG, "Failed to start Zego room session: ${e.message}", e)
                 onError?.invoke(e.message ?: "خطأ في بدء جلسة Zego")
