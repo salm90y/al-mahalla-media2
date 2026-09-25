@@ -31,12 +31,16 @@ android {
         }
     }
 
-    ndkVersion = "26.1.10909125"
+    signingConfigs {
+        getByName("debug") {
+            // Standard debug signing config for release testing and GitHub artifacts
+        }
+    }
 
     buildTypes {
         release {
-            isMinifyEnabled = true
-            isShrinkResources = true
+            isMinifyEnabled = false
+            isShrinkResources = false
             signingConfig = signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),

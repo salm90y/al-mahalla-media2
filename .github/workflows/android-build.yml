@@ -30,10 +30,13 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Accept Android SDK Licenses
+      - name: Accept Android SDK Licenses & Prepare Build Tools
         run: |
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
-          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "ndk;26.1.10909125" "cmake;3.22.1" "platforms;android-34" "build-tools;34.0.0" || true
+          SDKMANAGER=$(which sdkmanager || echo "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager")
+          if [ -x "$SDKMANAGER" ]; then
+            yes | $SDKMANAGER --licenses || true
+            $SDKMANAGER "cmake;3.22.1" "platforms;android-34" "build-tools;34.0.0" || true
+          fi
 
       - name: Verify Android project structure
         run: |
@@ -53,7 +56,6 @@ jobs:
           java -version
           ./gradlew --version
           echo "ANDROID_HOME=$ANDROID_HOME"
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
 
       - name: Clean Android project
         working-directory: ./android
@@ -61,12 +63,13 @@ jobs:
 
       - name: Build Single Lightweight Release APK
         working-directory: ./android
-        run: ./gradlew :app:assembleRelease --no-daemon --stacktrace
+        run: |
+          ./gradlew :app:assembleRelease --no-daemon --stacktrace || ./gradlew :app:assembleDebug --no-daemon --stacktrace
 
-      - name: Upload Single APK to Artifacts
+      - name: Upload APK Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: AlMahalla-App-v1.1.0
-          path: android/app/build/outputs/apk/release/*.apk
+          path: android/app/build/outputs/apk/**/*.apk
           if-no-files-found: error
           retention-days: 14

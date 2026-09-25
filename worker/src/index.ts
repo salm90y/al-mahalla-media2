@@ -703,17 +703,28 @@ export default {
       // POST /media/upload
       if (url.pathname === "/media/upload" && method === "POST") {
         const auth = await getAuthUser();
-        if (!auth) return json({ error: "Unauthorized" }, 401);
+        const rawUserId = request.headers.get("X-User-Id") || request.headers.get("x-user-id");
+        const uploaderId = auth?.id || (rawUserId ? decodeURIComponent(rawUserId).trim() : "user_me");
 
         const contentType = request.headers.get("Content-Type") || "application/octet-stream";
-        const filename = request.headers.get("X-File-Name") || `file_${Date.now()}`;
-        const key = `uploads/${auth.id}/${Date.now()}_${filename}`;
+        const rawFilename = request.headers.get("X-File-Name") || request.headers.get("x-file-name") || `file_${Date.now()}`;
+        let filename = `file_${Date.now()}`;
+        try {
+          filename = decodeURIComponent(rawFilename);
+        } catch (_) {
+          filename = rawFilename;
+        }
+
+        const safeFilename = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
+        const key = `uploads/${uploaderId}/${Date.now()}_${safeFilename}`;
 
         const buffer = await request.arrayBuffer();
-        await env.MEDIA_BUCKET.put(key, buffer, {
-          httpMetadata: { contentType },
-          customMetadata: { uploader: auth.id, originalName: filename }
-        });
+        if (env.MEDIA_BUCKET) {
+          await env.MEDIA_BUCKET.put(key, buffer, {
+            httpMetadata: { contentType },
+            customMetadata: { uploader: uploaderId, originalName: filename }
+          });
+        }
 
         const mediaUrl = `${url.origin}/media/${key}`;
         return json({
@@ -1002,7 +1013,7 @@ export default {
         const body = await request.json<any>();
         const senderId = auth?.id || body.caller_id || request.headers.get("x-user-id") || "user_me";
         const senderName = auth?.username || body.caller_name || senderId;
-        const receiverId = String(body.receiver_id || "").trim().toLowerCase();
+        let receiverId = String(body.receiver_id || "").trim().toLowerCase();
         const roomId = String(body.room_id || `call_${Date.now()}`).trim();
         const isVideo = !!body.is_video;
         const signalType = String(body.type || "call_init").trim();
@@ -1027,6 +1038,14 @@ export default {
               )`
             ).run();
 
+            // Resolve receiver ID / username for accurate mapping
+            try {
+              const rUser = await env.DB.prepare("SELECT id, username FROM users WHERE LOWER(id) = ? OR LOWER(username) = ?").bind(receiverId, receiverId).first<any>();
+              if (rUser) {
+                receiverId = rUser.id.toLowerCase();
+              }
+            } catch (_) {}
+
             if (signalType === "call_init") {
               const avatar = body.caller_avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(senderName)}&background=random`;
               await env.DB.prepare(
@@ -1044,14 +1063,16 @@ export default {
               await env.DB.prepare("UPDATE active_calls SET status='ended', duration=?, updated_at=? WHERE room_id=?").bind(extra, now, roomId).run();
             }
 
-            // Also dual backup as private_message
+            // Dual backup in private_messages
             const u1 = String(senderId).trim().toLowerCase();
             const u2 = String(receiverId).trim().toLowerCase();
             const convId = [u1, u2].sort().join("_");
+            const callMsgType = signalType === "call_init" ? (isVideo ? "video_call" : "audio_call") : signalType;
+            const callMsgContent = signalType === "call_init" ? (isVideo ? "مكالمة فيديو واردة" : "مكالمة صوتية واردة") : signalType;
             await env.DB.prepare(
               `INSERT INTO private_messages (id, conversation_id, sender_id, receiver_id, type, content, media_url, file_name, created_at, is_read, is_delivered)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1)`
-            ).bind(crypto.randomUUID(), convId, senderId, receiverId, signalType, signalType === "call_init" ? (isVideo ? "مكالمة فيديو واردة" : "مكالمة صوتية واردة") : signalType, roomId, extra || senderName, now).run();
+            ).bind(crypto.randomUUID(), convId, senderId, receiverId, callMsgType, callMsgContent, roomId, extra || senderName, now).run();
           } catch (callErr) {
             console.error("Call signaling error:", callErr);
           }
@@ -1085,15 +1106,18 @@ export default {
             ).run();
 
             const myIdentifiers: string[] = [];
-            if (myId) myIdentifiers.push(myId);
-            if (myUsername && !myIdentifiers.includes(myUsername)) myIdentifiers.push(myUsername);
+            if (myId && myId !== "user_me") myIdentifiers.push(myId);
+            if (myUsername && myUsername !== "user_me" && !myIdentifiers.includes(myUsername)) myIdentifiers.push(myUsername);
 
             try {
-              if (myId) {
-                const uDb = await env.DB.prepare("SELECT id, username FROM users WHERE id = ? OR LOWER(username) = ?").bind(myId, myId).first<any>();
+              const queryParam = myId || myUsername;
+              if (queryParam) {
+                const uDb = await env.DB.prepare("SELECT id, username FROM users WHERE LOWER(id) = ? OR LOWER(username) = ?").bind(queryParam, queryParam).first<any>();
                 if (uDb) {
-                  if (!myIdentifiers.includes(uDb.id.toLowerCase())) myIdentifiers.push(uDb.id.toLowerCase());
-                  if (!myIdentifiers.includes(uDb.username.toLowerCase())) myIdentifiers.push(uDb.username.toLowerCase());
+                  const dbId = uDb.id.toLowerCase();
+                  const dbUser = uDb.username.toLowerCase();
+                  if (!myIdentifiers.includes(dbId)) myIdentifiers.push(dbId);
+                  if (!myIdentifiers.includes(dbUser)) myIdentifiers.push(dbUser);
                 }
               }
             } catch (_) {}
@@ -1102,11 +1126,11 @@ export default {
               const placeholders = myIdentifiers.map(() => '?').join(',');
               const res = await env.DB.prepare(
                 `SELECT * FROM active_calls 
-                 WHERE (LOWER(receiver_id) IN (${placeholders}) OR LOWER(receiver_id) = ? OR LOWER(receiver_id) = ?) 
+                 WHERE LOWER(receiver_id) IN (${placeholders})
                    AND (status = 'calling' OR status = 'ringing') 
                    AND created_at > ?
                  ORDER BY created_at DESC LIMIT 1`
-              ).bind(...myIdentifiers, myId, myUsername, now - 45000).first<any>();
+              ).bind(...myIdentifiers, now - 60000).first<any>();
 
               if (res) {
                 return json({

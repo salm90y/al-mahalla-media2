@@ -134,7 +134,14 @@ object ZegoCallManager {
 
             try {
                 val engine = zegoEngine ?: return@initEngine
-                val user = ZegoUser(userId, userName)
+                
+                // Sanitize roomId and userId for Zego Express (requires ASCII alphanumeric and underscore, max 64 chars)
+                val safeRoomId = roomId.replace(Regex("[^a-zA-Z0-9_]"), "_").ifEmpty { "room_${Math.abs(roomId.hashCode())}" }.take(64)
+                val safeUserId = userId.replace(Regex("[^a-zA-Z0-9_]"), "_").ifEmpty { "u_${Math.abs(userId.hashCode())}" }.take(64)
+                val safeUserName = userName.ifBlank { safeUserId }
+                currentRoomId = safeRoomId
+
+                val user = ZegoUser(safeUserId, safeUserName)
                 val roomConfig = ZegoRoomConfig().apply {
                     isUserStatusNotify = true
                 }
@@ -151,17 +158,15 @@ object ZegoCallManager {
                 engine.enableCamera(isVideo)
                 isCameraOn.set(isVideo)
 
-                // 4. Log in to Zego Room
-                engine.loginRoom(roomId, user, roomConfig)
+                // 4. Log in to Zego Room with sanitized room ID
+                engine.loginRoom(safeRoomId, user, roomConfig)
 
                 // 5. Start publishing audio/video stream with safe characters
-                val safeRoomId = roomId.replace(Regex("[^a-zA-Z0-9_]"), "_").take(24)
-                val safeUserId = userId.replace(Regex("[^a-zA-Z0-9_]"), "_").take(24)
                 val streamId = "s_${safeRoomId}_${safeUserId}"
                 engine.startPublishingStream(streamId)
                 isPublishing.set(true)
 
-                Log.d(TAG, "Zego call initiated: room=$roomId, safeStreamId=$streamId, isVideo=$isVideo")
+                Log.d(TAG, "Zego call initiated: safeRoomId=$safeRoomId, safeStreamId=$streamId, isVideo=$isVideo")
             } catch (e: Throwable) {
                 Log.e(TAG, "Failed to start Zego room session: ${e.message}", e)
                 onError?.invoke(e.message ?: "خطأ في بدء جلسة Zego")

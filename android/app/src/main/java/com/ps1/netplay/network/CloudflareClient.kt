@@ -51,7 +51,9 @@ private fun getPrefs(context: Context): SharedPreferences {
     }
 fun getBaseUrl(context: Context): String {
         val saved = getPrefs(context).getString(KEY_BASE_URL, DEFAULT_BASE_URL) ?: DEFAULT_BASE_URL
-        if (saved.contains("al-mahalla.ahmed1986y5.workers.dev") || saved.contains("al-mahalla.ahmed1986y.com")) {
+        if (saved.contains("al-mahalla.ahmed1986y5.workers.dev") || 
+            saved.contains("al-mahalla.ahmed1986y.com") || 
+            saved.contains("api.ahmed1986y.com")) {
             setBaseUrl(context, DEFAULT_BASE_URL)
             return DEFAULT_BASE_URL
         }
@@ -420,14 +422,25 @@ val avatarUrl = json.optString("avatar_url")
         val url = "${getBaseUrl(context)}/media/upload"
         val mediaType = contentType.toMediaTypeOrNull()
         val body = fileBytes.toRequestBody(mediaType)
+        
+        val safeHeaderFileName = try {
+            java.net.URLEncoder.encode(filename, "UTF-8")
+        } catch (_: Exception) {
+            "file_${System.currentTimeMillis()}"
+        }
+        val safeHeaderUserId = try {
+            java.net.URLEncoder.encode(myId, "UTF-8")
+        } catch (_: Exception) {
+            "user_me"
+        }
+
         val requestBuilder = Request.Builder()
             .url(url)
             .post(body)
-            .addHeader("X-File-Name", filename)
-            .addHeader("X-User-Id", myId)
-            .addHeader("Content-Type", contentType)
+            .header("X-File-Name", safeHeaderFileName)
+            .header("X-User-Id", safeHeaderUserId)
         if (!token.isNullOrEmpty()) {
-            requestBuilder.addHeader("Authorization", "Bearer $token")
+            requestBuilder.header("Authorization", "Bearer $token")
         }
         httpClient.newCall(requestBuilder.build()).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
@@ -1820,7 +1833,8 @@ override fun onResponse(call: Call, response: Response) {
         }
         val myId = getCurrentUserId(context)
         if (myId.isNotEmpty()) {
-            reqBuilder.addHeader("x-user-id", myId)
+            val safeMyId = try { java.net.URLEncoder.encode(myId, "UTF-8") } catch (_: Exception) { myId }
+            reqBuilder.header("x-user-id", safeMyId)
         }
 
         httpClient.newCall(reqBuilder.build()).enqueue(object : Callback {
@@ -1849,13 +1863,15 @@ override fun onResponse(call: Call, response: Response) {
 
         val reqBuilder = Request.Builder().url(url)
         if (!token.isNullOrEmpty()) {
-            reqBuilder.addHeader("Authorization", "Bearer $token")
+            reqBuilder.header("Authorization", "Bearer $token")
         }
         if (myId.isNotEmpty()) {
-            reqBuilder.addHeader("x-user-id", myId)
+            val safeMyId = try { java.net.URLEncoder.encode(myId, "UTF-8") } catch (_: Exception) { myId }
+            reqBuilder.header("x-user-id", safeMyId)
         }
         if (myUsername.isNotEmpty()) {
-            reqBuilder.addHeader("x-user-name", myUsername)
+            val safeMyUser = try { java.net.URLEncoder.encode(myUsername, "UTF-8") } catch (_: Exception) { myUsername }
+            reqBuilder.header("x-user-name", safeMyUser)
         }
 
         httpClient.newCall(reqBuilder.build()).enqueue(object : Callback {

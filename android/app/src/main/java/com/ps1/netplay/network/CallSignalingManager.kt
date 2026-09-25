@@ -208,6 +208,22 @@ object CallSignalingManager {
         startSignalingPoller(context, roomId, targetUserId, isOutgoing = true)
 
         // Start Zego Audio & Video Call Engine
+        ZegoCallManager.onRemoteUserJoined = { remoteUserId ->
+            scope.launch(Dispatchers.Main) {
+                if (callState != CallState.CONNECTED) {
+                    stopAllSounds(context)
+                    callState = CallState.CONNECTED
+                    startLiveCallTimer()
+                    RealVoipEngine.startVoipSession(
+                        context = context,
+                        roomId = roomId,
+                        isOutgoing = true,
+                        speakerOn = isSpeakerOn
+                    )
+                }
+            }
+        }
+
         ZegoCallManager.startCall(
             context = context,
             roomId = roomId,
@@ -216,7 +232,7 @@ object CallSignalingManager {
             isVideo = isVideo,
             isOutgoing = true,
             onConnected = {
-                callState = CallState.CONNECTED
+                // Room joined locally, keep state OUTGOING/RINGING until recipient responds
             }
         )
 

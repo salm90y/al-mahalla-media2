@@ -491,7 +491,7 @@ fun ChatDetailScreen(
                         // Check for recent incoming call signals (last 45 seconds) & ensure not from self
                         if (!CallActivity.isCallActive) {
                             val incomingCallMsg = loaded.lastOrNull { m ->
-                                (m.type == "audio_call" || m.type == "video_call" || m.type == "call") &&
+                                (m.type == "audio_call" || m.type == "video_call" || m.type == "call" || m.type == "call_init") &&
                                 !m.isOutgoing &&
                                 m.senderId != myId &&
                                 m.senderId != myUsername &&
@@ -501,7 +501,7 @@ fun ChatDetailScreen(
                                 !dismissedCallIds.contains(m.mediaUrl)
                             }
                             if (incomingCallMsg != null && activeIncomingCall == null) {
-                                val isVid = incomingCallMsg.type == "video_call"
+                                val isVid = incomingCallMsg.type == "video_call" || incomingCallMsg.content.contains("فيديو")
                                 val callRoom = incomingCallMsg.mediaUrl.ifBlank { "call_${listOf(myId, targetUserId).sorted().joinToString("_")}" }
                                 activeIncomingCall = IncomingCallData(
                                     callerId = targetUserId,
@@ -541,6 +541,10 @@ fun ChatDetailScreen(
                                 "image" -> MessageContent.Photo(listOf(localPath))
                                 "call", "audio_call" -> MessageContent.Call(m.mediaUrl.ifBlank { "call_${listOf(myId, targetUserId).sorted().joinToString("_")}" }, isVideo = false, statusText = m.content.ifBlank { "مكالمة صوتية" })
                                 "video_call" -> MessageContent.Call(m.mediaUrl.ifBlank { "call_${listOf(myId, targetUserId).sorted().joinToString("_")}" }, isVideo = true, statusText = m.content.ifBlank { "مكالمة فيديو" })
+                                "call_init" -> {
+                                    val isVid = m.content.contains("فيديو")
+                                    MessageContent.Call(m.mediaUrl.ifBlank { "call_${listOf(myId, targetUserId).sorted().joinToString("_")}" }, isVideo = isVid, statusText = m.content.ifBlank { if (isVid) "مكالمة فيديو" else "مكالمة صوتية" })
+                                }
                                 "file", "audio", "video" -> MessageContent.Document(m.fileName.ifEmpty { m.content }, "ملف", m.type)
                                 else -> MessageContent.Text(m.content)
                             }
@@ -898,7 +902,7 @@ fun ChatDetailScreen(
                     messages = messages + localMsg
 
                     if (!hasNet) {
-                        Toast.makeText(context, "تعذر إرسال الصورة: لا يوجد اتصال بالإنترنت", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, if (msgType == "image") "تعذر إرسال الصورة: لا يوجد اتصال بالإنترنت" else "تعذر إرسال الملف: لا يوجد اتصال بالإنترنت", Toast.LENGTH_SHORT).show()
                     } else if (targetUserId.isNotEmpty()) {
                         coroutineScope.launch(Dispatchers.IO) {
                             try {
@@ -942,7 +946,7 @@ fun ChatDetailScreen(
                                             messages = messages.map { m ->
                                                 if (m.id == msgId) m.copy(status = MessageStatus.FAILED) else m
                                             }
-                                            Toast.makeText(context, "تعذر إرسال الصورة: تحقق من الاتصال بالإنترنت", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, if (msgType == "image") "تعذر إرسال الصورة: تحقق من الاتصال بالإنترنت" else "تعذر إرسال الملف: تحقق من الاتصال بالإنترنت", Toast.LENGTH_SHORT).show()
                                         }
                                     }
                                 } else {
@@ -2216,6 +2220,7 @@ fun DocumentBubble(
     isOutgoing: Boolean,
     status: MessageStatus = MessageStatus.DELIVERED
 ) {
+    val context = LocalContext.current
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (isOutgoing) Arrangement.End else Arrangement.Start
@@ -2227,6 +2232,10 @@ fun DocumentBubble(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .clickable {
+                        Toast.makeText(context, "الملف: ${content.name}", Toast.LENGTH_SHORT).show()
+                    }
                     .background(
                         if (isOutgoing) {
                             if (status == MessageStatus.FAILED) Color(0xFFEF4444) else Color(0xFF2563EB)
