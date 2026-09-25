@@ -21,8 +21,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * RealVoipEngine: Low-latency, real-time bidirectional VoIP audio streaming engine.
- * Supports hardware Acoustic Echo Cancellation (AEC), Noise Suppression (NS),
- * LiveKit audio room streaming, and ultra-fast WebSocket audio relay.
+ * Powered by official Zego Express Calling Engine with hardware AEC, NS, and ultra-fast audio relay.
  */
 object RealVoipEngine {
     private const val TAG = "RealVoipEngine"
@@ -76,24 +75,23 @@ object RealVoipEngine {
         // 1. Connect to Real-time WebSocket Audio Relay
         connectAudioRelay(context, roomId)
 
-        // 2. Start LiveKit Audio Session if available
+        // 2. Start Official Zego Audio Room Session
         try {
             val myId = CloudflareClient.getCurrentUserId(context)
-            LiveKitNetplayManager.connectToRoom(
+            val myName = CloudflareClient.getCurrentUsername(context)
+            ZegoCallManager.startCall(
                 context = context,
-                roomName = "room_$roomId",
-                identity = myId,
-                displayName = CloudflareClient.getCurrentUsername(context),
-                scope = voipScope,
+                roomId = roomId,
+                userId = myId,
+                userName = myName,
+                isVideo = false,
+                isOutgoing = isOutgoing,
                 onConnected = {
-                    LiveKitNetplayManager.setMicrophoneEnabled(!isMuted.get())
-                },
-                onBinaryReceived = { pcmBytes ->
-                    playIncomingAudio(pcmBytes)
+                    ZegoCallManager.setMicrophoneMute(isMuted.get())
                 }
             )
         } catch (e: Exception) {
-            Log.w(TAG, "LiveKit start exception: ${e.message}")
+            Log.w(TAG, "Zego start exception: ${e.message}")
         }
 
         // 3. Start Native Audio Recording & Playback
@@ -249,8 +247,6 @@ object RealVoipEngine {
                             val audioSlice = buffer.toByteString(0, readBytes)
                             // Send audio packet via WebSocket relay directly to other party
                             audioWebSocket?.send(audioSlice)
-                            // Also send via LiveKit binary channel for dual redundancy
-                            LiveKitNetplayManager.publishData(buffer.copyOf(readBytes), reliable = false)
                         } else if (readBytes <= 0) {
                             delay(10)
                         }
@@ -318,7 +314,7 @@ object RealVoipEngine {
      */
     fun setMute(muted: Boolean) {
         isMuted.set(muted)
-        LiveKitNetplayManager.setMicrophoneEnabled(!muted)
+        ZegoCallManager.setMicrophoneMute(muted)
     }
 
     /**
@@ -326,6 +322,7 @@ object RealVoipEngine {
      */
     fun setSpeaker(context: Context, speaker: Boolean) {
         isSpeaker.set(speaker)
+        ZegoCallManager.setSpeakerEnabled(context, speaker)
         try {
             val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
             audioManager?.isSpeakerphoneOn = speaker
@@ -352,7 +349,7 @@ object RealVoipEngine {
         } catch (_: Exception) {}
 
         try {
-            LiveKitNetplayManager.disconnect()
+            ZegoCallManager.endCall(context, currentRoomId)
         } catch (_: Exception) {}
 
         try {

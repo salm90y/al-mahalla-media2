@@ -7,11 +7,8 @@
     native <methods>;
 }
 
-# LiveKit & WebRTC
--keep class io.livekit.android.** { *; }
--keep interface io.livekit.android.** { *; }
--keep class livekit.org.webrtc.** { *; }
--keepclassmembers class livekit.org.webrtc.** { *; }
+# Zego Express Video & Audio Calling Engine
+-keep class im.zego.zegoexpress.** { *; }
 
 # OkHttp & Coroutines
 -dontwarn okhttp3.**

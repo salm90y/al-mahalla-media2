@@ -15,6 +15,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.ps1.netplay.network.CallSignalingManager
 import com.ps1.netplay.network.RealVoipEngine
+import com.ps1.netplay.network.ZegoCallManager
 import com.ps1.netplay.ui.compose.ModernCallScreen
 import com.ps1.netplay.ui.compose.NetPlayTheme
 
@@ -109,13 +110,25 @@ class CallActivity : AppCompatActivity() {
                     onToggleMute = { muted ->
                         try {
                             RealVoipEngine.setMute(muted)
+                            ZegoCallManager.setMicrophoneMute(muted)
                             audioManager?.isMicrophoneMute = muted
                         } catch (_: Exception) {}
                     },
                     onToggleSpeaker = { speaker ->
                         try {
                             RealVoipEngine.setSpeaker(this@CallActivity, speaker)
+                            ZegoCallManager.setSpeakerEnabled(this@CallActivity, speaker)
                             audioManager?.isSpeakerphoneOn = speaker
+                        } catch (_: Exception) {}
+                    },
+                    onToggleCamera = { camera ->
+                        try {
+                            ZegoCallManager.setCameraEnabled(camera)
+                        } catch (_: Exception) {}
+                    },
+                    onSwitchCamera = {
+                        try {
+                            ZegoCallManager.switchCamera()
                         } catch (_: Exception) {}
                     }
                 )
@@ -144,6 +157,7 @@ class CallActivity : AppCompatActivity() {
         isCallActive = false
         currentActiveRoomId = ""
         CallSignalingManager.stopAllSounds(this)
+        ZegoCallManager.endCall(this, callID)
         RealVoipEngine.stopVoipSession(this)
         try {
             audioManager?.mode = AudioManager.MODE_NORMAL

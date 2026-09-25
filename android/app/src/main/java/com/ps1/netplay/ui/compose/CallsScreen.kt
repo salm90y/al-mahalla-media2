@@ -91,7 +91,7 @@ object CallHistoryManager {
 
     fun addRecord(context: Context, record: RealCallRecord) {
         val current = getHistory(context).toMutableList()
-        current.removeAll { it.id == record.id }
+        current.removeAll { it.id == record.id || (it.name == record.name && Math.abs(it.timestamp - record.timestamp) < 5000L) }
         current.add(0, record)
         val array = JSONArray()
         for (r in current.take(50)) {

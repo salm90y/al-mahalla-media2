@@ -834,42 +834,10 @@ val request = Request.Builder().url(url).post(body).apply {
         }.build()
         httpClient.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) { mainHandler.post { callback(true) } }
-override fun onResponse(call: Call, response: Response) { mainHandler.post { callback(response.isSuccessful) } }
+            override fun onResponse(call: Call, response: Response) { mainHandler.post { callback(response.isSuccessful) } }
         })
     }
-    // ----------------- LiveKit Token -----------------
-    fun getLiveKitToken(context: Context, roomName: String, isVideo: Boolean, callback: (String?, String?) -> Unit) {
-        val token = getAuthToken(context)
-val url = "${getBaseUrl(context)}/api/livekit/token"
-        val bodyObj = JSONObject().apply {
-            put("room_name", roomName)
-            put("is_video", isVideo)
-        }
-val body = bodyObj.toString().toRequestBody("application/json".toMediaTypeOrNull())
-val request = Request.Builder().url(url).post(body).apply {
-            if (token != null) addHeader("Authorization", "Bearer $token")
-        }.build()
-        httpClient.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                // Fallback mock livekit token // Fallback mock livekit token for testing if worker not yet configured
-                mainHandler.post { callback("wss://ps1-netplay.livekit.cloud", "mock_livekit_token_${UUID.randomUUID()}") }
-            }
-override fun onResponse(call: Call, response: Response) {
-                response.use {
-                    if (response.isSuccessful) {
-                        try {
-                            val json = JSONObject(response.body?.string() ?: "{}")
-val livekitToken = json.optString("token")
-val serverUrl = json.optString("url", "wss://ps1-netplay.livekit.cloud")
-                            mainHandler.post { callback(serverUrl, livekitToken) }
-                            return
-                        } catch (_: Exception) {}
-                    }
-                    mainHandler.post { callback("wss://ps1-netplay.livekit.cloud", "mock_livekit_token_${UUID.randomUUID()}") }
-                }
-            }
-        })
-    }
+
     // ----------------- Media Upload -----------------
     fun uploadMedia(context: Context, bytes: ByteArray, fileName: String, mimeType: String, callback: (String?) -> Unit) {
         val token = getAuthToken(context)

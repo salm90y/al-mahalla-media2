@@ -74,7 +74,7 @@ fun ModernCallScreen(
 
     // Auto-dismiss screen if call ended or declined from remote
     LaunchedEffect(callState) {
-        if (callState == CallState.ENDED || callState == CallState.DECLINED || callState == CallState.NO_ANSWER || callState == CallState.BUSY) {
+        if (callState == CallState.ENDED || callState == CallState.REJECTED || callState == CallState.TIMEOUT || callState == CallState.BUSY || callState == CallState.FAILED) {
             kotlinx.coroutines.delay(1000)
             onEndCall()
         }
@@ -82,20 +82,23 @@ fun ModernCallScreen(
 
     // Dynamic status text and color
     val statusText = when (callState) {
-        CallState.CONNECTING -> "يجري الاتصال..."
+        CallState.IDLE -> ""
+        CallState.OUTGOING, CallState.CONNECTING -> "يجري الاتصال..."
         CallState.RINGING -> "يرن..."
         CallState.CONNECTED -> "متصل الآن"
+        CallState.RECONNECTING -> "جاري إعادة الاتصال..."
         CallState.BUSY -> "الخط مشغول"
-        CallState.NO_ANSWER -> "غير متصل / لا يوجد رد"
-        CallState.DECLINED -> "تم رفض المكالمة"
+        CallState.TIMEOUT -> "غير متاح / لا يوجد رد"
+        CallState.REJECTED -> "تم رفض المكالمة"
+        CallState.FAILED -> "فشل الاتصال"
         CallState.ENDED -> endNotice.ifBlank { "انتهت المكالمة" }
     }
 
     val statusColor = when (callState) {
-        CallState.CONNECTING -> Color(0xFF3B82F6)
-        CallState.RINGING -> Color(0xFF10B981)
-        CallState.CONNECTED -> Color(0xFF10B981)
-        CallState.BUSY, CallState.NO_ANSWER, CallState.DECLINED, CallState.ENDED -> Color(0xFFEF4444)
+        CallState.IDLE, CallState.OUTGOING, CallState.CONNECTING -> Color(0xFF3B82F6)
+        CallState.RINGING, CallState.CONNECTED -> Color(0xFF10B981)
+        CallState.RECONNECTING -> Color(0xFFF59E0B)
+        CallState.BUSY, CallState.TIMEOUT, CallState.REJECTED, CallState.FAILED, CallState.ENDED -> Color(0xFFEF4444)
     }
 
     val timeFormatted = CallSignalingManager.formatDuration(durationSeconds)

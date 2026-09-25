@@ -10,7 +10,7 @@
         <domain includeSubdomains="true">al-mahalla.ahmed1986y5.workers.dev</domain>
         <domain includeSubdomains="true">ps1-netplay.workers.dev</domain>
         <domain includeSubdomains="true">workers.dev</domain>
-        <domain includeSubdomains="true">livekit.cloud</domain>
+        <domain includeSubdomains="true">storage.zego.im</domain>
     </domain-config>
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="true">10.0.2.2</domain>

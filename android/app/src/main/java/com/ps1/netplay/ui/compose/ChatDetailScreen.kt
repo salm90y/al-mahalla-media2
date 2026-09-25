@@ -92,7 +92,9 @@ data class Message(
     val content: MessageContent,
     val timestamp: String,
     val isOutgoing: Boolean,
-    val status: MessageStatus = MessageStatus.DELIVERED
+    val status: MessageStatus = MessageStatus.DELIVERED,
+    val timestampMs: Long = System.currentTimeMillis(),
+    val clientMessageId: String = id
 )
 
 data class FullscreenPhotoViewerData(
@@ -439,7 +441,7 @@ fun ChatDetailScreen(
                     else -> MessageContent.Text(m.content)
                 }
                 val time = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(m.createdAt))
-                Message(m.id, content, time, m.isOutgoing)
+                Message(m.id, content, time, m.isOutgoing, timestampMs = m.createdAt, clientMessageId = m.id)
             }
         } else {
             initialMessages
@@ -543,12 +545,18 @@ fun ChatDetailScreen(
                                 else -> MessageContent.Text(m.content)
                             }
                             val time = timeFormatter.format(Date(m.createdAt))
-                            Message(m.id, content, time, m.isOutgoing)
+                            Message(m.id, content, time, m.isOutgoing, timestampMs = m.createdAt, clientMessageId = m.id)
                         }
                         // Avoid unnecessary state re-assignments to keep scrolling 120 FPS buttery smooth
                         val loadedIds = mapped.map { it.id }.toSet()
-                        val pending = messages.filter { curr -> curr.isOutgoing && !loadedIds.contains(curr.id) }
-                        val newMerged = (mapped + pending).distinctBy { it.id }
+                        val loadedClientIds = mapped.map { it.clientMessageId }.toSet()
+                        val pending = messages.filter { curr ->
+                            curr.isOutgoing && !loadedIds.contains(curr.id) && !loadedClientIds.contains(curr.clientMessageId)
+                        }
+                        val newMerged = (mapped + pending)
+                            .distinctBy { it.clientMessageId.ifEmpty { it.id } }
+                            .sortedBy { it.timestampMs }
+
                         if (newMerged.size != messages.size || newMerged.map { it.id to it.status } != messages.map { it.id to it.status }) {
                             messages = newMerged
                         }
@@ -567,7 +575,7 @@ fun ChatDetailScreen(
             } else {
                 val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
                 if (lastVisible >= messages.size - 3) {
-                    listState.scrollToItem(messages.size - 1)
+                    listState.animateScrollToItem(messages.size - 1)
                 }
             }
         }
@@ -696,7 +704,7 @@ fun ChatDetailScreen(
             ) {
                 items(
                     items = messages,
-                    key = { it.id },
+                    key = { it.clientMessageId.ifEmpty { it.id } },
                     contentType = { it.content::class.java.simpleName }
                 ) { message ->
                     when (message.content) {
@@ -781,29 +789,32 @@ fun ChatDetailScreen(
                 onSendText = { text ->
                     val hasNet = isNetworkAvailable(context)
                     val now = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date())
-                    val msgId = "msg_${System.currentTimeMillis()}_${(100..999).random()}"
+                    val nowMs = System.currentTimeMillis()
+                    val clientMsgId = "msg_${nowMs}_${java.util.UUID.randomUUID().toString().take(8)}"
                     val localMsg = Message(
-                        id = msgId,
+                        id = clientMsgId,
                         content = MessageContent.Text(text),
                         timestamp = now,
                         isOutgoing = true,
-                        status = if (hasNet) MessageStatus.SENDING else MessageStatus.FAILED
+                        status = if (hasNet) MessageStatus.SENDING else MessageStatus.FAILED,
+                        timestampMs = nowMs,
+                        clientMessageId = clientMsgId
                     )
-                    messages = messages + localMsg
+                    messages = (messages + localMsg).sortedBy { it.timestampMs }
 
                     if (!hasNet) {
                         Toast.makeText(context, "تعذر الإرسال: لا يوجد اتصال بالإنترنت", Toast.LENGTH_SHORT).show()
                     } else if (targetUserId.isNotEmpty()) {
-                        CloudflareClient.updateLocalConversation(context, targetUserId, userName, avatarUrl, text, System.currentTimeMillis())
+                        CloudflareClient.updateLocalConversation(context, targetUserId, userName, avatarUrl, text, nowMs)
                         CloudflareClient.sendCloudflareMessage(
                             context = context,
                             receiverId = targetUserId,
                             text = text,
                             type = "text",
-                            messageId = msgId
+                            messageId = clientMsgId
                         ) { success, _ ->
                             messages = messages.map { m ->
-                                if (m.id == msgId) {
+                                if (m.clientMessageId == clientMsgId || m.id == clientMsgId) {
                                     m.copy(status = if (success) MessageStatus.DELIVERED else MessageStatus.FAILED)
                                 } else m
                             }
@@ -813,7 +824,7 @@ fun ChatDetailScreen(
                         }
                     } else {
                         messages = messages.map { m ->
-                            if (m.id == msgId) m.copy(status = MessageStatus.DELIVERED) else m
+                            if (m.clientMessageId == clientMsgId || m.id == clientMsgId) m.copy(status = MessageStatus.DELIVERED) else m
                         }
                     }
                 },

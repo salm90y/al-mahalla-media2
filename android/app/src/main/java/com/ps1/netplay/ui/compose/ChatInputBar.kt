@@ -200,6 +200,7 @@ fun ChatInputBar(
             }
 
             // 3. Send or Mic Button
+            var lastSendTimestamp by remember { mutableLongStateOf(0L) }
             if (text.isNotBlank()) {
                 Box(
                     modifier = Modifier
@@ -207,10 +208,14 @@ fun ChatInputBar(
                         .clip(CircleShape)
                         .background(Color(0xFF2563EB), CircleShape)
                         .clickable {
-                            val trimmed = text.trim()
-                            if (trimmed.isNotEmpty()) {
-                                onSendText(trimmed)
-                                text = ""
+                            val now = System.currentTimeMillis()
+                            if (now - lastSendTimestamp > 350L) {
+                                lastSendTimestamp = now
+                                val trimmed = text.trim()
+                                if (trimmed.isNotEmpty()) {
+                                    onSendText(trimmed)
+                                    text = ""
+                                }
                             }
                         },
                     contentAlignment = Alignment.Center

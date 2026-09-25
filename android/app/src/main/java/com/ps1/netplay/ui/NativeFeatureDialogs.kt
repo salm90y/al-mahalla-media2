@@ -24,7 +24,6 @@ import android.widget.Toast
 import android.util.Log
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.ps1.netplay.network.ChatMessage
-import com.ps1.netplay.network.LiveKitNetplayManager
 import com.ps1.netplay.network.NetplaySession
 import com.ps1.netplay.network.RoomMember
 
@@ -445,7 +444,7 @@ val vuLabel = TextView(context).apply {
         spectrumCard.addView(vuBarsRow)
         spectrumCard.addView(vuLabel)
         // Push to Talk Button (Luxury Rounded PTT Capsule)
-    var isTalking = com.ps1.netplay.network.LiveKitNetplayManager.isMicEnabled
+        var isTalking = false
         val pttIdleBg = GradientDrawable().apply {
             setShape(GradientDrawable.RECTANGLE)
             setColors(intArrayOf(Color.rgb(20, 24, 38), Color.rgb(15, 18, 28)))
@@ -485,11 +484,6 @@ val btnPtt = Button(context).apply {
                     }
                 }
                                 isTalking = !isTalking
-                try {
-                    com.ps1.netplay.network.LiveKitNetplayManager.setMicrophoneEnabled(isTalking)
-                } catch (e: Exception) {
-                    Log.e("WalkieTalkie", "Failed to set mic", e)
-                }
                                 if (isTalking) {
                     text = "🔴 الميكروفون يبث الآن... (انقر للإيقاف)"
                     background = pttActiveBg
@@ -1427,17 +1421,6 @@ val txtName = TextView(context).apply {
         cameraCardsRow.addView(hostCard)
         cameraCardsRow.addView(guestCard)
         root.addView(cameraCardsRow)
-        // Hook Real-time Active Speaker into Voice Meters
-LiveKitNetplayManager.onActiveSpeakersChanged = { speakers ->
-            (context as? android.app.Activity)?.runOnUiThread {
-                val isHostSpeaking = speakers.any { it.contains("Host", true) || it.contains("المضيف", true) }
-val isGuestSpeaking = speakers.any { it.contains("Guest", true) || it.contains("الضيف", true) }
-                hostMeter.setSpeaking(isHostSpeaking)
-                guestMeter.setSpeaking(isGuestSpeaking)
-                hostCard.background = createCardBg(isHostSpeaking || (isHost && cameraHelper?.isCameraOn?.get() == true))
-                guestCard.background = createCardBg(isGuestSpeaking || (!isHost && cameraHelper?.isCameraOn?.get() == true))
-            }
-        }
         // ============================================================
 // 🎮 Primary Camera Action Buttons
 // ============================================================

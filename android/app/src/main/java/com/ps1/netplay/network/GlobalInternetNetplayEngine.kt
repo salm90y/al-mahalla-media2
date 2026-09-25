@@ -138,27 +138,8 @@ val scope = CoroutineScope(Dispatchers.IO)
                 Log.w(TAG, "Local server socket stopped: ${e.message}")
             }
         }
-        // 3. Connect to LiveKit Cloud Room (WebRTC Worldwide Relay)
-LiveKitNetplayManager.connectToRoom(
-            context = context,
-            roomName = "ps1_$currentRoomCode",
-            identity = "host_${System.currentTimeMillis()}",
-            displayName = playerName,
-            scope = scope,
-            onConnected = {
-                Log.d(TAG, "LiveKit Host connected to room ps1_$currentRoomCode")
-                sendAnnounce(roomName, gameTitle, localIp)
-                startHeartbeat()
-            },
-            onDataReceived = { text ->
-                handleIncomingPayload(text)
-            },
-            onError = { err ->
-                Log.w(TAG, "LiveKit Host error: $err")
-            }
-        )
-        // 4. Connect to Global WebSocket Topic and Announce Host
-    val topic = getTopicName(currentRoomCode)
+        // 3. Connect to Global WebSocket Topic and Announce Host
+        val topic = getTopicName(currentRoomCode)
         scope.launch {
             connectWebSocketTopic(topic) {
                 // Announce Host Online immediately upon connection
@@ -251,36 +232,11 @@ val hostName = resJson.optString("hostName", "المضيف")
                     }
                 } catch (e: Exception) {
                     // Fall back to Internet
-}
+                }
             }
         }
-        // Method 2: Global LiveKit WebRTC Connect (Primary High-Reliability Worldwide)
-LiveKitNetplayManager.connectToRoom(
-            context = context,
-            roomName = "ps1_$currentRoomCode",
-            identity = "guest_${System.currentTimeMillis()}",
-            displayName = playerName,
-            scope = scope,
-            onConnected = {
-                Log.d(TAG, "LiveKit Guest connected to room ps1_$currentRoomCode")
-                CoroutineScope(Dispatchers.IO).launch {
-                    var attempts = 0
-                    while (isRunning.get() && !isPeerConnected && attempts < 10) {
-                        sendJoinRequest()
-                        delay(1000)
-                        attempts++
-                    }
-                }
-            },
-            onDataReceived = { text ->
-                handleIncomingPayload(text)
-            },
-            onError = { err ->
-                Log.w(TAG, "LiveKit Guest error: $err")
-            }
-        )
-        // Method 3: Cloudflare WebSocket & HTTP Topic Connect (Parallel Fallback)
-    val topic = getTopicName(currentRoomCode)
+        // Method 2: Cloudflare WebSocket & HTTP Topic Connect (Worldwide Relay)
+        val topic = getTopicName(currentRoomCode)
                 // Connect to WebSocket topic
 connectWebSocketTopic(topic) {
             // Send Join Request immediately and repeatedly until connected
@@ -342,9 +298,7 @@ override fun onClosed(ws: WebSocket, code: Int, reason: String) {
     }
 private fun publishToTopic(message: String) {
         if (currentRoomCode.isEmpty()) return
-        // 1. Send via LiveKit (Primary Ultra-Low-Latency WebRTC Data Channel)
-LiveKitNetplayManager.publishData(message)
-        // 2. Send via WebSocket if open (Instant Real-time)
+        // 1. Send via WebSocket if open (Instant Real-time)
         val sentViaWs = webSocket?.send(message) == true
         // 3. For signaling control messages (or fallback // (or fallback if WS closed), send via HTTP POST
         if (!message.startsWith("F:") || !sentViaWs) {
@@ -842,7 +796,6 @@ fun stop() {
         pollJob?.cancel()
         heartbeatJob?.cancel()
         timeoutJob?.cancel()
-        LiveKitNetplayManager.disconnect()
         try {
             directWriter?.close()
             directReader?.close()

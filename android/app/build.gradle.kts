@@ -138,7 +138,8 @@ dependencies {
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
-    implementation("io.livekit:livekit-android:2.18.2")
+    // Official Zego Voice & Video Calling Engine
+    implementation("im.zego:express-video:3.14.0")
     
     // Compose
     val composeBom = platform("androidx.compose:compose-bom:2024.02.00")

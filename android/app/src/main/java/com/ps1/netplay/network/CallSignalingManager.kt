@@ -31,13 +31,22 @@ import java.util.Date
 import java.util.Locale
 
 enum class CallState {
-    CONNECTING,   // "يجري الاتصال..."
-    RINGING,      // "يرن..."
-    CONNECTED,    // "متصل الآن"
-    BUSY,         // "الخط مشغول"
-    NO_ANSWER,    // "لا يوجد رد / غير متاح"
-    DECLINED,     // "تم رفض المكالمة"
-    ENDED         // "انتهت المكالمة"
+    IDLE,
+    OUTGOING,
+    RINGING,
+    CONNECTING,
+    CONNECTED,
+    RECONNECTING,
+    ENDED,
+    REJECTED,
+    BUSY,
+    TIMEOUT,
+    FAILED;
+
+    companion object {
+        val DECLINED get() = REJECTED
+        val NO_ANSWER get() = TIMEOUT
+    }
 }
 
 data class ActiveCallSession(
@@ -57,7 +66,7 @@ object CallSignalingManager {
 
     // Observable states for Jetpack Compose
     var currentSession by mutableStateOf<ActiveCallSession?>(null)
-    var callState by mutableStateOf(CallState.CONNECTING)
+    var callState by mutableStateOf(CallState.IDLE)
     var callDurationSeconds by mutableIntStateOf(0)
     var isMuted by mutableStateOf(false)
     var isSpeakerOn by mutableStateOf(false)
@@ -67,6 +76,7 @@ object CallSignalingManager {
     // App-wide Incoming Call Alert State
     var globalIncomingCall by mutableStateOf<IncomingCallData?>(null)
     var dismissedCallIds by mutableStateOf(setOf<String>())
+    private val handledCallActions = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
     private var toneGenerator: ToneGenerator? = null
     private var ringbackJob: Job? = null
@@ -160,16 +170,16 @@ object CallSignalingManager {
             isOutgoing = true
         )
         currentSession = session
-        callState = CallState.CONNECTING
+        callState = CallState.OUTGOING
         callDurationSeconds = 0
         isMuted = false
         isSpeakerOn = isVideo
         isCameraOn = isVideo
         endCallNoticeMessage = ""
 
-        // Check target online status: If target is online, quickly switch to RINGING, else stay in CONNECTING
+        // Check target online status: If target is online, quickly switch to RINGING
         CloudflareClient.checkUserOnline(context, targetUserId) { isOnline ->
-            if (isOnline && callState == CallState.CONNECTING) {
+            if (isOnline && (callState == CallState.OUTGOING || callState == CallState.CONNECTING)) {
                 callState = CallState.RINGING
             }
         }
@@ -197,11 +207,24 @@ object CallSignalingManager {
         // Start signaling poll loop
         startSignalingPoller(context, roomId, targetUserId, isOutgoing = true)
 
+        // Start Zego Audio & Video Call Engine
+        ZegoCallManager.startCall(
+            context = context,
+            roomId = roomId,
+            userId = myId,
+            userName = myName,
+            isVideo = isVideo,
+            isOutgoing = true,
+            onConnected = {
+                callState = CallState.CONNECTED
+            }
+        )
+
         // Set call timeout (40 seconds for no-answer)
         scope.launch {
             delay(40000)
-            if (callState == CallState.CONNECTING || callState == CallState.RINGING) {
-                endCallWithReason(context, CallState.NO_ANSWER, "لا يوجد رد")
+            if (callState == CallState.OUTGOING || callState == CallState.CONNECTING || callState == CallState.RINGING) {
+                endCallWithReason(context, CallState.TIMEOUT, "لا يوجد رد")
             }
         }
     }
@@ -217,6 +240,11 @@ object CallSignalingManager {
         roomId: String,
         isVideo: Boolean
     ) {
+        val actionKey = "accept_$roomId"
+        if (!handledCallActions.add(actionKey) || (currentSession?.roomId == roomId && callState == CallState.CONNECTED)) {
+            return
+        }
+
         stopAllSounds(context)
         dismissCallNotification(context)
         globalIncomingCall = null
@@ -236,6 +264,21 @@ object CallSignalingManager {
         isSpeakerOn = isVideo
         isCameraOn = isVideo
         endCallNoticeMessage = ""
+
+        // Start Zego Call Session immediately
+        val myUserId = CloudflareClient.getCurrentUserId(context)
+        val myUserName = UserManager.getCurrentUser(context)?.username ?: "user"
+        ZegoCallManager.startCall(
+            context = context,
+            roomId = roomId,
+            userId = myUserId,
+            userName = myUserName,
+            isVideo = isVideo,
+            isOutgoing = false,
+            onConnected = {
+                callState = CallState.CONNECTED
+            }
+        )
 
         // Start Real VoIP Audio Engine immediately
         RealVoipEngine.startVoipSession(
@@ -274,11 +317,15 @@ object CallSignalingManager {
         roomId: String,
         isVideo: Boolean
     ) {
+        val actionKey = "decline_$roomId"
+        if (!handledCallActions.add(actionKey)) return
+
         stopAllSounds(context)
         dismissCallNotification(context)
         globalIncomingCall = null
         dismissedCallIds = dismissedCallIds + roomId
 
+        ZegoCallManager.endCall(context, roomId)
         RealVoipEngine.stopVoipSession(context)
 
         CloudflareClient.respondToCall(context, roomId, "decline")
@@ -325,6 +372,7 @@ object CallSignalingManager {
 
         stopAllSounds(context)
         dismissCallNotification(context)
+        ZegoCallManager.endCall(context, session?.roomId ?: "")
         RealVoipEngine.stopVoipSession(context)
 
         if (session != null) {
@@ -378,6 +426,7 @@ object CallSignalingManager {
         val session = currentSession
         stopAllSounds(context)
         dismissCallNotification(context)
+        ZegoCallManager.endCall(context, session?.roomId ?: "")
         RealVoipEngine.stopVoipSession(context)
         callState = reason
         endCallNoticeMessage = notice
@@ -647,9 +696,10 @@ object CallSignalingManager {
         ringbackJob?.cancel()
         ringbackJob = null
         currentSession = null
-        callState = CallState.CONNECTING
+        callState = CallState.IDLE
         callDurationSeconds = 0
         endCallNoticeMessage = ""
+        handledCallActions.clear()
     }
 
     fun formatDuration(seconds: Int): String {

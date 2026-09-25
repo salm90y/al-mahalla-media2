@@ -32,7 +32,6 @@ import  com.ps1.netplay.core.TemporaryStateStore
 import  com.ps1.netplay.input.GamepadManager 
 import  com.ps1.netplay.network.DirectSocketNetplayEngine
 import  com.ps1.netplay.network.GlobalInternetNetplayEngine 
-import  com.ps1.netplay.network.LiveKitNetplayManager
 import  com.ps1.netplay.network.MatchCoordinator 
 import  com.ps1.netplay.network.NetplaySession
 import  com.ps1.netplay.ui.GameSurfaceView 
@@ -566,15 +565,6 @@ btnDockChat.setOnClickListener {
     private fun enterRoomScreen(roomCode: String, isHost: Boolean) {
 
         matchCoordinator = MatchCoordinator(isHost, netplaySession?.getTransport())
-        // Active Speaker Callback // Active Speaker Callback for Dock voice meter
-        LiveKitNetplayManager.onActiveSpeakersChanged = {
- speakers ->
-            runOnUiThread {
-
-                voiceMeterDock.setSpeaking(speakers.isNotEmpty())
-            
-}
-}
 
         if (isHost) {
 
