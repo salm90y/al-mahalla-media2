@@ -4,6 +4,7 @@ import android.content.Context
 import android.media.AudioManager
 import android.media.ToneGenerator
 import android.view.ViewGroup
+import android.webkit.CookieManager
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
@@ -107,17 +108,6 @@ data class YouTubeRoomUser(
 // Initial Library of videos
 val INITIAL_YOUTUBE_CATALOG = listOf(
     YouTubeVideoItem(
-        id = "jfKfPfyJRdk",
-        title = "بث مباشر 24/7 بجودة عالية 4K Ultra HD",
-        channelTitle = "قناة البث المباشر الرسمية",
-        duration = "بث مباشر",
-        viewCount = "48.9K يشاهدون الآن",
-        publishedTime = "مباشر الآن",
-        thumbnailUrl = "https://images.unsplash.com/photo-1564769625905-50e93615e769?w=600&auto=format&fit=crop&q=80",
-        category = "بث مباشر",
-        isLive = true
-    ),
-    YouTubeVideoItem(
         id = "yK4U4XkMhFk",
         title = "تلاوة خاشعة ومريحة للأعصاب من سورة مريم بصوت القارئ إسلام صبحي",
         channelTitle = "تلاوات القرآن الكريم المباركة",
@@ -192,6 +182,7 @@ fun YouTubeRoomScreen(
     var isPlaying by remember { mutableStateOf(true) }
     var videoVolume by remember { mutableStateOf(1.0f) } // YouTube player volume 0% - 100%
     var isPlayerFullscreen by remember { mutableStateOf(false) } // Professional fullscreen video mode
+    var isDirectStreamMode by remember { mutableStateOf(false) } // Bypass embedding restrictions via direct stream
     var isSynchronizedWithRoom by remember { mutableStateOf(true) }
     var liveViewerCount by remember { mutableStateOf(1480) }
 
@@ -548,8 +539,8 @@ fun YouTubeRoomScreen(
                         .border(1.5.dp, Color(0xFF334155), RoundedCornerShape(22.dp)),
                     contentAlignment = Alignment.Center
                 ) {
-                    // REAL YouTube WebView Player keyed by currentVideo.id
-                    key(currentVideo.id) {
+                    // REAL YouTube WebView Player keyed by currentVideo.id and isDirectStreamMode
+                    key(currentVideo.id, isDirectStreamMode) {
                         AndroidView(
                             factory = { ctx ->
                                 WebView(ctx).apply {
@@ -557,51 +548,123 @@ fun YouTubeRoomScreen(
                                         ViewGroup.LayoutParams.MATCH_PARENT,
                                         ViewGroup.LayoutParams.MATCH_PARENT
                                     )
+                                    try {
+                                        CookieManager.getInstance().apply {
+                                            setAcceptCookie(true)
+                                            setAcceptThirdPartyCookies(this@apply, true)
+                                        }
+                                    } catch (_: Exception) {}
+
                                     settings.javaScriptEnabled = true
                                     settings.domStorageEnabled = true
+                                    settings.databaseEnabled = true
                                     settings.mediaPlaybackRequiresUserGesture = false
                                     settings.allowFileAccess = true
                                     settings.allowContentAccess = true
-                                    settings.setSupportZoom(false)
+                                    settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
                                     settings.cacheMode = WebSettings.LOAD_DEFAULT
-                                    settings.userAgentString = "Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36"
+
+                                    // Remove "; wv" to present as standard Mobile Chrome and avoid YouTube's bot/webview restriction (Error 152-4)
+                                    val defaultUa = settings.userAgentString
+                                    if (defaultUa.contains("; wv")) {
+                                        settings.userAgentString = defaultUa.replace("; wv", "")
+                                    }
 
                                     webViewClient = object : WebViewClient() {
                                         override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                                            val targetUrl = request?.url?.toString() ?: return false
+                                            if (targetUrl.contains("youtube.com") || targetUrl.contains("youtu.be")) {
+                                                view?.loadUrl(targetUrl)
+                                                return true
+                                            }
                                             return false
+                                        }
+
+                                        override fun onPageFinished(view: WebView?, url: String?) {
+                                            super.onPageFinished(view, url)
+                                            if (url != null && (url.contains("/watch") || url.contains("m.youtube.com"))) {
+                                                val hideExtrasJs = """
+                                                    (function() {
+                                                        var css = 'ytm-mobile-topbar-renderer, #header-bar, .header-bar, ytm-pivot-bar-renderer, ytm-single-column-watch-next-results-renderer, .related-chips-slot-wrapper, ytm-item-section-renderer, ytm-comment-section-renderer, ytm-engagement-panel, ytm-reel-shelf-renderer { display: none !important; } body, html { background: #000 !important; overflow: hidden !important; margin: 0 !important; padding: 0 !important; } .player-container, #player-control-overlay, .html5-video-player { width: 100vw !important; height: 100vh !important; position: fixed !important; top: 0 !important; left: 0 !important; z-index: 999999 !important; }';
+                                                        var s = document.createElement('style');
+                                                        s.type = 'text/css';
+                                                        s.appendChild(document.createTextNode(css));
+                                                        document.head.appendChild(s);
+                                                        var v = document.querySelector('video');
+                                                        if (v && v.paused) { v.play(); }
+                                                    })();
+                                                """.trimIndent()
+                                                view?.evaluateJavascript(hideExtrasJs, null)
+                                            }
                                         }
                                     }
                                     webChromeClient = WebChromeClient()
 
-                                    val embedHtml = """
-                                        <!DOCTYPE html>
-                                        <html>
-                                        <head>
-                                            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-                                            <style>
-                                                * { margin:0; padding:0; box-sizing:border-box; }
-                                                body, html { width:100%; height:100%; background:#000; overflow:hidden; }
-                                                iframe { position:absolute; top:0; left:0; width:100%; height:100%; border:none; }
-                                            </style>
-                                        </head>
-                                        <body>
-                                            <iframe 
-                                                id="ytplayer"
-                                                src="https://www.youtube.com/embed/${currentVideo.id}?autoplay=1&playsinline=1&controls=1&enablejsapi=1&fs=0&rel=0&modestbranding=1" 
-                                                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
-                                                allowfullscreen>
-                                            </iframe>
-                                        </body>
-                                        </html>
-                                    """.trimIndent()
+                                    if (isDirectStreamMode) {
+                                        loadUrl("https://m.youtube.com/watch?v=${currentVideo.id}")
+                                    } else {
+                                        val embedHtml = """
+                                            <!DOCTYPE html>
+                                            <html>
+                                            <head>
+                                                <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+                                                <meta name="referrer" content="strict-origin-when-cross-origin">
+                                                <style>
+                                                    * { margin:0; padding:0; box-sizing:border-box; }
+                                                    body, html { width:100%; height:100%; background:#000; overflow:hidden; }
+                                                    #player { position:absolute; top:0; left:0; width:100%; height:100%; border:none; }
+                                                </style>
+                                            </head>
+                                            <body>
+                                                <div id="player"></div>
+                                                <script src="https://www.youtube.com/iframe_api"></script>
+                                                <script>
+                                                    var player;
+                                                    function onYouTubeIframeAPIReady() {
+                                                        player = new YT.Player('player', {
+                                                            height: '100%',
+                                                            width: '100%',
+                                                            videoId: '${currentVideo.id}',
+                                                            playerVars: {
+                                                                'autoplay': 1,
+                                                                'playsinline': 1,
+                                                                'controls': 1,
+                                                                'rel': 0,
+                                                                'enablejsapi': 1,
+                                                                'fs': 0,
+                                                                'origin': 'https://www.youtube-nocookie.com'
+                                                            },
+                                                            events: {
+                                                                'onReady': function(e) {
+                                                                    e.target.playVideo();
+                                                                    try { e.target.setVolume(${ (videoVolume * 100).toInt() }); } catch(err){}
+                                                                },
+                                                                'onError': function(e) {
+                                                                    if (e.data === 150 || e.data === 152 || e.data === 101 || e.data === 2) {
+                                                                        window.location.replace('https://m.youtube.com/watch?v=${currentVideo.id}');
+                                                                    }
+                                                                }
+                                                            }
+                                                        });
+                                                    }
+                                                    function setPlayerVolume(vol) {
+                                                        if (player && player.setVolume) {
+                                                            player.setVolume(vol);
+                                                        }
+                                                    }
+                                                </script>
+                                            </body>
+                                            </html>
+                                        """.trimIndent()
 
-                                    loadDataWithBaseURL("https://www.youtube.com", embedHtml, "text/html", "UTF-8", null)
+                                        loadDataWithBaseURL("https://www.youtube-nocookie.com", embedHtml, "text/html", "UTF-8", null)
+                                    }
                                 }
                             },
                             update = { webView ->
                                 val vol = (videoVolume * 100).toInt()
                                 webView.evaluateJavascript(
-                                    "var f = document.getElementById('ytplayer'); if (f) { f.contentWindow.postMessage('{\"event\":\"command\",\"func\":\"setVolume\",\"args\":[$vol]}', '*'); }",
+                                    "if (typeof setPlayerVolume === 'function') { setPlayerVolume($vol); } else { var v = document.querySelector('video'); if (v) { v.volume = ${videoVolume}; } }",
                                     null
                                 )
                             },
@@ -609,7 +672,7 @@ fun YouTubeRoomScreen(
                         )
                     }
 
-                    // Player Overlay Controls: Fullscreen button only
+                    // Player Overlay Controls: Stream Mode switch + Fullscreen button
                     Row(
                         modifier = Modifier
                             .align(Alignment.TopEnd)
@@ -617,6 +680,40 @@ fun YouTubeRoomScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
+                        Surface(
+                            onClick = {
+                                isDirectStreamMode = !isDirectStreamMode
+                                playButtonBeep()
+                                Toast.makeText(
+                                    context,
+                                    if (isDirectStreamMode) "تم تفعيل المشغل المباشر (تخطي قيود التضمين) ⚡" else "تم تفعيل مشغل السينما القياسي 🎬",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            },
+                            shape = CircleShape,
+                            color = if (isDirectStreamMode) Color(0xCC10B981) else Color(0xAA000000)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (isDirectStreamMode) Icons.Default.Bolt else Icons.Default.Language,
+                                    contentDescription = "تبديل وضع التشغيل",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Text(
+                                    text = if (isDirectStreamMode) "مباشر" else "تخطي القيود",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = TajawalFontFamily,
+                                    color = Color.White
+                                )
+                            }
+                        }
+
                         // Professional Fullscreen Video Button
                         IconButton(
                             onClick = {
@@ -1291,46 +1388,126 @@ fun YouTubeRoomScreen(
                         .background(Color.Black)
                 ) {
                     // Fullscreen YouTube Player
-                    key(currentVideo.id) {
+                    key(currentVideo.id, isDirectStreamMode) {
                         AndroidView(
                             factory = { ctx ->
                                 WebView(ctx).apply {
+                                    try {
+                                        CookieManager.getInstance().apply {
+                                            setAcceptCookie(true)
+                                            setAcceptThirdPartyCookies(this@apply, true)
+                                        }
+                                    } catch (_: Exception) {}
+
                                     settings.javaScriptEnabled = true
                                     settings.domStorageEnabled = true
+                                    settings.databaseEnabled = true
                                     settings.mediaPlaybackRequiresUserGesture = false
-                                    settings.userAgentString = "Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36"
+                                    settings.allowFileAccess = true
+                                    settings.allowContentAccess = true
+                                    settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                                    settings.cacheMode = WebSettings.LOAD_DEFAULT
+
+                                    val defaultUa = settings.userAgentString
+                                    if (defaultUa.contains("; wv")) {
+                                        settings.userAgentString = defaultUa.replace("; wv", "")
+                                    }
+
                                     webViewClient = object : WebViewClient() {
-                                        override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?) = false
+                                        override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                                            val targetUrl = request?.url?.toString() ?: return false
+                                            if (targetUrl.contains("youtube.com") || targetUrl.contains("youtu.be")) {
+                                                view?.loadUrl(targetUrl)
+                                                return true
+                                            }
+                                            return false
+                                        }
+
+                                        override fun onPageFinished(view: WebView?, url: String?) {
+                                            super.onPageFinished(view, url)
+                                            if (url != null && (url.contains("/watch") || url.contains("m.youtube.com"))) {
+                                                val hideExtrasJs = """
+                                                    (function() {
+                                                        var css = 'ytm-mobile-topbar-renderer, #header-bar, .header-bar, ytm-pivot-bar-renderer, ytm-single-column-watch-next-results-renderer, .related-chips-slot-wrapper, ytm-item-section-renderer, ytm-comment-section-renderer, ytm-engagement-panel, ytm-reel-shelf-renderer { display: none !important; } body, html { background: #000 !important; overflow: hidden !important; margin: 0 !important; padding: 0 !important; } .player-container, #player-control-overlay, .html5-video-player { width: 100vw !important; height: 100vh !important; position: fixed !important; top: 0 !important; left: 0 !important; z-index: 999999 !important; }';
+                                                        var s = document.createElement('style');
+                                                        s.type = 'text/css';
+                                                        s.appendChild(document.createTextNode(css));
+                                                        document.head.appendChild(s);
+                                                        var v = document.querySelector('video');
+                                                        if (v && v.paused) { v.play(); }
+                                                    })();
+                                                """.trimIndent()
+                                                view?.evaluateJavascript(hideExtrasJs, null)
+                                            }
+                                        }
                                     }
                                     webChromeClient = WebChromeClient()
-                                    val embedHtml = """
-                                        <!DOCTYPE html>
-                                        <html>
-                                        <head>
-                                            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-                                            <style>
-                                                * { margin:0; padding:0; box-sizing:border-box; }
-                                                body, html { width:100%; height:100%; background:#000; overflow:hidden; }
-                                                iframe { position:absolute; top:0; left:0; width:100%; height:100%; border:none; }
-                                            </style>
-                                        </head>
-                                        <body>
-                                            <iframe 
-                                                id="ytplayer_fs"
-                                                src="https://www.youtube.com/embed/${currentVideo.id}?autoplay=1&playsinline=1&controls=1&enablejsapi=1&fs=0&rel=0&modestbranding=1" 
-                                                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
-                                                allowfullscreen>
-                                            </iframe>
-                                        </body>
-                                        </html>
-                                    """.trimIndent()
-                                    loadDataWithBaseURL("https://www.youtube.com", embedHtml, "text/html", "UTF-8", null)
+
+                                    if (isDirectStreamMode) {
+                                        loadUrl("https://m.youtube.com/watch?v=${currentVideo.id}")
+                                    } else {
+                                        val embedHtml = """
+                                            <!DOCTYPE html>
+                                            <html>
+                                            <head>
+                                                <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+                                                <meta name="referrer" content="strict-origin-when-cross-origin">
+                                                <style>
+                                                    * { margin:0; padding:0; box-sizing:border-box; }
+                                                    body, html { width:100%; height:100%; background:#000; overflow:hidden; }
+                                                    #player { position:absolute; top:0; left:0; width:100%; height:100%; border:none; }
+                                                </style>
+                                            </head>
+                                            <body>
+                                                <div id="player"></div>
+                                                <script src="https://www.youtube.com/iframe_api"></script>
+                                                <script>
+                                                    var player;
+                                                    function onYouTubeIframeAPIReady() {
+                                                        player = new YT.Player('player', {
+                                                            height: '100%',
+                                                            width: '100%',
+                                                            videoId: '${currentVideo.id}',
+                                                            playerVars: {
+                                                                'autoplay': 1,
+                                                                'playsinline': 1,
+                                                                'controls': 1,
+                                                                'rel': 0,
+                                                                'enablejsapi': 1,
+                                                                'fs': 0,
+                                                                'origin': 'https://www.youtube-nocookie.com'
+                                                            },
+                                                            events: {
+                                                                'onReady': function(e) {
+                                                                    e.target.playVideo();
+                                                                    try { e.target.setVolume(${ (videoVolume * 100).toInt() }); } catch(err){}
+                                                                },
+                                                                'onError': function(e) {
+                                                                    if (e.data === 150 || e.data === 152 || e.data === 101 || e.data === 2) {
+                                                                        window.location.replace('https://m.youtube.com/watch?v=${currentVideo.id}');
+                                                                    }
+                                                                }
+                                                            }
+                                                        });
+                                                    }
+                                                    function setPlayerVolume(vol) {
+                                                        if (player && player.setVolume) {
+                                                            player.setVolume(vol);
+                                                        }
+                                                    }
+                                                </script>
+                                            </body>
+                                            </html>
+                                        """.trimIndent()
+
+                                        loadDataWithBaseURL("https://www.youtube-nocookie.com", embedHtml, "text/html", "UTF-8", null)
+                                    }
                                 }
                             },
                             update = { webView ->
                                 val vol = (videoVolume * 100).toInt()
                                 webView.evaluateJavascript(
-                                    "var f = document.getElementById('ytplayer_fs'); if (f) { f.contentWindow.postMessage('{\"event\":\"command\",\"func\":\"setVolume\",\"args\":[$vol]}', '*'); }",
+                                    "if (typeof setPlayerVolume === 'function') { setPlayerVolume($vol); } else { var v = document.querySelector('video'); if (v) { v.volume = ${videoVolume}; } }",
                                     null
                                 )
                             },
