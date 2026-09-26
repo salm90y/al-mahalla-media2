@@ -196,6 +196,14 @@ fun RootAppShell() {
                         }
                     )
                 }
+                composable("youtube_lobby") {
+                    YouTubeLobbyScreen(
+                        onBack = { navController.popBackStack() },
+                        onEnterRoom = { _, _, _ ->
+                            navController.navigate("youtube_room")
+                        }
+                    )
+                }
                 composable("youtube_room") {
                     YouTubeRoomScreen(
                         onBack = { navController.popBackStack() }

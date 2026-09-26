@@ -288,7 +288,7 @@ fun RoomsScreen(
                             } else if (room.type == RoomType.QURAN) {
                                 navController.navigate("quran_home")
                             } else if (room.type == RoomType.YOUTUBE) {
-                                navController.navigate("youtube_room")
+                                navController.navigate("youtube_lobby")
                             } else {
                                 selectedRoomForExperience = room.type
                             }
