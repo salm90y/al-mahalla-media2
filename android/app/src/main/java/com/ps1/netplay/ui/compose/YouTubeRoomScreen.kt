@@ -1,8 +1,10 @@
 package com.ps1.netplay.ui.compose
 
 import android.content.Context
+import android.content.Intent
 import android.media.AudioManager
 import android.media.ToneGenerator
+import android.net.Uri
 import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
@@ -19,6 +21,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
@@ -38,6 +42,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.LayoutDirection
@@ -491,12 +496,12 @@ fun YouTubeRoomScreen(
 
     // Playback state
     var isPlaying by remember { mutableStateOf(true) }
-    var isWebPlayerActive by remember { mutableStateOf(false) } // Toggle between rich Poster HUD & Embedded Web Player
+    var isWebPlayerActive by remember { mutableStateOf(true) } // Active real YouTube embedded player by default
     var currentPositionSeconds by remember { mutableStateOf(245) }
     val totalDurationSeconds by remember { mutableStateOf(1965) }
     var playbackSpeed by remember { mutableStateOf(1.0f) }
     var isMuted by remember { mutableStateOf(false) }
-    var currentQuality by remember { mutableStateOf("1080p 60fps (Cloudflare CDN)") }
+    var currentQuality by remember { mutableStateOf("1080p 60fps (YouTube HD)") }
     var isSynchronizedWithRoom by remember { mutableStateOf(true) }
     var liveViewerCount by remember { mutableStateOf(1480) }
 
@@ -514,18 +519,44 @@ fun YouTubeRoomScreen(
     var searchQuery by remember { mutableStateOf("") }
     var isDropdownOpen by remember { mutableStateOf(false) }
     var isSearchModalOpen by remember { mutableStateOf(false) }
+    var isSearchingRealYouTube by remember { mutableStateOf(false) }
     var selectedFilterCategory by remember { mutableStateOf("الكل") }
     var isExpandedSearchLoading by remember { mutableStateOf(false) }
     var extraResultsCount by remember { mutableStateOf(0) }
+    val liveSearchSuggestions = remember { mutableStateListOf<String>() }
 
-    // Filtered suggestions for the live dropdown
-    val filteredSuggestions = remember(searchQuery) {
+    // Live real-time YouTube query suggestions watcher
+    LaunchedEffect(searchQuery) {
+        val q = searchQuery.trim()
+        if (q.length >= 2) {
+            delay(220)
+            try {
+                val live = YouTubeSearchEngine.getLiveSuggestions(q)
+                liveSearchSuggestions.clear()
+                if (live.isNotEmpty()) {
+                    liveSearchSuggestions.addAll(live.take(7))
+                } else {
+                    val local = SEARCH_AUTOCOMPLETE_SUGGESTIONS.filter {
+                        it.contains(q, ignoreCase = true)
+                    }.take(7)
+                    liveSearchSuggestions.addAll(local)
+                }
+            } catch (_: Exception) {}
+        } else {
+            liveSearchSuggestions.clear()
+        }
+    }
+
+    // Filtered suggestions for the live dropdown (Real YouTube suggestions + catalog match)
+    val filteredSuggestions = remember(searchQuery, liveSearchSuggestions.size) {
         if (searchQuery.trim().isEmpty()) {
             emptyList()
+        } else if (liveSearchSuggestions.isNotEmpty()) {
+            liveSearchSuggestions.toList()
         } else {
             SEARCH_AUTOCOMPLETE_SUGGESTIONS.filter {
                 it.contains(searchQuery.trim(), ignoreCase = true)
-            }.take(6)
+            }.take(7)
         }
     }
 
@@ -567,13 +598,31 @@ fun YouTubeRoomScreen(
         } catch (_: Exception) {}
     }
 
-    // Perform Search & Open 20+ Results Modal
+    // Perform Search & Open 20+ Results Modal with REAL YouTube Search
     fun executeSearch(query: String) {
         playButtonBeep()
         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-        searchQuery = query
+        val cleanQuery = query.trim()
+        searchQuery = cleanQuery
         isDropdownOpen = false
         isSearchModalOpen = true
+
+        if (cleanQuery.isNotEmpty() && cleanQuery != "الكل") {
+            coroutineScope.launch {
+                isSearchingRealYouTube = true
+                try {
+                    val realVideos = YouTubeSearchEngine.searchRealYouTube(cleanQuery)
+                    if (realVideos.isNotEmpty()) {
+                        realVideos.reversed().forEach { rv ->
+                            videoCatalog.removeAll { it.id == rv.id }
+                            videoCatalog.add(0, rv)
+                        }
+                        Toast.makeText(context, "تم العثور على ${realVideos.size} مقطع حقيقي من YouTube 🎬", Toast.LENGTH_SHORT).show()
+                    }
+                } catch (_: Exception) {}
+                isSearchingRealYouTube = false
+            }
+        }
     }
 
     // Play a video directly
@@ -582,6 +631,7 @@ fun YouTubeRoomScreen(
         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
         currentVideo = video
         isPlaying = true
+        isWebPlayerActive = true
         currentPositionSeconds = 0
         isSynchronizedWithRoom = true
         Toast.makeText(context, "جاري تشغيل: ${video.title.take(35)}... 🎬", Toast.LENGTH_SHORT).show()
@@ -764,6 +814,10 @@ fun YouTubeRoomScreen(
                                 }
                             },
                             singleLine = true,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                            keyboardActions = KeyboardActions(onSearch = {
+                                executeSearch(if (searchQuery.trim().isEmpty()) "الكل" else searchQuery)
+                            }),
                             shape = RoundedCornerShape(20.dp),
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedContainerColor = Color.White,
@@ -974,21 +1028,51 @@ fun YouTubeRoomScreen(
                             modifier = Modifier.fillMaxSize()
                         )
 
-                        // Float Button to switch back to HUD controls
-                        Box(
+                        // Top Action Icons on Live Player
+                        Row(
                             modifier = Modifier
                                 .align(Alignment.TopEnd)
-                                .padding(12.dp)
-                                .background(Color(0x99000000), CircleShape)
-                                .clickable { isWebPlayerActive = false }
-                                .padding(6.dp)
+                                .padding(10.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "إغلاق المشغل الكامل",
-                                tint = Color.White,
-                                modifier = Modifier.size(16.dp)
-                            )
+                            // Open in YouTube app button
+                            Box(
+                                modifier = Modifier
+                                    .background(Color(0xCCDC2626), CircleShape)
+                                    .clickable {
+                                        try {
+                                            val appIntent = Intent(Intent.ACTION_VIEW, Uri.parse("vnd.youtube:${currentVideo.id}"))
+                                            context.startActivity(appIntent)
+                                        } catch (_: Exception) {
+                                            val webIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/watch?v=${currentVideo.id}"))
+                                            context.startActivity(webIntent)
+                                        }
+                                    }
+                                    .padding(6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.OpenInNew,
+                                    contentDescription = "فتح في تطبيق يوتيوب",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+
+                            // Switch to Theater poster view
+                            Box(
+                                modifier = Modifier
+                                    .background(Color(0x99000000), CircleShape)
+                                    .clickable { isWebPlayerActive = false }
+                                    .padding(6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.AspectRatio,
+                                    contentDescription = "عرض البوستر والمزامنة",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
                         }
                     } else {
                         // 3B. CINEMA THEATER POSTER & INTERACTIVE SYNC HUD
@@ -2150,7 +2234,39 @@ fun YouTubeRoomScreen(
                                 }
                             }
 
-                            Spacer(modifier = Modifier.height(12.dp))
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            // Real YouTube Live Search Status Banner
+                            if (isSearchingRealYouTube) {
+                                Surface(
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = Color(0xFFFEF2F2),
+                                    border = BorderStroke(1.dp, Color(0xFFFECACA)),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(bottom = 8.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(10.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.Center
+                                    ) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(16.dp),
+                                            strokeWidth = 2.dp,
+                                            color = Color(0xFFDC2626)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = "جاري جلب أحدث النتائج الحقيقية مباشرة من YouTube...",
+                                            fontSize = 11.sp,
+                                            fontFamily = TajawalFontFamily,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFFDC2626)
+                                        )
+                                    }
+                                }
+                            }
 
                             // 20+ Results List
                             LazyColumn(
@@ -2305,7 +2421,7 @@ fun YouTubeRoomScreen(
                                     }
                                 }
 
-                                // Load More Results (بحث أكثر وتوسيع النتائج السحابية)
+                                // Load More Results (بحث أكثر وجلب مقاطع حقيقية من يوتيوب)
                                 item {
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Surface(
@@ -2313,15 +2429,30 @@ fun YouTubeRoomScreen(
                                             if (!isExpandedSearchLoading) {
                                                 isExpandedSearchLoading = true
                                                 coroutineScope.launch {
-                                                    delay(600)
-                                                    EXTRA_EXPANDED_YOUTUBE_CATALOG.forEach { extraItem ->
-                                                        if (!videoCatalog.any { it.id == extraItem.id }) {
-                                                            videoCatalog.add(extraItem)
+                                                    val q = if (searchQuery.trim().isNotEmpty() && searchQuery != "الكل") searchQuery.trim() else "قرآن وبث مباشر"
+                                                    val realMore = try {
+                                                        YouTubeSearchEngine.searchRealYouTube("$q جديد")
+                                                    } catch (_: Exception) {
+                                                        emptyList()
+                                                    }
+                                                    if (realMore.isNotEmpty()) {
+                                                        var addedCount = 0
+                                                        realMore.forEach { extraItem ->
+                                                            if (!videoCatalog.any { it.id == extraItem.id }) {
+                                                                videoCatalog.add(extraItem)
+                                                                addedCount++
+                                                            }
                                                         }
+                                                        Toast.makeText(context, "تم جلب $addedCount مقطع فيديو إضافي من YouTube 🚀", Toast.LENGTH_SHORT).show()
+                                                    } else {
+                                                        EXTRA_EXPANDED_YOUTUBE_CATALOG.forEach { extraItem ->
+                                                            if (!videoCatalog.any { it.id == extraItem.id }) {
+                                                                videoCatalog.add(extraItem)
+                                                            }
+                                                        }
+                                                        Toast.makeText(context, "تم توسيع نتائج البحث بنجاح ✨", Toast.LENGTH_SHORT).show()
                                                     }
                                                     isExpandedSearchLoading = false
-                                                    extraResultsCount += EXTRA_EXPANDED_YOUTUBE_CATALOG.size
-                                                    Toast.makeText(context, "تم جلب ${EXTRA_EXPANDED_YOUTUBE_CATALOG.size} نتائج إضافية من سيرفرات السحابة 🚀", Toast.LENGTH_SHORT).show()
                                                 }
                                             }
                                         },
@@ -2339,24 +2470,24 @@ fun YouTubeRoomScreen(
                                                 CircularProgressIndicator(
                                                     modifier = Modifier.size(18.dp),
                                                     strokeWidth = 2.dp,
-                                                    color = Color(0xFF2563EB)
+                                                    color = Color(0xFFDC2626)
                                                 )
                                                 Spacer(modifier = Modifier.width(8.dp))
                                             } else {
                                                 Icon(
                                                     imageVector = Icons.Default.TravelExplore,
                                                     contentDescription = null,
-                                                    tint = Color(0xFF2563EB),
+                                                    tint = Color(0xFFDC2626),
                                                     modifier = Modifier.size(18.dp)
                                                 )
                                                 Spacer(modifier = Modifier.width(6.dp))
                                             }
                                             Text(
-                                                text = if (isExpandedSearchLoading) "جاري البحث السحابي..." else "✨ بحث أكثر وتوسيع النتائج من Cloudflare",
+                                                text = if (isExpandedSearchLoading) "جاري البحث المباشر في يوتيوب..." else "✨ بحث أكثر وتوسيع النتائج من YouTube",
                                                 fontSize = 12.sp,
                                                 fontWeight = FontWeight.Bold,
                                                 fontFamily = TajawalFontFamily,
-                                                color = Color(0xFF2563EB)
+                                                color = Color(0xFFDC2626)
                                             )
                                         }
                                     }

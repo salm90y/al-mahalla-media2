@@ -196,6 +196,11 @@ fun RootAppShell() {
                         }
                     )
                 }
+                composable("youtube_room") {
+                    YouTubeRoomScreen(
+                        onBack = { navController.popBackStack() }
+                    )
+                }
                 composable("admin_dashboard") {
                     AdminDashboardScreen(navController = navController)
                 }
