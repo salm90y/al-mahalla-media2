@@ -281,24 +281,85 @@ object YouTubeRoomManager {
                     val local = loadRoomsLocally(context).filter { isOwner || it.privacyMode == RoomPrivacyMode.PUBLIC }
                     for (loc in local) {
                         val existingIdx = resultList.indexOfFirst { it.roomId == loc.roomId || it.roomCode == loc.roomCode }
-                        if (existingIdx >= 0) {
-                            // Merge with latest video from local if newer
-                            if (loc.videoId.isNotEmpty()) {
-                                resultList[existingIdx] = resultList[existingIdx].copy(
-                                    videoId = loc.videoId,
-                                    currentVideoTitle = loc.currentVideoTitle,
-                                    thumbnailUrl = loc.thumbnailUrl
-                                )
-                            }
-                        } else {
-                            resultList.add(0, loc)
+                        if (existingIdx < 0) {
+                            resultList.add(loc)
                         }
                     }
+
+                    // Save verified authoritative rooms from server locally
+                    resultList.forEach { saveRoomLocally(context, it) }
 
                     mainHandler.post {
                         activeRealRooms.clear()
                         activeRealRooms.addAll(resultList)
                         onComplete(resultList)
+                    }
+                }
+            }
+        })
+    }
+
+    /**
+     * Fetch latest authoritative room details by roomId
+     */
+    fun getRoomLatest(
+        context: Context,
+        roomId: String,
+        onComplete: (PublicYouTubeRoom?) -> Unit
+    ) {
+        val baseUrl = CloudflareClient.getBaseUrl(context)
+        val request = Request.Builder()
+            .url("$baseUrl/api/youtube/rooms/get?id=$roomId")
+            .get()
+            .build()
+
+        httpClient.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                mainHandler.post {
+                    val loc = loadRoomsLocally(context).find { it.roomId == roomId }
+                    onComplete(loc)
+                }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                response.use { resp ->
+                    try {
+                        val body = resp.body?.string().orEmpty()
+                        val obj = JSONObject(body)
+                        if (obj.optBoolean("success", false)) {
+                            val rObj = obj.optJSONObject("room")
+                            if (rObj != null) {
+                                val pMode = try {
+                                    RoomPrivacyMode.valueOf(rObj.optString("privacyMode", "PUBLIC"))
+                                } catch (_: Exception) {
+                                    RoomPrivacyMode.PUBLIC
+                                }
+                                val vId = rObj.optString("videoId", "")
+                                val room = PublicYouTubeRoom(
+                                    roomId = rObj.optString("roomId"),
+                                    roomCode = rObj.optString("roomCode"),
+                                    title = rObj.optString("title"),
+                                    hostName = rObj.optString("hostName"),
+                                    hostId = rObj.optString("hostId"),
+                                    hostAvatarBg = Color(0xFF2563EB),
+                                    currentVideoTitle = rObj.optString("currentVideoTitle"),
+                                    videoId = vId,
+                                    thumbnailUrl = if (vId.isNotEmpty()) "https://img.youtube.com/vi/$vId/hqdefault.jpg" else rObj.optString("thumbnailUrl"),
+                                    viewersCount = rObj.optInt("viewersCount", 1),
+                                    isLive = rObj.optBoolean("isLive", true),
+                                    durationText = "مباشر",
+                                    privacyMode = pMode,
+                                    createdAt = rObj.optLong("createdAt", System.currentTimeMillis())
+                                )
+                                saveRoomLocally(context, room)
+                                mainHandler.post { onComplete(room) }
+                                return
+                            }
+                        }
+                    } catch (_: Exception) {}
+                    mainHandler.post {
+                        val loc = loadRoomsLocally(context).find { it.roomId == roomId }
+                        onComplete(loc)
                     }
                 }
             }
@@ -480,7 +541,7 @@ class YouTubeSyncWebSocket(
         val username = if (isStealthMode) "مجهول" else CloudflareClient.getCurrentUsername(context)
         val cleanRoomId = roomId.ifBlank { "global_yt_lobby" }
 
-        val wsUrl = "$wsBase/ws/$cleanRoomId?userId=$userId&username=$username"
+        val wsUrl = "$wsBase/ws/$cleanRoomId?userId=$userId&username=$username&stealth=$isStealthMode"
 
         val request = Request.Builder().url(wsUrl).build()
         webSocket = client.newWebSocket(request, object : WebSocketListener() {

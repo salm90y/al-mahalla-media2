@@ -184,6 +184,16 @@ fun YouTubeRoomScreen(
     val haptics = LocalHapticFeedback.current
     val coroutineScope = rememberCoroutineScope()
 
+    // Disable click sound effects globally in room as requested: "احذف الصوت عند النقر ع اي شي"
+    val localView = androidx.compose.ui.platform.LocalView.current
+    DisposableEffect(Unit) {
+        val prevSound = localView.isSoundEffectsEnabled
+        localView.isSoundEffectsEnabled = false
+        onDispose {
+            localView.isSoundEffectsEnabled = prevSound
+        }
+    }
+
     // Identity and Roles
     val currentUserId = remember { CloudflareClient.getCurrentUserId(context) }
     val currentUserName = remember { CloudflareClient.getCurrentUsername(context).ifBlank { "أحمد" } }
@@ -377,6 +387,20 @@ fun YouTubeRoomScreen(
 
     LaunchedEffect(roomId) {
         syncSocket.connect()
+        // Authoritative Real-Time Sync: fetch exact pinned/playing video directly from server
+        YouTubeRoomManager.getRoomLatest(context, roomId) { latestRoom ->
+            if (latestRoom != null && latestRoom.videoId.isNotBlank()) {
+                currentVideo = YouTubeVideoItem(
+                    id = latestRoom.videoId,
+                    title = latestRoom.currentVideoTitle.ifBlank { "فيديو يوتيوب متزامن" },
+                    channelTitle = "مشاهدة متزامنة",
+                    duration = "مباشر",
+                    viewCount = "متزامن",
+                    publishedTime = "الآن",
+                    thumbnailUrl = latestRoom.thumbnailUrl.ifBlank { "https://img.youtube.com/vi/${latestRoom.videoId}/hqdefault.jpg" }
+                )
+            }
+        }
     }
 
     DisposableEffect(roomId) {
@@ -1357,7 +1381,9 @@ fun YouTubeRoomScreen(
                 ) {
                     Surface(
                         shape = RoundedCornerShape(24.dp),
-                        color = Color.White,
+                        color = Color(0xFF0F172A),
+                        border = BorderStroke(1.dp, Color(0xFF334155)),
+                        shadowElevation = 16.dp,
                         modifier = Modifier.fillMaxWidth().padding(16.dp)
                     ) {
                         Column(
@@ -1371,14 +1397,14 @@ fun YouTubeRoomScreen(
                             ) {
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                     Box(
-                                        modifier = Modifier.size(42.dp).background(targetUser.avatarBg, CircleShape),
+                                        modifier = Modifier.size(44.dp).background(targetUser.avatarBg, CircleShape).border(2.dp, Color(0xFF38BDF8), CircleShape),
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Text(text = targetUser.name.take(1), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                                     }
                                     Column {
-                                        Text(text = targetUser.name, fontSize = 14.sp, fontWeight = FontWeight.Bold, fontFamily = TajawalFontFamily)
-                                        Text(text = "الرتبة: ${targetUser.role}", fontSize = 11.sp, color = Color(0xFF64748B))
+                                        Text(text = targetUser.name, fontSize = 15.sp, fontWeight = FontWeight.Bold, fontFamily = TajawalFontFamily, color = Color.White)
+                                        Text(text = "الرتبة الحالية: ${targetUser.role}", fontSize = 11.sp, color = Color(0xFF38BDF8))
                                     }
                                 }
                                 IconButton(onClick = { selectedUserForPermissions = null }) {
@@ -1386,22 +1412,22 @@ fun YouTubeRoomScreen(
                                 }
                             }
 
-                            HorizontalDivider(color = Color(0xFFF1F5F9))
+                            HorizontalDivider(color = Color(0xFF1E293B))
 
                             Text(
-                                text = "إدارة الصلاحيات والتحكم ⚙️",
+                                text = "لوحة إدارة الصلاحيات والتحكم ⚙️",
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
                                 fontFamily = TajawalFontFamily,
-                                color = Color(0xFF1E3A8A)
+                                color = Color(0xFF38BDF8)
                             )
 
                             // 1. Promote to Moderator
                             PermissionActionRow(
                                 title = if (targetUser.role.contains("مشرف")) "إلغاء صفة المشرف" else "ترقية إلى مشرف الغرفة 🛡️",
-                                subtitle = "يمنح المستخدم صلاحيات إدارة الغرفة",
+                                subtitle = "يمنح المستخدم صلاحيات إدارة الغرفة والتحكم",
                                 icon = Icons.Default.Shield,
-                                iconColor = Color(0xFF2563EB),
+                                iconColor = Color(0xFF38BDF8),
                                 onClick = {
                                     val newRole = if (targetUser.role.contains("مشرف")) "مشاهد" else "مشرف الغرفة 🛡️"
                                     val updated = targetUser.copy(role = newRole)
@@ -1416,9 +1442,9 @@ fun YouTubeRoomScreen(
                             // 2. Allow/Restrict Video Change
                             PermissionActionRow(
                                 title = if (targetUser.canChangeVideo) "منع تغيير الفيديو 🔒" else "منح صلاحية تغيير الفيديو 🎬",
-                                subtitle = if (targetUser.canChangeVideo) "يلزم موافقة المضيف لتشغيل أي مقطع" else "يستطيع تشغيل المقاطع مباشرة",
+                                subtitle = if (targetUser.canChangeVideo) "يلزم موافقة المضيف لتشغيل أي مقطع" else "يستطيع تشغيل المقاطع مباشرة للجميع",
                                 icon = Icons.Default.SmartDisplay,
-                                iconColor = Color(0xFFDC2626),
+                                iconColor = Color(0xFFEF4444),
                                 onClick = {
                                     val updated = targetUser.copy(canChangeVideo = !targetUser.canChangeVideo)
                                     val idx = roomUsers.indexOfFirst { it.id == targetUser.id }
@@ -1429,12 +1455,12 @@ fun YouTubeRoomScreen(
                                 }
                             )
 
-                            // 3. Mute Mic
+                            // 3. Mute Mic (Walkie-Talkie)
                             PermissionActionRow(
                                 title = if (targetUser.isMutedVoice) "إلغاء كتم المايكروفون 🎙️" else "كتم المايكروفون (إسكات الصوت) 🔇",
-                                subtitle = "تعطيل خاصية التحدث في الهوكي توكي",
+                                subtitle = "تعطيل أو تمكين خاصية التحدث في الهوكي توكي",
                                 icon = if (targetUser.isMutedVoice) Icons.Default.Mic else Icons.Default.MicOff,
-                                iconColor = Color(0xFFD97706),
+                                iconColor = Color(0xFFF59E0B),
                                 onClick = {
                                     val updated = targetUser.copy(isMutedVoice = !targetUser.isMutedVoice)
                                     val idx = roomUsers.indexOfFirst { it.id == targetUser.id }
@@ -1447,10 +1473,10 @@ fun YouTubeRoomScreen(
 
                             // 4. Mute Chat
                             PermissionActionRow(
-                                title = if (targetUser.isMutedChat) "إلغاء حظر الدردشة 💬" else "منع الكتابة في الدردشة 🚫",
-                                subtitle = "تعطيل إرسال الرسائل في الشات",
+                                title = if (targetUser.isMutedChat) "إلغاء حظر الدردشة 💬" else "إسكات من الدردشة (منع الكتابة) 🚫",
+                                subtitle = "تعطيل إرسال الرسائل في محادثة الغرفة",
                                 icon = Icons.Default.ChatBubbleOutline,
-                                iconColor = Color(0xFF7C3AED),
+                                iconColor = Color(0xFFA855F7),
                                 onClick = {
                                     val updated = targetUser.copy(isMutedChat = !targetUser.isMutedChat)
                                     val idx = roomUsers.indexOfFirst { it.id == targetUser.id }
@@ -1461,12 +1487,30 @@ fun YouTubeRoomScreen(
                                 }
                             )
 
-                            // 5. Kick from room
+                            // 5. Transfer Host ownership (if host or owner)
+                            if (isHost || isAppOwner) {
+                                PermissionActionRow(
+                                    title = "نقل ملكية المضيف إلى العضو 👑",
+                                    subtitle = "تسليم قيادة الغرفة بالكامل لهذا العضو",
+                                    icon = Icons.Default.Star,
+                                    iconColor = Color(0xFFEAB308),
+                                    onClick = {
+                                        val updated = targetUser.copy(role = "مضيف الغرفة 👑", canChangeVideo = true)
+                                        val idx = roomUsers.indexOfFirst { it.id == targetUser.id }
+                                        if (idx >= 0) roomUsers[idx] = updated
+                                        syncSocket.broadcastMemberAction(targetUser.id, "TRANSFER_HOST")
+                                        selectedUserForPermissions = null
+                                        Toast.makeText(context, "تم نقل المضيف إلى ${targetUser.name} 👑", Toast.LENGTH_SHORT).show()
+                                    }
+                                )
+                            }
+
+                            // 6. Kick from room
                             PermissionActionRow(
                                 title = "طرد المستخدم من الغرفة 🚪",
                                 subtitle = "إخراج المستخدم فوراً من جلسة المشاهدة",
                                 icon = Icons.Default.ExitToApp,
-                                iconColor = Color(0xFFDC2626),
+                                iconColor = Color(0xFFEF4444),
                                 onClick = {
                                     roomUsers.removeAll { it.id == targetUser.id }
                                     syncSocket.broadcastMemberAction(targetUser.id, "KICK")
@@ -1487,33 +1531,35 @@ fun YouTubeRoomScreen(
                     properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false)
                 ) {
                     Surface(
-                        shape = RoundedCornerShape(20.dp),
-                        color = Color.White,
+                        shape = RoundedCornerShape(22.dp),
+                        color = Color(0xFF0F172A),
+                        border = BorderStroke(1.dp, Color(0xFF334155)),
+                        shadowElevation = 16.dp,
                         modifier = Modifier.fillMaxWidth().padding(16.dp)
                     ) {
                         Column(
                             modifier = Modifier.padding(20.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(14.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Box(
-                                modifier = Modifier.size(48.dp).background(Color(0xFFFEF2F2), CircleShape),
+                                modifier = Modifier.size(52.dp).background(Color(0xFF1E293B), CircleShape).border(1.5.dp, Color(0xFFEF4444), CircleShape),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(Icons.Default.SmartDisplay, contentDescription = null, tint = Color(0xFFDC2626), modifier = Modifier.size(24.dp))
+                                Icon(Icons.Default.SmartDisplay, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(26.dp))
                             }
                             Text(
                                 text = "طلب تشغيل فيديو جديد 🎬",
-                                fontSize = 15.sp,
+                                fontSize = 16.sp,
                                 fontWeight = FontWeight.Bold,
                                 fontFamily = TajawalFontFamily,
-                                color = Color(0xFF0F172A)
+                                color = Color.White
                             )
                             Text(
-                                text = "يريد العضو \"${req.requesterName}\" تغيير الفيديو المشغل للغرفة إلى:\n\"${req.videoTitle}\"\n\nهل توافق على تغيير الفيديو للجميع؟",
+                                text = "يريد العضو \"${req.requesterName}\" تغيير الفيديو المشغل للغرفة إلى:\n\"${req.videoTitle}\"\n\nهل توافق على تغيير الفيديو لجميع المتواجدين؟",
                                 fontSize = 12.sp,
                                 fontFamily = TajawalFontFamily,
-                                color = Color(0xFF475569),
+                                color = Color(0xFFCBD5E1),
                                 textAlign = TextAlign.Center
                             )
                             Row(
@@ -1538,7 +1584,7 @@ fun YouTubeRoomScreen(
                                         pendingVideoChangeRequest = null
                                         Toast.makeText(context, "تمت الموافقة وتغيير الفيديو للغرفة 🎬", Toast.LENGTH_SHORT).show()
                                     },
-                                    modifier = Modifier.weight(1f).height(44.dp),
+                                    modifier = Modifier.weight(1f).height(46.dp),
                                     shape = RoundedCornerShape(12.dp),
                                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981))
                                 ) {
@@ -1551,9 +1597,10 @@ fun YouTubeRoomScreen(
                                         pendingVideoChangeRequest = null
                                         Toast.makeText(context, "تم رفض طلب تغيير الفيديو", Toast.LENGTH_SHORT).show()
                                     },
-                                    modifier = Modifier.weight(1f).height(44.dp),
+                                    modifier = Modifier.weight(1f).height(46.dp),
                                     shape = RoundedCornerShape(12.dp),
-                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFDC2626))
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFEF4444)),
+                                    border = BorderStroke(1.dp, Color(0xFFEF4444))
                                 ) {
                                     Text("رفض ❌", fontFamily = TajawalFontFamily, fontWeight = FontWeight.Bold)
                                 }
@@ -1762,27 +1809,27 @@ private fun PermissionActionRow(
 ) {
     Surface(
         onClick = onClick,
-        shape = RoundedCornerShape(12.dp),
-        color = Color(0xFFF8FAFC),
-        border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+        shape = RoundedCornerShape(14.dp),
+        color = Color(0xFF1E293B),
+        border = BorderStroke(1.dp, Color(0xFF334155)),
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Box(
-                modifier = Modifier.size(36.dp).background(iconColor.copy(alpha = 0.1f), CircleShape),
+                modifier = Modifier.size(38.dp).background(iconColor.copy(alpha = 0.15f), CircleShape),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(imageVector = icon, contentDescription = null, tint = iconColor, modifier = Modifier.size(18.dp))
             }
             Column(modifier = Modifier.weight(1f)) {
-                Text(text = title, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = TajawalFontFamily, color = Color(0xFF0F172A))
-                Text(text = subtitle, fontSize = 10.sp, color = Color(0xFF64748B), fontFamily = TajawalFontFamily)
+                Text(text = title, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = TajawalFontFamily, color = Color.White)
+                Text(text = subtitle, fontSize = 10.sp, color = Color(0xFF94A3B8), fontFamily = TajawalFontFamily)
             }
-            Icon(Icons.Default.ChevronLeft, contentDescription = null, tint = Color(0xFF94A3B8), modifier = Modifier.size(16.dp))
+            Icon(Icons.Default.ChevronLeft, contentDescription = null, tint = Color(0xFF64748B), modifier = Modifier.size(16.dp))
         }
     }
 }

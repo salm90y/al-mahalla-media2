@@ -35,7 +35,7 @@ jobs:
           SDKMANAGER=$(which sdkmanager || echo "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager")
           if [ -x "$SDKMANAGER" ]; then
             yes | $SDKMANAGER --licenses || true
-            $SDKMANAGER "cmake;3.22.1" "platforms;android-34" "build-tools;34.0.0" || true
+            $SDKMANAGER "ndk;26.1.10909125" "cmake;3.22.1" "platforms;android-34" "build-tools;34.0.0" || true
           fi
 
       - name: Verify Android project structure
@@ -61,10 +61,11 @@ jobs:
         working-directory: ./android
         run: ./gradlew clean --no-daemon --stacktrace
 
-      - name: Build Single Lightweight Release APK
+      - name: Build Android APK
         working-directory: ./android
         run: |
-          ./gradlew :app:assembleRelease --no-daemon --stacktrace || ./gradlew :app:assembleDebug --no-daemon --stacktrace
+          ./gradlew :app:assembleDebug --no-daemon --stacktrace
+          ./gradlew :app:assembleRelease --no-daemon --stacktrace || true
 
       - name: Upload APK Artifacts
         uses: actions/upload-artifact@v4

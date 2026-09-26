@@ -21,7 +21,8 @@ export interface Env {
 // Durable Object for Real-Time Chat & Signaling
 export class ChatRoomDO {
   state: DurableObjectState;
-  sessions: Map<WebSocket, { userId: string; username: string }>;
+  sessions: Map<WebSocket, { userId: string; username: string; isStealth: boolean }>;
+  currentVideo: { videoId: string; videoTitle: string; isPlaying: boolean; positionSec: number } | null = null;
 
   constructor(state: DurableObjectState) {
     this.state = state;
@@ -38,20 +39,53 @@ export class ChatRoomDO {
 
       const userId = url.searchParams.get("userId") || "anonymous";
       const username = url.searchParams.get("username") || "Guest";
+      const isStealth = url.searchParams.get("stealth") === "true" || userId.startsWith("stealth_") || username === "مجهول";
 
       const webSocketPair = new WebSocketPair();
       const [client, server] = Object.values(webSocketPair);
 
       server.accept();
-      this.sessions.set(server, { userId, username });
+      this.sessions.set(server, { userId, username, isStealth });
 
-      this.broadcast(JSON.stringify({ type: "presence", userId, username, status: "online" }), server);
+      // Only broadcast presence if NOT in stealth mode
+      if (!isStealth) {
+        this.broadcast(JSON.stringify({ type: "presence", userId, username, status: "online" }), server);
+      }
+
+      // Immediately send current playing video to newly connected client
+      if (this.currentVideo) {
+        try {
+          server.send(JSON.stringify({
+            type: "yt_video_change",
+            videoId: this.currentVideo.videoId,
+            videoTitle: this.currentVideo.videoTitle,
+            senderId: "server"
+          }));
+          server.send(JSON.stringify({
+            type: "yt_playback_state",
+            isPlaying: this.currentVideo.isPlaying,
+            positionSec: this.currentVideo.positionSec,
+            senderId: "server"
+          }));
+        } catch (_) {}
+      }
 
       server.addEventListener("message", async (event) => {
         try {
           if (typeof event.data === "string") {
             try {
               const data = JSON.parse(event.data);
+              if (data.type === "yt_video_change" && data.videoId) {
+                this.currentVideo = {
+                  videoId: data.videoId,
+                  videoTitle: data.videoTitle || "فيديو متزامن",
+                  isPlaying: true,
+                  positionSec: 0
+                };
+              } else if (data.type === "yt_playback_state" && this.currentVideo) {
+                this.currentVideo.isPlaying = !!data.isPlaying;
+                this.currentVideo.positionSec = Number(data.positionSec || 0);
+              }
               this.broadcast(JSON.stringify({ ...data, senderId: userId, senderName: username }), server);
             } catch {
               this.broadcast(event.data, server);
@@ -66,8 +100,11 @@ export class ChatRoomDO {
       });
 
       server.addEventListener("close", () => {
+        const session = this.sessions.get(server);
         this.sessions.delete(server);
-        this.broadcast(JSON.stringify({ type: "presence", userId, username, status: "offline" }), null);
+        if (session && !session.isStealth) {
+          this.broadcast(JSON.stringify({ type: "presence", userId, username, status: "offline" }), null);
+        }
       });
 
       return new Response(null, { status: 101, webSocket: client });

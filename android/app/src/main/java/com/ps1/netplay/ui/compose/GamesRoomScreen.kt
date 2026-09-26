@@ -169,13 +169,9 @@ fun GamesRoomScreen(
         RoomUserItem("u4", "ليان", "لاعب 3", true, Color(0xFFEC4899))
     )
 
-    // Audio beep player
+    // Audio beep player - disabled completely per user requirement: "احذف الصوت عند النقر ع اي شي"
     fun playButtonBeep(type: Int = ToneGenerator.TONE_PROP_BEEP) {
-        if (!soundEnabled) return
-        try {
-            val toneGen = ToneGenerator(AudioManager.STREAM_MUSIC, 40)
-            toneGen.startTone(type, 60)
-        } catch (_: Exception) {}
+        // Silent
     }
 
     // Trigger action in live engine

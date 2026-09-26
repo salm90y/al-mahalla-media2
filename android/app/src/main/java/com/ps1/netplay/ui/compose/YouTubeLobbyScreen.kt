@@ -52,6 +52,19 @@ fun YouTubeLobbyScreen(
     val haptics = LocalHapticFeedback.current
     val coroutineScope = rememberCoroutineScope()
 
+    val currentUserId = remember { CloudflareClient.getCurrentUserId(context) }
+    val currentUserName = remember { CloudflareClient.getCurrentUsername(context) }
+
+    // Disable click sound effects as requested: "احذف الصوت عند النقر ع اي شي"
+    val localView = androidx.compose.ui.platform.LocalView.current
+    DisposableEffect(Unit) {
+        val prevSound = localView.isSoundEffectsEnabled
+        localView.isSoundEffectsEnabled = false
+        onDispose {
+            localView.isSoundEffectsEnabled = prevSound
+        }
+    }
+
     // App Owner detection (Owner has stealth mode & force entry capabilities)
     val isAppOwner = remember { YouTubeRoomManager.isAppOwner(context) }
     var isStealthModeActive by remember { mutableStateOf(false) }
@@ -80,8 +93,12 @@ fun YouTubeLobbyScreen(
     fun refreshRooms() {
         isLoadingRooms = true
         YouTubeRoomManager.fetchRealPublicRooms(context) { rooms ->
+            val myRooms = YouTubeRoomManager.loadRoomsLocally(context).filter {
+                it.hostId == currentUserId || (currentUserName.isNotBlank() && it.hostName.equals(currentUserName, ignoreCase = true))
+            }
+            val combined = (rooms + myRooms).distinctBy { it.roomId }
             publicRooms.clear()
-            publicRooms.addAll(rooms)
+            publicRooms.addAll(combined)
             isLoadingRooms = false
         }
     }
@@ -236,8 +253,9 @@ fun YouTubeLobbyScreen(
                     }
                 }
 
-                // App Owner Stealth Mode Control Banner
-                if (isAppOwner) {
+                // App Owner & Room Host Stealth Mode Control Banner
+                val isHostOfAnyRoom = publicRooms.any { it.hostId == currentUserId || (currentUserName.isNotBlank() && it.hostName.equals(currentUserName, ignoreCase = true)) }
+                if (isAppOwner || isHostOfAnyRoom) {
                     Spacer(modifier = Modifier.height(4.dp))
                     Surface(
                         shape = RoundedCornerShape(14.dp),
@@ -255,7 +273,7 @@ fun YouTubeLobbyScreen(
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 Text(
-                                    text = if (isStealthModeActive) "👻 وضع التخفي مفعّل (دخول مخفي 100%)" else "🛡️ مالك التطبيق (دخول إجباري متاح)",
+                                    text = if (isStealthModeActive) "👻 وضع التخفي مفعّل (دخول مخفي 100% بدون ظهور الاسم)" else if (isAppOwner) "🛡️ مالك التطبيق (دخول إجباري وتخفي متاح)" else "👑 مالك الغرفة (دخول متخفي متاح)",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
                                     fontFamily = TajawalFontFamily,
