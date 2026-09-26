@@ -40,6 +40,7 @@ enum class RoomType {
     TV_CHANNELS,
     MOVIES_SERIES,
     MEDIA,
+    YOUTUBE,
     GAMES
 }
 
@@ -70,6 +71,15 @@ fun RoomsScreen(
             iconColor = Color(0xFF059669),
             iconBgColor = Color(0xFFECFDF5),
             badgeText = "مباشر"
+        ),
+        RoomItemData(
+            type = RoomType.YOUTUBE,
+            title = "غرفة اليوتيوب والسينما",
+            subtitle = "مشاهدة جماعية وبحث سحابي 4K",
+            icon = Icons.Default.PlayCircleFilled,
+            iconColor = Color(0xFFDC2626),
+            iconBgColor = Color(0xFFFEF2F2),
+            badgeText = "YouTube"
         ),
         RoomItemData(
             type = RoomType.DUAS,
@@ -138,7 +148,7 @@ fun RoomsScreen(
             type = RoomType.MEDIA,
             title = "ميديا وتغطيات",
             subtitle = "تغطيات وتقارير مصورة",
-            icon = Icons.Default.PlayCircleFilled,
+            icon = Icons.Default.SmartDisplay,
             iconColor = Color(0xFF0D9488),
             iconBgColor = Color(0xFFF0FDFA),
             badgeText = "فيديو"
@@ -160,6 +170,12 @@ fun RoomsScreen(
             RoomType.QURAN -> {
                 QuranHomeScreen(
                     navController = navController,
+                    onBack = { selectedRoomForExperience = null }
+                )
+                return
+            }
+            RoomType.YOUTUBE -> {
+                YouTubeRoomScreen(
                     onBack = { selectedRoomForExperience = null }
                 )
                 return
