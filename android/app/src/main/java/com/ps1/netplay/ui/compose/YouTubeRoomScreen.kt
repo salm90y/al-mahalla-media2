@@ -549,9 +549,10 @@ fun YouTubeRoomScreen(
                                         ViewGroup.LayoutParams.MATCH_PARENT
                                     )
                                     try {
+                                        val currentWv = this
                                         CookieManager.getInstance().apply {
                                             setAcceptCookie(true)
-                                            setAcceptThirdPartyCookies(this@apply, true)
+                                            setAcceptThirdPartyCookies(currentWv, true)
                                         }
                                     } catch (_: Exception) {}
 
@@ -1393,9 +1394,10 @@ fun YouTubeRoomScreen(
                             factory = { ctx ->
                                 WebView(ctx).apply {
                                     try {
+                                        val currentWv = this
                                         CookieManager.getInstance().apply {
                                             setAcceptCookie(true)
-                                            setAcceptThirdPartyCookies(this@apply, true)
+                                            setAcceptThirdPartyCookies(currentWv, true)
                                         }
                                     } catch (_: Exception) {}
 
