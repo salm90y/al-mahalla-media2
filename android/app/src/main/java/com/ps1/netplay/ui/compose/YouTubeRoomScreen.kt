@@ -1,11 +1,11 @@
 package com.ps1.netplay.ui.compose
 
 import android.content.Context
-import android.content.Intent
 import android.media.AudioManager
 import android.media.ToneGenerator
-import android.net.Uri
+import android.view.ViewGroup
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -16,9 +16,7 @@ import androidx.compose.foundation.*
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -67,6 +65,13 @@ enum class YouTubeRoomSubTab {
     SETTINGS
 }
 
+enum class RoomPrivacyMode {
+    PUBLIC,      // مشاهدة عامة
+    FRIENDS,     // مشاهدة للأصدقاء
+    INVITE_ONLY, // مشاهدة للدعوة
+    ONLY_ME      // مشاهدة فقط أنا
+}
+
 data class YouTubeVideoItem(
     val id: String,
     val title: String,
@@ -75,7 +80,7 @@ data class YouTubeVideoItem(
     val viewCount: String,
     val publishedTime: String,
     val thumbnailUrl: String,
-    val category: String,
+    val category: String = "يوتيوب",
     val isLive: Boolean = false,
     val is4K: Boolean = true
 )
@@ -99,8 +104,19 @@ data class YouTubeRoomUser(
     val avatarBg: Color = Color(0xFF2563EB)
 )
 
-// Curated 25+ Comprehensive Initial YouTube & Cloudflare Video Library
+// Initial Library of videos
 val INITIAL_YOUTUBE_CATALOG = listOf(
+    YouTubeVideoItem(
+        id = "jfKfPfyJRdk",
+        title = "بث مباشر 24/7 بجودة عالية 4K Ultra HD",
+        channelTitle = "قناة البث المباشر الرسمية",
+        duration = "بث مباشر",
+        viewCount = "48.9K يشاهدون الآن",
+        publishedTime = "مباشر الآن",
+        thumbnailUrl = "https://images.unsplash.com/photo-1564769625905-50e93615e769?w=600&auto=format&fit=crop&q=80",
+        category = "بث مباشر",
+        isLive = true
+    ),
     YouTubeVideoItem(
         id = "yK4U4XkMhFk",
         title = "تلاوة خاشعة ومريحة للأعصاب من سورة مريم بصوت القارئ إسلام صبحي",
@@ -109,19 +125,8 @@ val INITIAL_YOUTUBE_CATALOG = listOf(
         viewCount = "14.2M مشاهدة",
         publishedTime = "منذ 3 أشهر",
         thumbnailUrl = "https://images.unsplash.com/photo-1609599006353-e629aaabfeae?w=600&auto=format&fit=crop&q=80",
-        category = "القرآن الكريم",
+        category = "يوتيوب",
         isLive = false
-    ),
-    YouTubeVideoItem(
-        id = "jfKfPfyJRdk",
-        title = "بث مباشر 24/7 للحرم المكي الشريف وقناة القرآن الكريم بجودة 4K Ultra HD",
-        channelTitle = "قناة القرآن الكريم الرسمية",
-        duration = "بث مباشر",
-        viewCount = "48.9K يشاهدون الآن",
-        publishedTime = "مباشر الآن",
-        thumbnailUrl = "https://images.unsplash.com/photo-1564769625905-50e93615e769?w=600&auto=format&fit=crop&q=80",
-        category = "بث مباشر",
-        isLive = true
     ),
     YouTubeVideoItem(
         id = "dQw4w9WgXcQ",
@@ -131,29 +136,7 @@ val INITIAL_YOUTUBE_CATALOG = listOf(
         viewCount = "2.1M مشاهدة",
         publishedTime = "منذ أسبوعين",
         thumbnailUrl = "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=600&auto=format&fit=crop&q=80",
-        category = "وثائقيات",
-        isLive = false
-    ),
-    YouTubeVideoItem(
-        id = "live_makkah",
-        title = "بث مباشر للمسجد النبوي الشريف - المدينة المنورة على مدار الساعة",
-        channelTitle = "قناة السنة النبوية الفضائية",
-        duration = "بث حي",
-        viewCount = "22.4K يشاهدون الآن",
-        publishedTime = "مباشر الآن",
-        thumbnailUrl = "https://images.unsplash.com/photo-1591604129939-f1efa4d9f7fa?w=600&auto=format&fit=crop&q=80",
-        category = "بث مباشر",
-        isLive = true
-    ),
-    YouTubeVideoItem(
-        id = "podcast_101",
-        title = "بودكاست فنجان: أسرار بناء المستقبل والذكاء الاصطناعي مع نخبة المهندسين",
-        channelTitle = "ثمانية / Thmanyah",
-        duration = "1:42:10",
-        viewCount = "3.8M مشاهدة",
-        publishedTime = "منذ شهر",
-        thumbnailUrl = "https://images.unsplash.com/photo-1590602847861-f357a9332bbc?w=600&auto=format&fit=crop&q=80",
-        category = "بودكاست",
+        category = "يوتيوب",
         isLive = false
     ),
     YouTubeVideoItem(
@@ -164,7 +147,7 @@ val INITIAL_YOUTUBE_CATALOG = listOf(
         viewCount = "8.4M مشاهدة",
         publishedTime = "منذ 4 أشهر",
         thumbnailUrl = "https://images.unsplash.com/photo-1506744038136-46273834b3fb?w=600&auto=format&fit=crop&q=80",
-        category = "طبيعة وراحة",
+        category = "يوتيوب",
         isLive = false
     ),
     YouTubeVideoItem(
@@ -175,298 +158,9 @@ val INITIAL_YOUTUBE_CATALOG = listOf(
         viewCount = "1.6M مشاهدة",
         publishedTime = "منذ 5 أيام",
         thumbnailUrl = "https://images.unsplash.com/photo-1519389950473-47ba0277781c?w=600&auto=format&fit=crop&q=80",
-        category = "تقنية",
-        isLive = false
-    ),
-    YouTubeVideoItem(
-        id = "dua_kumayl",
-        title = "دعاء كميل بن زياد بصوت خاشع ومؤثر مع الترجمة والكتابة الواضحة",
-        channelTitle = "أدعية ومناجاة الصالحين",
-        duration = "28:15",
-        viewCount = "5.3M مشاهدة",
-        publishedTime = "منذ 6 أشهر",
-        thumbnailUrl = "https://images.unsplash.com/photo-1542810634-71277d95dcbb?w=600&auto=format&fit=crop&q=80",
-        category = "أدعية وزيارات",
-        isLive = false
-    ),
-    YouTubeVideoItem(
-        id = "latmiya_arbaeen",
-        title = "قصيدة يا راحلين إلى كربلاء - إصدار الأربعين التاريخي بصوت مهيب",
-        channelTitle = "ميديا العتبة المقدسة",
-        duration = "14:22",
-        viewCount = "9.1M مشاهدة",
-        publishedTime = "منذ شهرين",
-        thumbnailUrl = "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=600&auto=format&fit=crop&q=80",
-        category = "لطميات ومراثي",
-        isLive = false
-    ),
-    YouTubeVideoItem(
-        id = "space_james_webb",
-        title = "وثائقي تلسكوب جيمس ويب الفضائي: أعمق صور التقطت لبدايات نشأة الكون",
-        channelTitle = "ناشيونال جيوغرافيك الوثائقية",
-        duration = "52:14",
-        viewCount = "4.7M مشاهدة",
-        publishedTime = "منذ 3 أشهر",
-        thumbnailUrl = "https://images.unsplash.com/photo-1446776811953-b23d57bd21aa?w=600&auto=format&fit=crop&q=80",
-        category = "وثائقيات",
-        isLive = false
-    ),
-    YouTubeVideoItem(
-        id = "islamic_history_baghdad",
-        title = "بيت الحكمة في بغداد: العصر الذهبي للعلوم والترجمة والطب الإسلامي",
-        channelTitle = "تاريخ وحضارة",
-        duration = "36:40",
-        viewCount = "1.9M مشاهدة",
-        publishedTime = "منذ سنة",
-        thumbnailUrl = "https://images.unsplash.com/photo-1569336415962-a4bd9f69cd83?w=600&auto=format&fit=crop&q=80",
-        category = "وثائقيات",
-        isLive = false
-    ),
-    YouTubeVideoItem(
-        id = "gaming_esports_2026",
-        title = "نهائي بطولة العالم للألعاب الإلكترونية 2026: أقوى اللحظات والريمونتادا",
-        channelTitle = "Esports Arabia",
-        duration = "22:05",
-        viewCount = "3.2M مشاهدة",
-        publishedTime = "منذ 4 أيام",
-        thumbnailUrl = "https://images.unsplash.com/photo-1542751371-adc38448a05e?w=600&auto=format&fit=crop&q=80",
-        category = "ألعاب وتحديات",
-        isLive = false
-    ),
-    YouTubeVideoItem(
-        id = "nasheed_peace",
-        title = "أنشودة سلام يا مهدي - الأداء المليوني العالمي الموحد بجودة استوديو",
-        channelTitle = "أناشيد الهدى المباركة",
-        duration = "08:50",
-        viewCount = "28.5M مشاهدة",
-        publishedTime = "منذ سنة",
-        thumbnailUrl = "https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=600&auto=format&fit=crop&q=80",
-        category = "أناشيد ومواليد",
-        isLive = false
-    ),
-    YouTubeVideoItem(
-        id = "cooking_chef_iraq",
-        title = "أصول طبخ القوزي العراقي والتمن العنبر على الطريقة التراثية الأصلية",
-        channelTitle = "شيف بغداد الأصيل",
-        duration = "21:30",
-        viewCount = "2.4M مشاهدة",
-        publishedTime = "منذ شهرين",
-        thumbnailUrl = "https://images.unsplash.com/photo-1555939594-58d7cb561ad1?w=600&auto=format&fit=crop&q=80",
-        category = "طبخ وتراث",
-        isLive = false
-    ),
-    YouTubeVideoItem(
-        id = "coding_fullstack_2026",
-        title = "تعلم برمجة تطبيقات أندرويد وCompose وCloudflare من الصفر للاحتراف",
-        channelTitle = "أكاديمية المطور العربي",
-        duration = "1:15:30",
-        viewCount = "890K مشاهدة",
-        publishedTime = "منذ أسبوع",
-        thumbnailUrl = "https://images.unsplash.com/photo-1517694712202-14dd9538aa97?w=600&auto=format&fit=crop&q=80",
-        category = "شروحات وتقنية",
-        isLive = false
-    ),
-    YouTubeVideoItem(
-        id = "tajweed_rules_pro",
-        title = "دورة أحكام التجويد الميسرة: مخارج الحروف والصفات بأسلوب عصري تفاعلي",
-        channelTitle = "أكاديمية ترتيل القرآن",
-        duration = "40:12",
-        viewCount = "1.3M مشاهدة",
-        publishedTime = "منذ 5 أشهر",
-        thumbnailUrl = "https://images.unsplash.com/photo-1585036156171-384164a8c675?w=600&auto=format&fit=crop&q=80",
-        category = "القرآن الكريم",
-        isLive = false
-    ),
-    YouTubeVideoItem(
-        id = "planet_earth_oceans",
-        title = "عجائب المحيطات العميقة: أسرار الكائنات البحرية المضيئة في ظلمات البحر",
-        channelTitle = "عالم البحار والمحيطات",
-        duration = "33:19",
-        viewCount = "6.1M مشاهدة",
-        publishedTime = "منذ 8 أشهر",
-        thumbnailUrl = "https://images.unsplash.com/photo-1544551763-46a013bb70d5?w=600&auto=format&fit=crop&q=80",
-        category = "وثائقيات",
-        isLive = false
-    ),
-    YouTubeVideoItem(
-        id = "dua_tawassul",
-        title = "دعاء التوسل بصوت جماعي مهيب من الروضة الحيدرية المقدسة في النجف الأشرف",
-        channelTitle = "العتبة العلوية المقدسة",
-        duration = "19:40",
-        viewCount = "7.2M مشاهدة",
-        publishedTime = "منذ سنة",
-        thumbnailUrl = "https://images.unsplash.com/photo-1564769625905-50e93615e769?w=600&auto=format&fit=crop&q=80",
-        category = "أدعية وزيارات",
-        isLive = false
-    ),
-    YouTubeVideoItem(
-        id = "ai_robotics_future",
-        title = "ثورة الروبوتات الذكية لعام 2026: كيف ستغير حياتنا والوظائف المستقبلية؟",
-        channelTitle = "علوم المستقبل والتكنولوجيا",
-        duration = "27:55",
-        viewCount = "1.8M مشاهدة",
-        publishedTime = "منذ 3 أسابيع",
-        thumbnailUrl = "https://images.unsplash.com/photo-1485827404703-89b55fcc595e?w=600&auto=format&fit=crop&q=80",
-        category = "تقنية",
-        isLive = false
-    ),
-    YouTubeVideoItem(
-        id = "car_review_supercar",
-        title = "تجربة قيادة أسرع سيارة كهربائية فائقة في العالم على حلبة دبي أوتودروم",
-        channelTitle = "عرب جي تي | ArabGT",
-        duration = "23:44",
-        viewCount = "2.9M مشاهدة",
-        publishedTime = "منذ أسبوعين",
-        thumbnailUrl = "https://images.unsplash.com/photo-1503376780353-7e6692767b70?w=600&auto=format&fit=crop&q=80",
-        category = "سيارات وسرعة",
-        isLive = false
-    ),
-    YouTubeVideoItem(
-        id = "nahj_al_balagha",
-        title = "شرح عهد الإمام علي (ع) لمالك الأشتر: أروع دستور إنساني لإدارة الدولة",
-        channelTitle = "دروس ونهج البلاغة",
-        duration = "48:20",
-        viewCount = "1.1M مشاهدة",
-        publishedTime = "منذ 7 أشهر",
-        thumbnailUrl = "https://images.unsplash.com/photo-1532012164546-f432f2e3edd4?w=600&auto=format&fit=crop&q=80",
-        category = "محاضرات ودروس",
-        isLive = false
-    ),
-    YouTubeVideoItem(
-        id = "quran_surah_yusuf",
-        title = "سورة يوسف كاملة بصوت القارئ الشيخ عبد الباسط عبد الصمد رحمه الله جودة نادرة",
-        channelTitle = "نوادر التلاوات الخالدة",
-        duration = "58:10",
-        viewCount = "33.4M مشاهدة",
-        publishedTime = "منذ سنتين",
-        thumbnailUrl = "https://images.unsplash.com/photo-1609599006353-e629aaabfeae?w=600&auto=format&fit=crop&q=80",
-        category = "القرآن الكريم",
-        isLive = false
-    ),
-    YouTubeVideoItem(
-        id = "astronomy_black_holes",
-        title = "أسرار الثقوب السوداء وآفاق الحدث: رحلة إلى أقصى ما يعرفه علم الفلك",
-        channelTitle = "الدحيح | ناشيونال وثائقي",
-        duration = "26:15",
-        viewCount = "4.2M مشاهدة",
-        publishedTime = "منذ 4 أشهر",
-        thumbnailUrl = "https://images.unsplash.com/photo-1462331940025-496dfbfc7564?w=600&auto=format&fit=crop&q=80",
-        category = "وثائقيات",
-        isLive = false
-    ),
-    YouTubeVideoItem(
-        id = "cyber_security_protect",
-        title = "كيف تحمي هاتفك وبياناتك الشخصية من الاختراق والتجسس؟ نصائح خبير أمني",
-        channelTitle = "الأمن السيبراني العربي",
-        duration = "18:40",
-        viewCount = "1.5M مشاهدة",
-        publishedTime = "منذ 6 أيام",
-        thumbnailUrl = "https://images.unsplash.com/photo-1550751827-4bd374c3f58b?w=600&auto=format&fit=crop&q=80",
-        category = "تقنية",
-        isLive = false
-    ),
-    YouTubeVideoItem(
-        id = "ziyarat_ashura",
-        title = "زيارة عاشوراء بصوت الحاج ميثم التمار مع دعاء علقمة بجودة صوتية عالية",
-        channelTitle = "صوت الحسين عليه السلام",
-        duration = "24:50",
-        viewCount = "12.8M مشاهدة",
-        publishedTime = "منذ 9 أشهر",
-        thumbnailUrl = "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=600&auto=format&fit=crop&q=80",
-        category = "أدعية وزيارات",
+        category = "يوتيوب",
         isLive = false
     )
-)
-
-// Extra batch for "Search More / بحث أكثر" expansion
-val EXTRA_EXPANDED_YOUTUBE_CATALOG = listOf(
-    YouTubeVideoItem(
-        id = "quran_rahman",
-        title = "سورة الرحمن عروس القرآن الكريم بصوت شجي يدخل القلب مباشرة",
-        channelTitle = "تلاوات مباركة",
-        duration = "22:15",
-        viewCount = "9.7M مشاهدة",
-        publishedTime = "منذ 5 أشهر",
-        thumbnailUrl = "https://images.unsplash.com/photo-1609599006353-e629aaabfeae?w=600&auto=format&fit=crop&q=80",
-        category = "القرآن الكريم"
-    ),
-    YouTubeVideoItem(
-        id = "cloudflare_edge_speed",
-        title = "كيف تعمل شبكات تسريع الفيديو والبث التفاعلي عبر سيرفرات Cloudflare Edge؟",
-        channelTitle = "شبكات وسحابة المطورين",
-        duration = "16:30",
-        viewCount = "640K مشاهدة",
-        publishedTime = "منذ أسبوع",
-        thumbnailUrl = "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=600&auto=format&fit=crop&q=80",
-        category = "تقنية"
-    ),
-    YouTubeVideoItem(
-        id = "documentary_civilization",
-        title = "تاريخ بلاد الرافدين: مهد الحضارات والكتابة والقوانين الأولى في العالم",
-        channelTitle = "كنوز التاريخ والحضارات",
-        duration = "44:10",
-        viewCount = "3.1M مشاهدة",
-        publishedTime = "منذ 8 أشهر",
-        thumbnailUrl = "https://images.unsplash.com/photo-1569336415962-a4bd9f69cd83?w=600&auto=format&fit=crop&q=80",
-        category = "وثائقيات"
-    ),
-    YouTubeVideoItem(
-        id = "podcast_health_brain",
-        title = "كيف تبني ذاكرة خارقة وتحافظ على صحة عقلك؟ استشارات دكتور أعصاب",
-        channelTitle = "صحة وحياة",
-        duration = "55:20",
-        viewCount = "2.0M مشاهدة",
-        publishedTime = "منذ أسبوعين",
-        thumbnailUrl = "https://images.unsplash.com/photo-1590602847861-f357a9332bbc?w=600&auto=format&fit=crop&q=80",
-        category = "بودكاست"
-    ),
-    YouTubeVideoItem(
-        id = "dua_iftitah",
-        title = "دعاء الافتتاح بصوت الشيخ جمعة حامد في ليالي شهر رمضان المبارك",
-        channelTitle = "مكتبة الأدعية الرمضانية",
-        duration = "26:30",
-        viewCount = "4.5M مشاهدة",
-        publishedTime = "منذ 6 أشهر",
-        thumbnailUrl = "https://images.unsplash.com/photo-1542810634-71277d95dcbb?w=600&auto=format&fit=crop&q=80",
-        category = "أدعية وزيارات"
-    ),
-    YouTubeVideoItem(
-        id = "esports_championship_live",
-        title = "تحديات ومهارات كروية استثنائية: أفضل أهداف وتمريرات الموسم الكروي",
-        channelTitle = "كرة القدم العالمية HD",
-        duration = "17:45",
-        viewCount = "5.8M مشاهدة",
-        publishedTime = "منذ 3 أيام",
-        thumbnailUrl = "https://images.unsplash.com/photo-1542751371-adc38448a05e?w=600&auto=format&fit=crop&q=80",
-        category = "رياضة"
-    )
-)
-
-// Autocomplete suggestion keywords
-val SEARCH_AUTOCOMPLETE_SUGGESTIONS = listOf(
-    "تلاوة القارئ إسلام صبحي سورة مريم",
-    "بث مباشر الحرم المكي 4K",
-    "وثائقي الحوسبة وشبكات Cloudflare",
-    "بودكاست فنجان ثمانية",
-    "طبيعة ساحرة 4K جبال الألب",
-    "مراجعة هواتف وتقنيات الذكاء الاصطناعي",
-    "دعاء كميل بصوت خاشع",
-    "قصيدة يا راحلين إلى كربلاء",
-    "تلسكوب جيمس ويب الفضائي",
-    "حضارة بيت الحكمة والعلوم الإسلامية",
-    "نهائي بطولة الألعاب الإلكترونية",
-    "أنشودة سلام يا مهدي",
-    "طبخ القوزي العراقي والتمن العنبر",
-    "برمجة تطبيقات أندرويد Jetpack Compose",
-    "أحكام التجويد ومخارج الحروف",
-    "عجائب المحيطات العميقة",
-    "دعاء التوسل العتبة العلوية المقدسة",
-    "ثورة الروبوتات والذكاء الاصطناعي 2026",
-    "شرح عهد الإمام علي لمالك الأشتر",
-    "سورة يوسف الشيخ عبد الباسط عبد الصمد",
-    "أسرار الثقوب السوداء في الفضاء",
-    "الأمن السيبراني وحماية الهواتف",
-    "زيارة عاشوراء ميثم التمار"
 )
 
 // ----------------------------------------------------
@@ -484,7 +178,7 @@ fun YouTubeRoomScreen(
     // Sub-tab selection (PLAYER default)
     var activeSubTab by remember { mutableStateOf(YouTubeRoomSubTab.PLAYER) }
 
-    // Video Catalog state with expansion capability
+    // Video Catalog state
     val videoCatalog = remember {
         mutableStateListOf<YouTubeVideoItem>().apply {
             addAll(INITIAL_YOUTUBE_CATALOG)
@@ -494,24 +188,22 @@ fun YouTubeRoomScreen(
     // Active currently playing video
     var currentVideo by remember { mutableStateOf<YouTubeVideoItem>(videoCatalog[0]) }
 
-    // Playback state
+    // Playback and Volume states
     var isPlaying by remember { mutableStateOf(true) }
-    var isWebPlayerActive by remember { mutableStateOf(true) } // Active real YouTube embedded player by default
-    var currentPositionSeconds by remember { mutableStateOf(245) }
-    val totalDurationSeconds by remember { mutableStateOf(1965) }
-    var playbackSpeed by remember { mutableStateOf(1.0f) }
-    var isMuted by remember { mutableStateOf(false) }
-    var currentQuality by remember { mutableStateOf("1080p 60fps (YouTube HD)") }
+    var videoVolume by remember { mutableStateOf(1.0f) } // YouTube player volume 0% - 100%
+    var isPlayerFullscreen by remember { mutableStateOf(false) } // Professional fullscreen video mode
     var isSynchronizedWithRoom by remember { mutableStateOf(true) }
     var liveViewerCount by remember { mutableStateOf(1480) }
+
+    // Privacy Mode (رموز بدون كتابة)
+    var roomPrivacyMode by remember { mutableStateOf(RoomPrivacyMode.PUBLIC) }
+    var isPrivacyDropdownOpen by remember { mutableStateOf(false) }
 
     // Room Queue Playlist state
     val queuePlaylist = remember {
         mutableStateListOf(
             videoCatalog[1],
-            videoCatalog[2],
-            videoCatalog[4],
-            videoCatalog[7]
+            videoCatalog[2]
         )
     }
 
@@ -520,74 +212,25 @@ fun YouTubeRoomScreen(
     var isDropdownOpen by remember { mutableStateOf(false) }
     var isSearchModalOpen by remember { mutableStateOf(false) }
     var isSearchingRealYouTube by remember { mutableStateOf(false) }
-    var selectedFilterCategory by remember { mutableStateOf("الكل") }
     var isExpandedSearchLoading by remember { mutableStateOf(false) }
-    var extraResultsCount by remember { mutableStateOf(0) }
     val liveSearchSuggestions = remember { mutableStateListOf<String>() }
+    val realSearchResults = remember { mutableStateListOf<YouTubeVideoItem>() }
 
-    // Live real-time YouTube query suggestions watcher
+    // Live real-time YouTube suggestions watcher (Google Suggest API only)
     LaunchedEffect(searchQuery) {
         val q = searchQuery.trim()
         if (q.length >= 2) {
-            delay(220)
+            delay(200)
             try {
                 val live = YouTubeSearchEngine.getLiveSuggestions(q)
                 liveSearchSuggestions.clear()
                 if (live.isNotEmpty()) {
-                    liveSearchSuggestions.addAll(live.take(7))
-                } else {
-                    val local = SEARCH_AUTOCOMPLETE_SUGGESTIONS.filter {
-                        it.contains(q, ignoreCase = true)
-                    }.take(7)
-                    liveSearchSuggestions.addAll(local)
+                    liveSearchSuggestions.addAll(live.take(8))
                 }
             } catch (_: Exception) {}
         } else {
             liveSearchSuggestions.clear()
         }
-    }
-
-    // Filtered suggestions for the live dropdown (Real YouTube suggestions + catalog match)
-    val filteredSuggestions = remember(searchQuery, liveSearchSuggestions.size) {
-        if (searchQuery.trim().isEmpty()) {
-            emptyList()
-        } else if (liveSearchSuggestions.isNotEmpty()) {
-            liveSearchSuggestions.toList()
-        } else {
-            SEARCH_AUTOCOMPLETE_SUGGESTIONS.filter {
-                it.contains(searchQuery.trim(), ignoreCase = true)
-            }.take(7)
-        }
-    }
-
-    // Live Room Chat Messages State
-    val chatMessages = remember {
-        mutableStateListOf(
-            YouTubeChatMessage("1", "أحمد (المضيف)", "أهلاً بالجميع في غرفة سينما اليوتيوب! 🎬🍿", "10:20 م", false, Color(0xFF2563EB)),
-            YouTubeChatMessage("2", "سارة", "جودة البث عبر Cloudflare ممتازة وسريعة جداً بدون أي تقطيع ⚡", "10:21 م", false, Color(0xFF10B981)),
-            YouTubeChatMessage("3", "محمد", "التلاوة مريحة جداً، شكراً لاختيار المقطع 🙏", "10:22 م", false, Color(0xFF8B5CF6)),
-            YouTubeChatMessage("4", "علي", "أضفت مقطع وثائقي جيمس ويب لقائمة الانتظار 🚀", "10:23 م", false, Color(0xFFF59E0B)),
-            YouTubeChatMessage("5", "فاطمة", "الصوت متزامن 100% مع الجميع ✨", "10:24 م", false, Color(0xFFEC4899))
-        )
-    }
-    var chatInputText by remember { mutableStateOf("") }
-
-    // Walkie-Talkie & Voice Room State
-    var isIntercomTalking by remember { mutableStateOf(false) }
-    var isMicMuted by remember { mutableStateOf(false) }
-    var roomVolumeLevel by remember { mutableStateOf(0.85f) }
-
-    // Room Participants state
-    val roomUsers = remember {
-        mutableStateListOf(
-            YouTubeRoomUser("u1", "أحمد", "مضيف الغرفة", isHost = true, isOnline = true, isSpeaking = false, Color(0xFF2563EB)),
-            YouTubeRoomUser("u2", "سارة", "مشرف", isHost = false, isOnline = true, isSpeaking = false, Color(0xFF10B981)),
-            YouTubeRoomUser("u3", "محمد", "مشاهد VIP", isHost = false, isOnline = true, isSpeaking = false, Color(0xFF8B5CF6)),
-            YouTubeRoomUser("u4", "علي", "مشاهد", isHost = false, isOnline = true, isSpeaking = false, Color(0xFFF59E0B)),
-            YouTubeRoomUser("u5", "فاطمة", "مشاهدة", isHost = false, isOnline = true, isSpeaking = false, Color(0xFFEC4899)),
-            YouTubeRoomUser("u6", "حسن", "مشاهد", isHost = false, isOnline = true, isSpeaking = false, Color(0xFF06B6D4)),
-            YouTubeRoomUser("u7", "زينب", "مشاهدة", isHost = false, isOnline = true, isSpeaking = false, Color(0xFF14B8A6))
-        )
     }
 
     // Audio beep player
@@ -598,7 +241,18 @@ fun YouTubeRoomScreen(
         } catch (_: Exception) {}
     }
 
-    // Perform Search & Open 20+ Results Modal with REAL YouTube Search
+    // Play a video directly in the player box
+    fun playSelectedVideo(video: YouTubeVideoItem) {
+        playButtonBeep()
+        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+        currentVideo = video
+        isPlaying = true
+        isSearchModalOpen = false
+        isDropdownOpen = false
+        Toast.makeText(context, "جاري تشغيل: ${video.title.take(35)}... 🎬", Toast.LENGTH_SHORT).show()
+    }
+
+    // Perform Search & Open Results Modal with REAL YouTube Search without reservations
     fun executeSearch(query: String) {
         playButtonBeep()
         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -607,12 +261,15 @@ fun YouTubeRoomScreen(
         isDropdownOpen = false
         isSearchModalOpen = true
 
-        if (cleanQuery.isNotEmpty() && cleanQuery != "الكل") {
+        if (cleanQuery.isNotEmpty()) {
             coroutineScope.launch {
                 isSearchingRealYouTube = true
                 try {
                     val realVideos = YouTubeSearchEngine.searchRealYouTube(cleanQuery)
+                    realSearchResults.clear()
                     if (realVideos.isNotEmpty()) {
+                        realSearchResults.addAll(realVideos)
+                        // Also add to catalog without duplicates
                         realVideos.reversed().forEach { rv ->
                             videoCatalog.removeAll { it.id == rv.id }
                             videoCatalog.add(0, rv)
@@ -625,18 +282,6 @@ fun YouTubeRoomScreen(
         }
     }
 
-    // Play a video directly
-    fun playSelectedVideo(video: YouTubeVideoItem) {
-        playButtonBeep()
-        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-        currentVideo = video
-        isPlaying = true
-        isWebPlayerActive = true
-        currentPositionSeconds = 0
-        isSynchronizedWithRoom = true
-        Toast.makeText(context, "جاري تشغيل: ${video.title.take(35)}... 🎬", Toast.LENGTH_SHORT).show()
-    }
-
     // Add video to room queue
     fun addVideoToQueue(video: YouTubeVideoItem) {
         playButtonBeep()
@@ -646,6 +291,29 @@ fun YouTubeRoomScreen(
         } else {
             Toast.makeText(context, "الفيديو موجود بالفعل في قائمة الانتظار", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    // Live Room Chat Messages State
+    val chatMessages = remember {
+        mutableStateListOf(
+            YouTubeChatMessage("1", "أحمد (المضيف)", "أهلاً بالجميع في غرفة سينما اليوتيوب! 🎬🍿", "10:20 م", false, Color(0xFF2563EB)),
+            YouTubeChatMessage("2", "سارة", "جودة البث عبر Cloudflare ممتازة وسريعة جداً بدون أي تقطيع ⚡", "10:21 م", false, Color(0xFF10B981)),
+            YouTubeChatMessage("3", "محمد", "الصوت متزامن 100% مع الجميع ✨", "10:22 م", false, Color(0xFF8B5CF6))
+        )
+    }
+    var chatInputText by remember { mutableStateOf("") }
+
+    // Intercom / Voice Room State
+    var isIntercomTalking by remember { mutableStateOf(false) }
+    var roomVolumeLevel by remember { mutableStateOf(0.85f) }
+
+    // Room Participants state
+    val roomUsers = remember {
+        mutableStateListOf(
+            YouTubeRoomUser("u1", "أحمد", "مضيف الغرفة", isHost = true, isOnline = true, isSpeaking = false, Color(0xFF2563EB)),
+            YouTubeRoomUser("u2", "سارة", "مشرف", isHost = false, isOnline = true, isSpeaking = false, Color(0xFF10B981)),
+            YouTubeRoomUser("u3", "محمد", "مشاهد VIP", isHost = false, isOnline = true, isSpeaking = false, Color(0xFF8B5CF6))
+        )
     }
 
     // Full RTL Root Layout
@@ -660,24 +328,24 @@ fun YouTubeRoomScreen(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                    .padding(horizontal = 14.dp, vertical = 6.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 // ====================================================
-                // 1. TOP HEADER: Back + Room Code Chip + Title & Cloudflare Icon
+                // 1. TOP HEADER & MERGED SLEEK SEARCH BAR
                 // ====================================================
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 4.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    // Back button (Circle with soft border)
+                    // Back button
                     IconButton(
                         onClick = onBack,
                         modifier = Modifier
-                            .size(36.dp)
+                            .size(34.dp)
                             .background(Color.White, CircleShape)
                             .border(1.dp, Color(0xFFE2E8F0), CircleShape)
                     ) {
@@ -689,14 +357,103 @@ fun YouTubeRoomScreen(
                         )
                     }
 
-                    // Center: Room Code Chip (نسخ كود الغرفة للمشاركة)
+                    // Compact, low-height Search Input field merged into the top bar
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = {
+                            searchQuery = it
+                            isDropdownOpen = it.trim().isNotEmpty()
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(38.dp),
+                        placeholder = {
+                            Text(
+                                text = "ابحث في اليوتيوب...",
+                                fontSize = 11.sp,
+                                fontFamily = TajawalFontFamily,
+                                color = Color(0xFF94A3B8)
+                            )
+                        },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Search,
+                                contentDescription = null,
+                                tint = Color(0xFF64748B),
+                                modifier = Modifier.size(15.dp)
+                            )
+                        },
+                        trailingIcon = {
+                            if (searchQuery.isNotEmpty()) {
+                                IconButton(
+                                    onClick = {
+                                        searchQuery = ""
+                                        isDropdownOpen = false
+                                    },
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "مسح",
+                                        tint = Color(0xFF94A3B8),
+                                        modifier = Modifier.size(13.dp)
+                                    )
+                                }
+                            }
+                        },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                        keyboardActions = KeyboardActions(onSearch = {
+                            if (searchQuery.trim().isNotEmpty()) {
+                                executeSearch(searchQuery)
+                            }
+                        }),
+                        shape = RoundedCornerShape(19.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedContainerColor = Color.White,
+                            unfocusedContainerColor = Color.White,
+                            focusedBorderColor = Color(0xFF2563EB),
+                            unfocusedBorderColor = Color(0xFFDBEAFE),
+                            cursorColor = Color(0xFF2563EB)
+                        ),
+                        textStyle = androidx.compose.ui.text.TextStyle(
+                            fontSize = 11.sp,
+                            fontFamily = TajawalFontFamily,
+                            color = Color(0xFF0F172A)
+                        ),
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+                    )
+
+                    // Small Search Icon Button (No text, icon-only, compact)
+                    IconButton(
+                        onClick = {
+                            if (searchQuery.trim().isNotEmpty()) {
+                                executeSearch(searchQuery)
+                            } else {
+                                isSearchModalOpen = true
+                            }
+                        },
+                        modifier = Modifier
+                            .size(34.dp)
+                            .background(Color(0xFFDC2626), CircleShape)
+                            .shadow(2.dp, CircleShape)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = "بحث",
+                            tint = Color.White,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+
+                    // Room Code Chip next to the search button
                     Surface(
                         onClick = {
                             try {
                                 val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                                 val clip = android.content.ClipData.newPlainText("كود الغرفة", "#YT-9024")
                                 clipboard.setPrimaryClip(clip)
-                                Toast.makeText(context, "تم نسخ كود الغرفة (#YT-9024) بنجاح! شاركه لمشاهدة جماعية 🎬🍿", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "تم نسخ كود الغرفة (#YT-9024) بنجاح!", Toast.LENGTH_SHORT).show()
                             } catch (_: Exception) {}
                         },
                         shape = RoundedCornerShape(12.dp),
@@ -704,244 +461,219 @@ fun YouTubeRoomScreen(
                         border = BorderStroke(1.dp, Color(0xFFDBEAFE))
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            horizontalArrangement = Arrangement.spacedBy(3.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.ContentCopy,
-                                contentDescription = "نسخ كود الغرفة",
+                                contentDescription = "نسخ",
                                 tint = Color(0xFF2563EB),
-                                modifier = Modifier.size(13.dp)
+                                modifier = Modifier.size(12.dp)
                             )
                             Text(
                                 text = "#YT-9024",
-                                fontSize = 12.sp,
+                                fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color(0xFF2563EB)
                             )
                         }
                     }
+                }
 
-                    // Title + Cloudflare Streaming Hub Icon
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                // Autocomplete Suggestions Floating Dropdown Box
+                if (isDropdownOpen && liveSearchSuggestions.isNotEmpty()) {
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 4.dp)
+                            .shadow(8.dp, RoundedCornerShape(16.dp)),
+                        shape = RoundedCornerShape(16.dp),
+                        color = Color.White,
+                        border = BorderStroke(1.dp, Color(0xFFDBEAFE))
                     ) {
-                        // Small icon button for Cloudflare CDN stream hub / library
-                        IconButton(
-                            onClick = {
-                                isSearchModalOpen = true
-                            },
-                            modifier = Modifier
-                                .size(32.dp)
-                                .background(Color(0xFFFEF2F2), CircleShape)
-                                .border(1.dp, Color(0xFFFECACA), CircleShape)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.CloudQueue,
-                                contentDescription = "سحابة البث",
-                                tint = Color(0xFFEF4444),
-                                modifier = Modifier.size(16.dp)
-                            )
+                        Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                            liveSearchSuggestions.forEach { suggestion ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            executeSearch(suggestion)
+                                        }
+                                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Search,
+                                            contentDescription = null,
+                                            tint = Color(0xFFDC2626),
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        Text(
+                                            text = suggestion,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            fontFamily = TajawalFontFamily,
+                                            color = Color(0xFF1E293B)
+                                        )
+                                    }
+                                    Icon(
+                                        imageVector = Icons.Default.NorthWest,
+                                        contentDescription = null,
+                                        tint = Color(0xFF94A3B8),
+                                        modifier = Modifier.size(13.dp)
+                                    )
+                                }
+                                Divider(color = Color(0xFFF1F5F9), thickness = 0.8.dp)
+                            }
                         }
-
-                        // Room Name
-                        Text(
-                            text = "غرفة اليوتيوب",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            fontFamily = TajawalFontFamily,
-                            color = Color(0xFF1E3A8A)
-                        )
                     }
                 }
 
                 Spacer(modifier = Modifier.height(6.dp))
 
                 // ====================================================
-                // 2. SEARCH BAR & INSTANT AUTOCOMPLETE DROPDOWN
+                // 2. DEDICATED REAL YOUTUBE VIDEO PLAYER BOX
                 // ====================================================
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 2.dp)
+                        .height(235.dp)
+                        .clip(RoundedCornerShape(22.dp))
+                        .background(Color.Black)
+                        .border(1.5.dp, Color(0xFF334155), RoundedCornerShape(22.dp)),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        // Search Text Field
-                        OutlinedTextField(
-                            value = searchQuery,
-                            onValueChange = {
-                                searchQuery = it
-                                isDropdownOpen = it.trim().isNotEmpty()
-                            },
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(50.dp),
-                            placeholder = {
-                                Text(
-                                    text = "ابحث في اليوتيوب وسيرفرات Cloudflare...",
-                                    fontSize = 12.sp,
-                                    fontFamily = TajawalFontFamily,
-                                    color = Color(0xFF94A3B8)
-                                )
-                            },
-                            leadingIcon = {
-                                Icon(
-                                    imageVector = Icons.Default.Search,
-                                    contentDescription = "بحث",
-                                    tint = Color(0xFF2563EB),
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            },
-                            trailingIcon = {
-                                if (searchQuery.isNotEmpty()) {
-                                    IconButton(onClick = {
-                                        searchQuery = ""
-                                        isDropdownOpen = false
-                                    }) {
-                                        Icon(
-                                            imageVector = Icons.Default.Close,
-                                            contentDescription = "مسح",
-                                            tint = Color(0xFF94A3B8),
-                                            modifier = Modifier.size(16.dp)
-                                        )
+                    // REAL YouTube WebView Player keyed by currentVideo.id
+                    key(currentVideo.id) {
+                        AndroidView(
+                            factory = { ctx ->
+                                WebView(ctx).apply {
+                                    layoutParams = ViewGroup.LayoutParams(
+                                        ViewGroup.LayoutParams.MATCH_PARENT,
+                                        ViewGroup.LayoutParams.MATCH_PARENT
+                                    )
+                                    settings.javaScriptEnabled = true
+                                    settings.domStorageEnabled = true
+                                    settings.mediaPlaybackRequiresUserGesture = false
+                                    settings.allowFileAccess = true
+                                    settings.allowContentAccess = true
+                                    settings.setSupportZoom(false)
+                                    settings.cacheMode = WebSettings.LOAD_DEFAULT
+                                    settings.userAgentString = "Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36"
+
+                                    webViewClient = object : WebViewClient() {
+                                        override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                                            return false
+                                        }
                                     }
+                                    webChromeClient = WebChromeClient()
+
+                                    val embedHtml = """
+                                        <!DOCTYPE html>
+                                        <html>
+                                        <head>
+                                            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+                                            <style>
+                                                * { margin:0; padding:0; box-sizing:border-box; }
+                                                body, html { width:100%; height:100%; background:#000; overflow:hidden; }
+                                                iframe { position:absolute; top:0; left:0; width:100%; height:100%; border:none; }
+                                            </style>
+                                        </head>
+                                        <body>
+                                            <iframe 
+                                                id="ytplayer"
+                                                src="https://www.youtube.com/embed/${currentVideo.id}?autoplay=1&playsinline=1&controls=1&enablejsapi=1&fs=0&rel=0&modestbranding=1" 
+                                                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
+                                                allowfullscreen>
+                                            </iframe>
+                                        </body>
+                                        </html>
+                                    """.trimIndent()
+
+                                    loadDataWithBaseURL("https://www.youtube.com", embedHtml, "text/html", "UTF-8", null)
                                 }
                             },
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                            keyboardActions = KeyboardActions(onSearch = {
-                                executeSearch(if (searchQuery.trim().isEmpty()) "الكل" else searchQuery)
-                            }),
-                            shape = RoundedCornerShape(20.dp),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedContainerColor = Color.White,
-                                unfocusedContainerColor = Color.White,
-                                focusedBorderColor = Color(0xFF2563EB),
-                                unfocusedBorderColor = Color(0xFFDBEAFE),
-                                cursorColor = Color(0xFF2563EB)
-                            ),
-                            textStyle = androidx.compose.ui.text.TextStyle(
-                                fontSize = 13.sp,
-                                fontFamily = TajawalFontFamily,
-                                color = Color(0xFF0F172A)
-                            )
+                            update = { webView ->
+                                val vol = (videoVolume * 100).toInt()
+                                webView.evaluateJavascript(
+                                    "var f = document.getElementById('ytplayer'); if (f) { f.contentWindow.postMessage('{\"event\":\"command\",\"func\":\"setVolume\",\"args\":[$vol]}', '*'); }",
+                                    null
+                                )
+                            },
+                            modifier = Modifier.fillMaxSize()
                         )
+                    }
 
-                        // Search Action Button
-                        Button(
+                    // Player Overlay Controls: Fullscreen button only
+                    Row(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        // Professional Fullscreen Video Button
+                        IconButton(
                             onClick = {
-                                executeSearch(if (searchQuery.trim().isEmpty()) "الكل" else searchQuery)
+                                isPlayerFullscreen = true
+                                playButtonBeep()
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                             },
                             modifier = Modifier
-                                .height(50.dp)
-                                .shadow(2.dp, RoundedCornerShape(18.dp)),
-                            shape = RoundedCornerShape(18.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFFDC2626) // YouTube Brand Red
-                            ),
-                            contentPadding = PaddingValues(horizontal = 14.dp)
+                                .size(34.dp)
+                                .background(Color(0xAA000000), CircleShape)
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.TravelExplore,
-                                    contentDescription = "بحث فوري",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Text(
-                                    text = "بحث",
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = TajawalFontFamily,
-                                    color = Color.White
-                                )
-                            }
+                            Icon(
+                                imageVector = Icons.Default.Fullscreen,
+                                contentDescription = "تكبير الفيديو",
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp)
+                            )
                         }
                     }
 
-                    // Autocomplete Suggestions Dropdown Box
-                    if (isDropdownOpen && filteredSuggestions.isNotEmpty()) {
-                        Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .offset(y = 54.dp)
-                                .shadow(8.dp, RoundedCornerShape(18.dp)),
-                            shape = RoundedCornerShape(18.dp),
+                    // Bottom info bar overlay on the player box
+                    Row(
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .fillMaxWidth()
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(Color.Transparent, Color(0xCC000000))
+                                )
+                            )
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = currentVideo.title,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = TajawalFontFamily,
                             color = Color.White,
-                            border = BorderStroke(1.dp, Color(0xFFDBEAFE))
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xAA10B981)
                         ) {
-                            Column(
-                                modifier = Modifier.padding(vertical = 6.dp)
-                            ) {
-                                filteredSuggestions.forEach { suggestion ->
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .clickable {
-                                                executeSearch(suggestion)
-                                            }
-                                            .padding(horizontal = 14.dp, vertical = 10.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.TrendingUp,
-                                                contentDescription = null,
-                                                tint = Color(0xFFDC2626),
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                            Text(
-                                                text = suggestion,
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.Medium,
-                                                fontFamily = TajawalFontFamily,
-                                                color = Color(0xFF1E293B)
-                                            )
-                                        }
-                                        Icon(
-                                            imageVector = Icons.Default.NorthWest,
-                                            contentDescription = null,
-                                            tint = Color(0xFF94A3B8),
-                                            modifier = Modifier.size(14.dp)
-                                        )
-                                    }
-                                    Divider(color = Color(0xFFF1F5F9), thickness = 0.8.dp)
-                                }
-
-                                // View All 20+ Results Link
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable {
-                                            executeSearch(searchQuery)
-                                        }
-                                        .background(Color(0xFFEEF5FF))
-                                        .padding(horizontal = 14.dp, vertical = 9.dp),
-                                    horizontalArrangement = Arrangement.Center,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = "🔍 عرض كافة النتائج (+20 مقطع فيديو)",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        fontFamily = TajawalFontFamily,
-                                        color = Color(0xFF2563EB)
-                                    )
-                                }
-                            }
+                            Text(
+                                text = "مباشر 4K",
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
                         }
                     }
                 }
@@ -949,381 +681,13 @@ fun YouTubeRoomScreen(
                 Spacer(modifier = Modifier.height(8.dp))
 
                 // ====================================================
-                // 3. LARGE TOP CINEMA DISPLAY CARD (تكبير مربع اليوتيوب - 275.dp)
-                // ====================================================
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(275.dp)
-                        .clip(RoundedCornerShape(32.dp))
-                        .background(
-                            Brush.verticalGradient(
-                                colors = listOf(Color(0xFF0F172A), Color(0xFF1E293B))
-                            )
-                        )
-                        .border(1.5.dp, Color(0xFF334155), RoundedCornerShape(32.dp))
-                        .clickable {
-                            isWebPlayerActive = !isWebPlayerActive
-                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (isWebPlayerActive) {
-                        // 3A. LIVE YOUTUBE / CLOUDFLARE WEBVIEW EMBEDDED PLAYER
-                        AndroidView(
-                            factory = { ctx ->
-                                WebView(ctx).apply {
-                                    settings.javaScriptEnabled = true
-                                    settings.domStorageEnabled = true
-                                    settings.mediaPlaybackRequiresUserGesture = false
-                                    settings.allowFileAccess = true
-                                    settings.cacheMode = WebSettings.LOAD_DEFAULT
-                                    webViewClient = WebViewClient()
-                                    webChromeClient = WebChromeClient()
-                                    // High performance YouTube iframe with Cloudflare fallback
-                                    val htmlData = """
-                                        <!DOCTYPE html>
-                                        <html>
-                                        <head>
-                                            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-                                            <style>
-                                                body, html { margin: 0; padding: 0; width: 100%; height: 100%; background-color: #000000; overflow: hidden; }
-                                                iframe { width: 100%; height: 100%; border: none; }
-                                            </style>
-                                        </head>
-                                        <body>
-                                            <iframe 
-                                                src="https://www.youtube-nocookie.com/embed/${currentVideo.id}?autoplay=1&playsinline=1&controls=1&modestbranding=1&rel=0" 
-                                                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
-                                                allowfullscreen>
-                                            </iframe>
-                                        </body>
-                                        </html>
-                                    """.trimIndent()
-                                    loadDataWithBaseURL("https://www.youtube.com", htmlData, "text/html", "utf-8", null)
-                                }
-                            },
-                            update = { webView ->
-                                val htmlData = """
-                                    <!DOCTYPE html>
-                                    <html>
-                                    <head>
-                                        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-                                        <style>
-                                            body, html { margin: 0; padding: 0; width: 100%; height: 100%; background-color: #000000; overflow: hidden; }
-                                            iframe { width: 100%; height: 100%; border: none; }
-                                        </style>
-                                    </head>
-                                    <body>
-                                        <iframe 
-                                            src="https://www.youtube-nocookie.com/embed/${currentVideo.id}?autoplay=1&playsinline=1&controls=1&modestbranding=1&rel=0" 
-                                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
-                                            allowfullscreen>
-                                        </iframe>
-                                    </body>
-                                    </html>
-                                """.trimIndent()
-                                webView.loadDataWithBaseURL("https://www.youtube.com", htmlData, "text/html", "utf-8", null)
-                            },
-                            modifier = Modifier.fillMaxSize()
-                        )
-
-                        // Top Action Icons on Live Player
-                        Row(
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .padding(10.dp),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            // Open in YouTube app button
-                            Box(
-                                modifier = Modifier
-                                    .background(Color(0xCCDC2626), CircleShape)
-                                    .clickable {
-                                        try {
-                                            val appIntent = Intent(Intent.ACTION_VIEW, Uri.parse("vnd.youtube:${currentVideo.id}"))
-                                            context.startActivity(appIntent)
-                                        } catch (_: Exception) {
-                                            val webIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/watch?v=${currentVideo.id}"))
-                                            context.startActivity(webIntent)
-                                        }
-                                    }
-                                    .padding(6.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.OpenInNew,
-                                    contentDescription = "فتح في تطبيق يوتيوب",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            }
-
-                            // Switch to Theater poster view
-                            Box(
-                                modifier = Modifier
-                                    .background(Color(0x99000000), CircleShape)
-                                    .clickable { isWebPlayerActive = false }
-                                    .padding(6.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.AspectRatio,
-                                    contentDescription = "عرض البوستر والمزامنة",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            }
-                        }
-                    } else {
-                        // 3B. CINEMA THEATER POSTER & INTERACTIVE SYNC HUD
-                        Box(modifier = Modifier.fillMaxSize()) {
-                            // High-res Video Thumbnail Background
-                            AsyncImage(
-                                model = currentVideo.thumbnailUrl,
-                                contentDescription = currentVideo.title,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .alpha(0.45f)
-                            )
-
-                            // Cinema Dark Gradient Overlay
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(
-                                        Brush.verticalGradient(
-                                            listOf(
-                                                Color(0x990F172A),
-                                                Color(0x400F172A),
-                                                Color(0xF00F172A)
-                                            )
-                                        )
-                                    )
-                            )
-
-                            // Top Badges Row (Live Sync + Viewers Count + Cloudflare CDN Tag)
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(14.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                // Live Watch-Party Sync Status
-                                Surface(
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = Color(0xCC10B981)
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                    ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(6.dp)
-                                                .background(Color.White, CircleShape)
-                                        )
-                                        Text(
-                                            text = "مزامنة الغرفة 100%",
-                                            fontSize = 10.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            fontFamily = TajawalFontFamily,
-                                            color = Color.White
-                                        )
-                                    }
-                                }
-
-                                // Viewers Badge
-                                Surface(
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = Color(0xCCDC2626)
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Visibility,
-                                            contentDescription = null,
-                                            tint = Color.White,
-                                            modifier = Modifier.size(12.dp)
-                                        )
-                                        Text(
-                                            text = "$liveViewerCount يشاهدون الآن",
-                                            fontSize = 10.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            fontFamily = TajawalFontFamily,
-                                            color = Color.White
-                                        )
-                                    }
-                                }
-                            }
-
-                            // Center Play / Pause Big Pulse Button
-                            Box(
-                                modifier = Modifier
-                                    .align(Alignment.Center)
-                                    .size(68.dp)
-                                    .background(
-                                        Brush.radialGradient(
-                                            listOf(Color(0xFFDC2626), Color(0xFF991B1B))
-                                        ),
-                                        CircleShape
-                                    )
-                                    .border(2.dp, Color(0xFFFECACA), CircleShape)
-                                    .clickable {
-                                        isPlaying = !isPlaying
-                                        playButtonBeep()
-                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                    contentDescription = "تشغيل",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(36.dp)
-                                )
-                            }
-
-                            // Bottom HUD: Video Title, Channel, Duration Scrubber & Control Icons
-                            Column(
-                                modifier = Modifier
-                                    .align(Alignment.BottomCenter)
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 14.dp, vertical = 10.dp)
-                            ) {
-                                Text(
-                                    text = currentVideo.title,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = TajawalFontFamily,
-                                    color = Color.White,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = "${currentVideo.channelTitle} • ${currentVideo.category}",
-                                        fontSize = 11.sp,
-                                        fontFamily = TajawalFontFamily,
-                                        color = Color(0xFF94A3B8)
-                                    )
-
-                                    // Tap to toggle webview player
-                                    Text(
-                                        text = "اضغط للمشغل المباشر 🎬",
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        fontFamily = TajawalFontFamily,
-                                        color = Color(0xFF38BDF8)
-                                    )
-                                }
-
-                                Spacer(modifier = Modifier.height(6.dp))
-
-                                // Progress Bar
-                                LinearProgressIndicator(
-                                    progress = { 0.35f },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(4.dp)
-                                        .clip(RoundedCornerShape(2.dp)),
-                                    color = Color(0xFFDC2626),
-                                    trackColor = Color(0xFF334155),
-                                )
-
-                                Spacer(modifier = Modifier.height(6.dp))
-
-                                // Quick Controls Row
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Row(
-                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        // Speed Chip
-                                        Surface(
-                                            onClick = {
-                                                playbackSpeed = when (playbackSpeed) {
-                                                    1.0f -> 1.25f
-                                                    1.25f -> 1.5f
-                                                    1.5f -> 2.0f
-                                                    else -> 1.0f
-                                                }
-                                                Toast.makeText(context, "سرعة التشغيل: ${playbackSpeed}x", Toast.LENGTH_SHORT).show()
-                                            },
-                                            shape = RoundedCornerShape(8.dp),
-                                            color = Color(0xFF1E293B)
-                                        ) {
-                                            Text(
-                                                text = "${playbackSpeed}x",
-                                                fontSize = 10.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = Color.White,
-                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                            )
-                                        }
-
-                                        // Mute Toggle
-                                        IconButton(
-                                            onClick = { isMuted = !isMuted },
-                                            modifier = Modifier.size(24.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = if (isMuted) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
-                                                contentDescription = "صوت",
-                                                tint = Color.White,
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                        }
-
-                                        Text(
-                                            text = "08:15 / ${currentVideo.duration}",
-                                            fontSize = 10.sp,
-                                            color = Color(0xFFCBD5E1)
-                                        )
-                                    }
-
-                                    // Fullscreen Web player button
-                                    IconButton(
-                                        onClick = { isWebPlayerActive = true },
-                                        modifier = Modifier.size(24.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Fullscreen,
-                                            contentDescription = "ملء الشاشة",
-                                            tint = Color.White,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // ====================================================
-                // 4. SUB-TABS NAVIGATION DOCK (مطابق تماماً لغرفة الألعاب)
+                // 3. SUB-TABS NAVIGATION DOCK
                 // ====================================================
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(52.dp),
-                    shape = RoundedCornerShape(26.dp),
+                        .height(50.dp),
+                    shape = RoundedCornerShape(25.dp),
                     color = Color.White,
                     border = BorderStroke(1.dp, Color(0xFFE2EAFD)),
                     shadowElevation = 2.dp
@@ -1351,27 +715,27 @@ fun YouTubeRoomScreen(
                             onClick = { activeSubTab = YouTubeRoomSubTab.LIVE_SYNC }
                         )
                         YouTubeDockIconButton(
-                            icon = Icons.Outlined.Mic,
+                            icon = Icons.Default.Mic,
                             isActive = activeSubTab == YouTubeRoomSubTab.INTERCOM,
                             onClick = { activeSubTab = YouTubeRoomSubTab.INTERCOM }
                         )
                         YouTubeDockIconButton(
-                            icon = Icons.Outlined.PeopleOutline,
+                            icon = Icons.Default.PeopleOutline,
                             isActive = activeSubTab == YouTubeRoomSubTab.USERS,
                             onClick = { activeSubTab = YouTubeRoomSubTab.USERS }
                         )
                         YouTubeDockIconButton(
-                            icon = Icons.Outlined.Settings,
+                            icon = Icons.Default.Settings,
                             isActive = activeSubTab == YouTubeRoomSubTab.SETTINGS,
                             onClick = { activeSubTab = YouTubeRoomSubTab.SETTINGS }
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
                 // ====================================================
-                // 5. SUB-TAB VIEW CONTENT
+                // 4. SUB-TAB ACTIVE CONTENT
                 // ====================================================
                 Box(
                     modifier = Modifier
@@ -1380,14 +744,13 @@ fun YouTubeRoomScreen(
                 ) {
                     when (activeSubTab) {
                         // ----------------------------------------------------
-                        // 5A. PLAYER & QUEUE PLAYLIST VIEW
+                        // 4A. PLAYER SUB-VIEW: Queue Playlist & Related
                         // ----------------------------------------------------
                         YouTubeRoomSubTab.PLAYER -> {
                             LazyColumn(
                                 modifier = Modifier.fillMaxSize(),
-                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                // Queue Section Header
                                 item {
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
@@ -1395,46 +758,42 @@ fun YouTubeRoomScreen(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Text(
-                                            text = "قائمة الانتظار في الغرفة (${queuePlaylist.size})",
+                                            text = "قائمة تشغيل الغرفة (${queuePlaylist.size})",
                                             fontSize = 13.sp,
                                             fontWeight = FontWeight.Bold,
                                             fontFamily = TajawalFontFamily,
                                             color = Color(0xFF1E3A8A)
                                         )
-                                        TextButton(onClick = { isSearchModalOpen = true }) {
-                                            Text(
-                                                text = "+ إضافة مقطع للغرفة",
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                fontFamily = TajawalFontFamily,
-                                                color = Color(0xFF2563EB)
-                                            )
-                                        }
+                                        Text(
+                                            text = "بحث عن مقاطع 🔍",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            fontFamily = TajawalFontFamily,
+                                            color = Color(0xFFDC2626),
+                                            modifier = Modifier.clickable { isSearchModalOpen = true }
+                                        )
                                     }
                                 }
 
-                                // Queue Items
                                 items(queuePlaylist) { item ->
+                                    val isCurrent = item.id == currentVideo.id
                                     Surface(
                                         onClick = { playSelectedVideo(item) },
-                                        shape = RoundedCornerShape(16.dp),
-                                        color = if (item.id == currentVideo.id) Color(0xFFEEF5FF) else Color.White,
-                                        border = BorderStroke(
-                                            1.dp,
-                                            if (item.id == currentVideo.id) Color(0xFF3B82F6) else Color(0xFFE2E8F0)
-                                        ),
+                                        shape = RoundedCornerShape(14.dp),
+                                        color = if (isCurrent) Color(0xFFEEF5FF) else Color.White,
+                                        border = BorderStroke(1.dp, if (isCurrent) Color(0xFF2563EB) else Color(0xFFE2EAFD)),
                                         modifier = Modifier.fillMaxWidth()
                                     ) {
                                         Row(
-                                            modifier = Modifier.padding(10.dp),
+                                            modifier = Modifier.padding(8.dp),
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                                         ) {
-                                            // Thumbnail Box
+                                            // Thumbnail
                                             Box(
                                                 modifier = Modifier
                                                     .size(width = 80.dp, height = 50.dp)
-                                                    .clip(RoundedCornerShape(10.dp))
+                                                    .clip(RoundedCornerShape(8.dp))
                                             ) {
                                                 AsyncImage(
                                                     model = item.thumbnailUrl,
@@ -1442,117 +801,51 @@ fun YouTubeRoomScreen(
                                                     contentScale = ContentScale.Crop,
                                                     modifier = Modifier.fillMaxSize()
                                                 )
-                                                Box(
-                                                    modifier = Modifier
-                                                        .align(Alignment.BottomEnd)
-                                                        .padding(2.dp)
-                                                        .background(Color(0xCC000000), RoundedCornerShape(4.dp))
-                                                        .padding(horizontal = 4.dp, vertical = 1.dp)
-                                                ) {
-                                                    Text(
-                                                        text = item.duration,
-                                                        fontSize = 8.sp,
-                                                        color = Color.White,
-                                                        fontWeight = FontWeight.Bold
-                                                    )
+                                                if (isCurrent) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .fillMaxSize()
+                                                            .background(Color(0x662563EB)),
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Equalizer,
+                                                            contentDescription = null,
+                                                            tint = Color.White,
+                                                            modifier = Modifier.size(20.dp)
+                                                        )
+                                                    }
                                                 }
                                             }
 
                                             Column(modifier = Modifier.weight(1f)) {
                                                 Text(
                                                     text = item.title,
-                                                    fontSize = 12.sp,
+                                                    fontSize = 11.sp,
                                                     fontWeight = FontWeight.Bold,
                                                     fontFamily = TajawalFontFamily,
-                                                    color = Color(0xFF0F172A),
+                                                    color = if (isCurrent) Color(0xFF2563EB) else Color(0xFF0F172A),
                                                     maxLines = 1,
                                                     overflow = TextOverflow.Ellipsis
                                                 )
                                                 Text(
-                                                    text = "${item.channelTitle} • ${item.viewCount}",
+                                                    text = item.channelTitle,
                                                     fontSize = 10.sp,
                                                     fontFamily = TajawalFontFamily,
                                                     color = Color(0xFF64748B)
                                                 )
                                             }
 
-                                            if (item.id == currentVideo.id) {
-                                                Icon(
-                                                    imageVector = Icons.Default.GraphicEq,
-                                                    contentDescription = "يعمل الآن",
-                                                    tint = Color(0xFF2563EB),
-                                                    modifier = Modifier.size(20.dp)
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-
-                                // Recommended Related Videos Section
-                                item {
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                    Text(
-                                        text = "مقاطع مقترحة سحابياً عبر Cloudflare",
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        fontFamily = TajawalFontFamily,
-                                        color = Color(0xFF1E3A8A)
-                                    )
-                                }
-
-                                items(videoCatalog.take(5)) { item ->
-                                    if (item.id != currentVideo.id) {
-                                        Surface(
-                                            onClick = { playSelectedVideo(item) },
-                                            shape = RoundedCornerShape(14.dp),
-                                            color = Color.White,
-                                            border = BorderStroke(1.dp, Color(0xFFF1F5F9)),
-                                            modifier = Modifier.fillMaxWidth()
-                                        ) {
-                                            Row(
-                                                modifier = Modifier.padding(8.dp),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            IconButton(
+                                                onClick = { playSelectedVideo(item) },
+                                                modifier = Modifier.size(30.dp)
                                             ) {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .size(width = 70.dp, height = 44.dp)
-                                                        .clip(RoundedCornerShape(8.dp))
-                                                ) {
-                                                    AsyncImage(
-                                                        model = item.thumbnailUrl,
-                                                        contentDescription = item.title,
-                                                        contentScale = ContentScale.Crop,
-                                                        modifier = Modifier.fillMaxSize()
-                                                    )
-                                                }
-                                                Column(modifier = Modifier.weight(1f)) {
-                                                    Text(
-                                                        text = item.title,
-                                                        fontSize = 11.sp,
-                                                        fontWeight = FontWeight.SemiBold,
-                                                        fontFamily = TajawalFontFamily,
-                                                        color = Color(0xFF1E293B),
-                                                        maxLines = 1,
-                                                        overflow = TextOverflow.Ellipsis
-                                                    )
-                                                    Text(
-                                                        text = item.channelTitle,
-                                                        fontSize = 9.sp,
-                                                        color = Color(0xFF64748B)
-                                                    )
-                                                }
-                                                IconButton(
-                                                    onClick = { addVideoToQueue(item) },
-                                                    modifier = Modifier.size(28.dp)
-                                                ) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.PlaylistAdd,
-                                                        contentDescription = "إضافة للقائمة",
-                                                        tint = Color(0xFF2563EB),
-                                                        modifier = Modifier.size(16.dp)
-                                                    )
-                                                }
+                                                Icon(
+                                                    imageVector = if (isCurrent) Icons.Default.PauseCircle else Icons.Default.PlayCircle,
+                                                    contentDescription = "تشغيل",
+                                                    tint = if (isCurrent) Color(0xFF2563EB) else Color(0xFFDC2626),
+                                                    modifier = Modifier.size(26.dp)
+                                                )
                                             }
                                         }
                                     }
@@ -1561,28 +854,11 @@ fun YouTubeRoomScreen(
                         }
 
                         // ----------------------------------------------------
-                        // 5B. CHAT SUB-VIEW (نفس شات غرفة الألعاب مع المعالجة)
+                        // 4B. CHAT SUB-VIEW
                         // ----------------------------------------------------
                         YouTubeRoomSubTab.CHAT -> {
-                            val chatListState = rememberLazyListState()
-
-                            LaunchedEffect(chatMessages.size) {
-                                if (chatMessages.isNotEmpty()) {
-                                    chatListState.animateScrollToItem(chatMessages.size - 1)
-                                }
-                            }
-
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(Color.White, RoundedCornerShape(24.dp))
-                                    .border(1.dp, Color(0xFFE2EAFD), RoundedCornerShape(24.dp))
-                                    .padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 12.dp)
-                                    .imePadding()
-                            ) {
-                                // Live Messages
+                            Column(modifier = Modifier.fillMaxSize()) {
                                 LazyColumn(
-                                    state = chatListState,
                                     modifier = Modifier
                                         .weight(1f)
                                         .fillMaxWidth(),
@@ -1591,122 +867,52 @@ fun YouTubeRoomScreen(
                                     items(chatMessages) { msg ->
                                         Row(
                                             modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = if (msg.isMe) Arrangement.Start else Arrangement.End,
-                                            verticalAlignment = Alignment.Top
+                                            horizontalArrangement = if (msg.isMe) Arrangement.End else Arrangement.Start
                                         ) {
-                                            if (!msg.isMe) {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .size(32.dp)
-                                                        .background(msg.avatarColor, CircleShape),
-                                                    contentAlignment = Alignment.Center
-                                                ) {
+                                            Surface(
+                                                shape = RoundedCornerShape(14.dp),
+                                                color = if (msg.isMe) Color(0xFF2563EB) else Color.White,
+                                                border = BorderStroke(1.dp, if (msg.isMe) Color(0xFF2563EB) else Color(0xFFE2EAFD))
+                                            ) {
+                                                Column(modifier = Modifier.padding(10.dp)) {
                                                     Text(
-                                                        text = msg.sender.take(1),
-                                                        color = Color.White,
-                                                        fontSize = 13.sp,
-                                                        fontWeight = FontWeight.Bold
+                                                        text = msg.sender,
+                                                        fontSize = 10.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = if (msg.isMe) Color(0xFFBFDBFE) else Color(0xFF2563EB),
+                                                        fontFamily = TajawalFontFamily
+                                                    )
+                                                    Text(
+                                                        text = msg.text,
+                                                        fontSize = 12.sp,
+                                                        color = if (msg.isMe) Color.White else Color(0xFF0F172A),
+                                                        fontFamily = TajawalFontFamily
                                                     )
                                                 }
-                                                Spacer(modifier = Modifier.width(8.dp))
-                                            }
-
-                                            Column(
-                                                modifier = Modifier
-                                                    .background(
-                                                        if (msg.isMe) Color(0xFF2563EB) else Color(0xFFEEF5FF),
-                                                        RoundedCornerShape(16.dp)
-                                                    )
-                                                    .padding(horizontal = 12.dp, vertical = 8.dp)
-                                            ) {
-                                                Text(
-                                                    text = msg.sender,
-                                                    fontSize = 11.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = if (msg.isMe) Color.White else Color(0xFF1E3A8A)
-                                                )
-                                                Spacer(modifier = Modifier.height(2.dp))
-                                                Text(
-                                                    text = msg.text,
-                                                    fontSize = 13.sp,
-                                                    color = if (msg.isMe) Color.White else Color(0xFF334155)
-                                                )
-                                                Spacer(modifier = Modifier.height(2.dp))
-                                                Text(
-                                                    text = msg.time,
-                                                    fontSize = 9.sp,
-                                                    color = if (msg.isMe) Color(0xCCFFFFFF) else Color(0xFF94A3B8)
-                                                )
                                             }
                                         }
                                     }
                                 }
 
-                                Spacer(modifier = Modifier.height(6.dp))
-
-                                // Quick Reaction Emojis
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceAround
-                                ) {
-                                    listOf("🍿", "❤️", "🔥", "😂", "👏", "✨").forEach { emoji ->
-                                        Text(
-                                            text = emoji,
-                                            fontSize = 18.sp,
-                                            modifier = Modifier
-                                                .clickable {
-                                                    chatMessages.add(
-                                                        YouTubeChatMessage(
-                                                            id = System.currentTimeMillis().toString(),
-                                                            sender = "أنا",
-                                                            text = emoji,
-                                                            time = "الآن",
-                                                            isMe = true
-                                                        )
-                                                    )
-                                                    playButtonBeep()
-                                                }
-                                                .padding(4.dp)
-                                        )
-                                    }
-                                }
-
-                                Spacer(modifier = Modifier.height(4.dp))
-
-                                // Input Bar
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .background(Color(0xFFF1F6FB), RoundedCornerShape(20.dp))
-                                        .border(1.dp, Color(0xFFE2EAFD), RoundedCornerShape(20.dp))
-                                        .padding(horizontal = 10.dp, vertical = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically
+                                        .padding(top = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
-                                    TextField(
+                                    OutlinedTextField(
                                         value = chatInputText,
                                         onValueChange = { chatInputText = it },
-                                        placeholder = {
-                                            Text(
-                                                "اكتب تعليقك المباشر في الغرفة...",
-                                                fontSize = 12.sp,
-                                                fontFamily = TajawalFontFamily,
-                                                color = Color(0xFF94A3B8)
-                                            )
-                                        },
+                                        placeholder = { Text("اكتب رسالة في المحادثة...", fontSize = 11.sp, fontFamily = TajawalFontFamily) },
                                         modifier = Modifier.weight(1f),
-                                        colors = TextFieldDefaults.colors(
-                                            focusedContainerColor = Color.Transparent,
-                                            unfocusedContainerColor = Color.Transparent,
-                                            focusedIndicatorColor = Color.Transparent,
-                                            unfocusedIndicatorColor = Color.Transparent
-                                        ),
-                                        textStyle = androidx.compose.ui.text.TextStyle(
-                                            fontSize = 13.sp,
-                                            fontFamily = TajawalFontFamily,
-                                            color = Color(0xFF0F172A)
+                                        shape = RoundedCornerShape(20.dp),
+                                        singleLine = true,
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            focusedContainerColor = Color.White,
+                                            unfocusedContainerColor = Color.White
                                         )
                                     )
-
                                     IconButton(
                                         onClick = {
                                             if (chatInputText.trim().isNotEmpty()) {
@@ -1724,22 +930,17 @@ fun YouTubeRoomScreen(
                                             }
                                         },
                                         modifier = Modifier
-                                            .size(36.dp)
+                                            .size(42.dp)
                                             .background(Color(0xFF2563EB), CircleShape)
                                     ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Send,
-                                            contentDescription = "إرسال",
-                                            tint = Color.White,
-                                            modifier = Modifier.size(16.dp)
-                                        )
+                                        Icon(imageVector = Icons.Default.Send, contentDescription = "إرسال", tint = Color.White, modifier = Modifier.size(18.dp))
                                     }
                                 }
                             }
                         }
 
                         // ----------------------------------------------------
-                        // 5C. LIVE & CLOUDFLARE SYNC MONITOR
+                        // 4C. LIVE SYNC SUB-VIEW
                         // ----------------------------------------------------
                         YouTubeRoomSubTab.LIVE_SYNC -> {
                             Column(
@@ -1748,107 +949,35 @@ fun YouTubeRoomScreen(
                                     .verticalScroll(rememberScrollState()),
                                 verticalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                // Cloudflare CDN Network Status Card
                                 Surface(
-                                    shape = RoundedCornerShape(20.dp),
-                                    color = Color(0xFF0F172A),
-                                    border = BorderStroke(1.dp, Color(0xFF334155)),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Column(modifier = Modifier.padding(16.dp)) {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.CloudSync,
-                                                    contentDescription = null,
-                                                    tint = Color(0xFFF59E0B),
-                                                    modifier = Modifier.size(22.dp)
-                                                )
-                                                Text(
-                                                    text = "سيرفر Cloudflare Edge Stream",
-                                                    fontSize = 13.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    fontFamily = TajawalFontFamily,
-                                                    color = Color.White
-                                                )
-                                            }
-                                            Surface(
-                                                shape = RoundedCornerShape(8.dp),
-                                                color = Color(0x3310B981)
-                                            ) {
-                                                Text(
-                                                    text = "متصل 12ms",
-                                                    fontSize = 10.sp,
-                                                    color = Color(0xFF34D399),
-                                                    fontWeight = FontWeight.Bold,
-                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-                                                )
-                                            }
-                                        }
-
-                                        Spacer(modifier = Modifier.height(12.dp))
-
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceAround
-                                        ) {
-                                            YouTubeStatMiniBlock(label = "البروتوكول", value = "HLS / WebRTC")
-                                            YouTubeStatMiniBlock(label = "معدل البت", value = "12,400 kbps")
-                                            YouTubeStatMiniBlock(label = "الفقد (Loss)", value = "0.0%")
-                                            YouTubeStatMiniBlock(label = "المزامنة", value = "Active ⚡")
-                                        }
-                                    }
-                                }
-
-                                // Sync Master Controls
-                                Surface(
-                                    shape = RoundedCornerShape(20.dp),
+                                    shape = RoundedCornerShape(16.dp),
                                     color = Color.White,
                                     border = BorderStroke(1.dp, Color(0xFFE2EAFD)),
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Column(modifier = Modifier.padding(16.dp)) {
+                                    Column(modifier = Modifier.padding(14.dp)) {
                                         Text(
-                                            text = "إدارة مزامنة البث مع جميع الحاضرين",
+                                            text = "مزامنة البث السحابي عبر Cloudflare CDN",
                                             fontSize = 13.sp,
                                             fontWeight = FontWeight.Bold,
                                             fontFamily = TajawalFontFamily,
                                             color = Color(0xFF1E3A8A)
                                         )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = "خوادم الحافة (Edge) تضمن تزامن تشغيل مقاطع اليوتيوب بين جميع المتواجدين بدقة أجزاء الثانية.",
+                                            fontSize = 11.sp,
+                                            color = Color(0xFF64748B),
+                                            fontFamily = TajawalFontFamily
+                                        )
                                         Spacer(modifier = Modifier.height(10.dp))
-
-                                        Button(
-                                            onClick = {
-                                                playButtonBeep()
-                                                Toast.makeText(context, "تمت إعادة معايرة ومزامنة الفيديو لجميع الحاضرين بالمللي ثانية ⏱️", Toast.LENGTH_SHORT).show()
-                                            },
+                                        Row(
                                             modifier = Modifier.fillMaxWidth(),
-                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
-                                            shape = RoundedCornerShape(12.dp)
+                                            horizontalArrangement = Arrangement.SpaceAround
                                         ) {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Sync,
-                                                    contentDescription = null,
-                                                    tint = Color.White,
-                                                    modifier = Modifier.size(16.dp)
-                                                )
-                                                Text(
-                                                    text = "إجبار المزامنة الفورية لجميع الأعضاء",
-                                                    fontFamily = TajawalFontFamily,
-                                                    color = Color.White
-                                                )
-                                            }
+                                            YouTubeStatMiniBlock(label = "زمن الاستجابة", value = "12 ms")
+                                            YouTubeStatMiniBlock(label = "فقد الحزم", value = "0.00%")
+                                            YouTubeStatMiniBlock(label = "جودة البث", value = "1080p 60fps")
                                         }
                                     }
                                 }
@@ -1856,63 +985,19 @@ fun YouTubeRoomScreen(
                         }
 
                         // ----------------------------------------------------
-                        // 5D. WALKIE-TALKIE / INTERCOM VOICE
+                        // 4D. INTERCOM SUB-VIEW
                         // ----------------------------------------------------
                         YouTubeRoomSubTab.INTERCOM -> {
                             Column(
                                 modifier = Modifier.fillMaxSize(),
-                                verticalArrangement = Arrangement.SpaceBetween,
-                                horizontalAlignment = Alignment.CenterHorizontally
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
                             ) {
-                                // Status Card
-                                Surface(
-                                    shape = RoundedCornerShape(16.dp),
-                                    color = Color.White,
-                                    border = BorderStroke(1.dp, Color(0xFFE2EAFD)),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(14.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Column {
-                                            Text(
-                                                text = if (isIntercomTalking) "🎙️ أنت تتحدث الآن في الغرفة..." else "المايك جاهز للتواصل الصوتي المباشر",
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                fontFamily = TajawalFontFamily,
-                                                color = if (isIntercomTalking) Color(0xFF10B981) else Color(0xFF1E3A8A)
-                                            )
-                                            Text(
-                                                text = "اضغط مع الاستمرار على الزر للتحدث مع الجميع",
-                                                fontSize = 10.sp,
-                                                color = Color(0xFF64748B)
-                                            )
-                                        }
-
-                                        Switch(
-                                            checked = !isMicMuted,
-                                            onCheckedChange = { isMicMuted = !it },
-                                            colors = SwitchDefaults.colors(
-                                                checkedThumbColor = Color.White,
-                                                checkedTrackColor = Color(0xFF10B981)
-                                            )
-                                        )
-                                    }
-                                }
-
-                                // Big Push-To-Talk Intercom Button
                                 Box(
                                     modifier = Modifier
-                                        .size(140.dp)
+                                        .size(120.dp)
                                         .background(
-                                            Brush.radialGradient(
-                                                if (isIntercomTalking)
-                                                    listOf(Color(0xFF10B981), Color(0xFF047857))
-                                                else
-                                                    listOf(Color(0xFF2563EB), Color(0xFF1D4ED8))
-                                            ),
+                                            if (isIntercomTalking) Color(0xFF10B981) else Color(0xFF2563EB),
                                             CircleShape
                                         )
                                         .border(4.dp, Color.White, CircleShape)
@@ -1924,108 +1009,41 @@ fun YouTubeRoomScreen(
                                         },
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        verticalArrangement = Arrangement.Center
-                                    ) {
-                                        Icon(
-                                            imageVector = if (isIntercomTalking) Icons.Default.Mic else Icons.Default.MicNone,
-                                            contentDescription = "تحدث",
-                                            tint = Color.White,
-                                            modifier = Modifier.size(44.dp)
-                                        )
-                                        Spacer(modifier = Modifier.height(4.dp))
-                                        Text(
-                                            text = if (isIntercomTalking) "تحدث الآن" else "اضغط للتحدث",
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            fontFamily = TajawalFontFamily,
-                                            color = Color.White
-                                        )
-                                    }
+                                    Icon(
+                                        imageVector = if (isIntercomTalking) Icons.Default.Mic else Icons.Default.MicNone,
+                                        contentDescription = "تحدث",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(44.dp)
+                                    )
                                 }
-
-                                // Bottom Volume Balance
-                                Surface(
-                                    shape = RoundedCornerShape(16.dp),
-                                    color = Color.White,
-                                    border = BorderStroke(1.dp, Color(0xFFE2EAFD)),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Column(modifier = Modifier.padding(12.dp)) {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween
-                                        ) {
-                                            Text(
-                                                text = "مستوى توازن صوت الفيديو مع المحادثة",
-                                                fontSize = 11.sp,
-                                                fontFamily = TajawalFontFamily,
-                                                color = Color(0xFF1E3A8A)
-                                            )
-                                            Text(
-                                                text = "${(roomVolumeLevel * 100).toInt()}%",
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = Color(0xFF2563EB)
-                                            )
-                                        }
-                                        Slider(
-                                            value = roomVolumeLevel,
-                                            onValueChange = { roomVolumeLevel = it },
-                                            colors = SliderDefaults.colors(
-                                                thumbColor = Color(0xFF2563EB),
-                                                activeTrackColor = Color(0xFF2563EB)
-                                            )
-                                        )
-                                    }
-                                }
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Text(
+                                    text = if (isIntercomTalking) "الميكروفون مفتوح - جاري البث" else "اضغط للتحدث الجماعي في الغرفة",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = TajawalFontFamily,
+                                    color = Color(0xFF1E3A8A)
+                                )
                             }
                         }
 
                         // ----------------------------------------------------
-                        // 5E. USERS / PARTICIPANTS SUB-VIEW
+                        // 4E. USERS SUB-VIEW
                         // ----------------------------------------------------
                         YouTubeRoomSubTab.USERS -> {
                             LazyColumn(
                                 modifier = Modifier.fillMaxSize(),
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                item {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            text = "المتواجدون في الغرفة (${roomUsers.size})",
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            fontFamily = TajawalFontFamily,
-                                            color = Color(0xFF1E3A8A)
-                                        )
-                                        Button(
-                                            onClick = {
-                                                Toast.makeText(context, "تم إنشاء رابط دعوة مباشر للغرفة 🔗", Toast.LENGTH_SHORT).show()
-                                            },
-                                            shape = RoundedCornerShape(10.dp),
-                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
-                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
-                                        ) {
-                                            Text("دعوة صديق", fontSize = 11.sp, fontFamily = TajawalFontFamily)
-                                        }
-                                    }
-                                }
-
                                 items(roomUsers) { user ->
                                     Surface(
-                                        shape = RoundedCornerShape(16.dp),
+                                        shape = RoundedCornerShape(14.dp),
                                         color = Color.White,
                                         border = BorderStroke(1.dp, Color(0xFFE2EAFD)),
                                         modifier = Modifier.fillMaxWidth()
                                     ) {
                                         Row(
-                                            modifier = Modifier.padding(12.dp),
+                                            modifier = Modifier.padding(10.dp),
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.SpaceBetween
                                         ) {
@@ -2035,49 +1053,18 @@ fun YouTubeRoomScreen(
                                             ) {
                                                 Box(
                                                     modifier = Modifier
-                                                        .size(38.dp)
+                                                        .size(36.dp)
                                                         .background(user.avatarBg, CircleShape),
                                                     contentAlignment = Alignment.Center
                                                 ) {
-                                                    Text(
-                                                        text = user.name.take(1),
-                                                        color = Color.White,
-                                                        fontSize = 14.sp,
-                                                        fontWeight = FontWeight.Bold
-                                                    )
+                                                    Text(text = user.name.take(1), color = Color.White, fontWeight = FontWeight.Bold)
                                                 }
                                                 Column {
-                                                    Text(
-                                                        text = user.name,
-                                                        fontSize = 12.sp,
-                                                        fontWeight = FontWeight.Bold,
-                                                        fontFamily = TajawalFontFamily,
-                                                        color = Color(0xFF0F172A)
-                                                    )
-                                                    Text(
-                                                        text = user.role,
-                                                        fontSize = 10.sp,
-                                                        color = if (user.isHost) Color(0xFF2563EB) else Color(0xFF64748B)
-                                                    )
+                                                    Text(text = user.name, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = TajawalFontFamily)
+                                                    Text(text = user.role, fontSize = 10.sp, color = Color(0xFF64748B))
                                                 }
                                             }
-
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.VolumeUp,
-                                                    contentDescription = null,
-                                                    tint = Color(0xFF10B981),
-                                                    modifier = Modifier.size(16.dp)
-                                                )
-                                                Text(
-                                                    text = "14ms",
-                                                    fontSize = 10.sp,
-                                                    color = Color(0xFF64748B)
-                                                )
-                                            }
+                                            Icon(imageVector = Icons.Default.VolumeUp, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(16.dp))
                                         }
                                     }
                                 }
@@ -2085,7 +1072,7 @@ fun YouTubeRoomScreen(
                         }
 
                         // ----------------------------------------------------
-                        // 5F. SETTINGS SUB-VIEW
+                        // 4F. SETTINGS SUB-VIEW (التحكم بصوت الفيديو + منسدلة الخصوصية برموز فقط)
                         // ----------------------------------------------------
                         YouTubeRoomSubTab.SETTINGS -> {
                             Column(
@@ -2094,6 +1081,186 @@ fun YouTubeRoomScreen(
                                     .verticalScroll(rememberScrollState()),
                                 verticalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
+                                // 1. YouTube Video Volume Controller
+                                Surface(
+                                    shape = RoundedCornerShape(16.dp),
+                                    color = Color.White,
+                                    border = BorderStroke(1.dp, Color(0xFFE2EAFD)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(modifier = Modifier.padding(14.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = if (videoVolume > 0.5f) Icons.Default.VolumeUp else if (videoVolume > 0f) Icons.Default.VolumeDown else Icons.Default.VolumeMute,
+                                                    contentDescription = null,
+                                                    tint = Color(0xFFDC2626),
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                                Text(
+                                                    text = "مستوى صوت فيديو اليوتيوب",
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontFamily = TajawalFontFamily,
+                                                    color = Color(0xFF1E3A8A)
+                                                )
+                                            }
+                                            Text(
+                                                text = "${(videoVolume * 100).toInt()}%",
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFFDC2626)
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Slider(
+                                            value = videoVolume,
+                                            onValueChange = { videoVolume = it },
+                                            colors = SliderDefaults.colors(
+                                                thumbColor = Color(0xFFDC2626),
+                                                activeTrackColor = Color(0xFFDC2626)
+                                            )
+                                        )
+                                    }
+                                }
+
+                                // 2. Room Privacy Dropdown Selector (رموز فقط بدون كتابة)
+                                Surface(
+                                    shape = RoundedCornerShape(16.dp),
+                                    color = Color.White,
+                                    border = BorderStroke(1.dp, Color(0xFFE2EAFD)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(modifier = Modifier.padding(14.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = "خصوصية مشاهدة الغرفة",
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                fontFamily = TajawalFontFamily,
+                                                color = Color(0xFF1E3A8A)
+                                            )
+
+                                            // Dropdown Anchor
+                                            Box {
+                                                Surface(
+                                                    onClick = { isPrivacyDropdownOpen = true },
+                                                    shape = RoundedCornerShape(12.dp),
+                                                    color = Color(0xFFEEF5FF),
+                                                    border = BorderStroke(1.dp, Color(0xFFDBEAFE))
+                                                ) {
+                                                    Row(
+                                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                    ) {
+                                                        val currentPrivacyIcon = when (roomPrivacyMode) {
+                                                            RoomPrivacyMode.PUBLIC -> Icons.Default.Public
+                                                            RoomPrivacyMode.FRIENDS -> Icons.Default.Group
+                                                            RoomPrivacyMode.INVITE_ONLY -> Icons.Default.MailOutline
+                                                            RoomPrivacyMode.ONLY_ME -> Icons.Default.Lock
+                                                        }
+                                                        Icon(
+                                                            imageVector = currentPrivacyIcon,
+                                                            contentDescription = null,
+                                                            tint = Color(0xFF2563EB),
+                                                            modifier = Modifier.size(18.dp)
+                                                        )
+                                                        Icon(
+                                                            imageVector = Icons.Default.ArrowDropDown,
+                                                            contentDescription = null,
+                                                            tint = Color(0xFF2563EB),
+                                                            modifier = Modifier.size(16.dp)
+                                                        )
+                                                    }
+                                                }
+
+                                                // Dropdown Menu: ICONS ONLY WITHOUT TEXT
+                                                DropdownMenu(
+                                                    expanded = isPrivacyDropdownOpen,
+                                                    onDismissRequest = { isPrivacyDropdownOpen = false }
+                                                ) {
+                                                    val privacyOptions = listOf(
+                                                        RoomPrivacyMode.PUBLIC to Icons.Default.Public,
+                                                        RoomPrivacyMode.FRIENDS to Icons.Default.Group,
+                                                        RoomPrivacyMode.INVITE_ONLY to Icons.Default.MailOutline,
+                                                        RoomPrivacyMode.ONLY_ME to Icons.Default.Lock
+                                                    )
+                                                    privacyOptions.forEach { (mode, icon) ->
+                                                        DropdownMenuItem(
+                                                            text = { },
+                                                            leadingIcon = {
+                                                                Icon(
+                                                                    imageVector = icon,
+                                                                    contentDescription = null,
+                                                                    tint = if (roomPrivacyMode == mode) Color(0xFF2563EB) else Color(0xFF64748B),
+                                                                    modifier = Modifier.size(20.dp)
+                                                                )
+                                                            },
+                                                            onClick = {
+                                                                roomPrivacyMode = mode
+                                                                isPrivacyDropdownOpen = false
+                                                                playButtonBeep()
+                                                            }
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        Spacer(modifier = Modifier.height(10.dp))
+
+                                        // Direct Row of 4 Icons (رموز بدون كتابة)
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceAround,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            val privacyOptions = listOf(
+                                                RoomPrivacyMode.PUBLIC to Icons.Default.Public,
+                                                RoomPrivacyMode.FRIENDS to Icons.Default.Group,
+                                                RoomPrivacyMode.INVITE_ONLY to Icons.Default.MailOutline,
+                                                RoomPrivacyMode.ONLY_ME to Icons.Default.Lock
+                                            )
+                                            privacyOptions.forEach { (mode, icon) ->
+                                                val isSelected = roomPrivacyMode == mode
+                                                Surface(
+                                                    onClick = {
+                                                        roomPrivacyMode = mode
+                                                        playButtonBeep()
+                                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                    },
+                                                    shape = RoundedCornerShape(12.dp),
+                                                    color = if (isSelected) Color(0xFF2563EB) else Color(0xFFF8FAFC),
+                                                    border = BorderStroke(1.dp, if (isSelected) Color(0xFF2563EB) else Color(0xFFE2E8F0)),
+                                                    modifier = Modifier.size(44.dp)
+                                                ) {
+                                                    Box(contentAlignment = Alignment.Center) {
+                                                        Icon(
+                                                            imageVector = icon,
+                                                            contentDescription = null,
+                                                            tint = if (isSelected) Color.White else Color(0xFF64748B),
+                                                            modifier = Modifier.size(20.dp)
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Additional Settings Switches
                                 YouTubeSettingsSwitchItem(
                                     title = "تسريع السحابة عبر Cloudflare CDN",
                                     subtitle = "تقليل استهلاك البيانات وتحسين سرعة استجابة الفيديو",
@@ -2104,16 +1271,6 @@ fun YouTubeRoomScreen(
                                     subtitle = "مطابقة توقيت التشغيل مع مضيف الغرفة بدقة 0.1 ثانية",
                                     isChecked = isSynchronizedWithRoom
                                 )
-                                YouTubeSettingsSwitchItem(
-                                    title = "الوضع السينمائي المحيطي (Cinema Glow)",
-                                    subtitle = "توهج إضاءة ذكية حول الفيديو حسب ألوان المشهد",
-                                    isChecked = true
-                                )
-                                YouTubeSettingsSwitchItem(
-                                    title = "تشغيل الصوت في الخلفية",
-                                    subtitle = "استمرار الاستماع للتلاوات والمقاطع عند قفل الشاشة",
-                                    isChecked = true
-                                )
                             }
                         }
                     }
@@ -2122,19 +1279,144 @@ fun YouTubeRoomScreen(
         }
 
         // ====================================================
-        // 6. RICH FULL POPUP MODAL DIALOG (>20 RESULTS + SEARCH MORE)
+        // 5. PROFESSIONAL IMMERSIVE FULLSCREEN VIDEO DIALOG
         // ====================================================
-        if (isSearchModalOpen) {
-            val queryFilteredResults = remember(searchQuery, selectedFilterCategory, videoCatalog.size) {
-                videoCatalog.filter { item ->
-                    val matchesCategory = (selectedFilterCategory == "الكل") || (item.category == selectedFilterCategory)
-                    val matchesQuery = (searchQuery.trim().isEmpty() || searchQuery == "الكل") ||
-                            item.title.contains(searchQuery.trim(), ignoreCase = true) ||
-                            item.channelTitle.contains(searchQuery.trim(), ignoreCase = true) ||
-                            item.category.contains(searchQuery.trim(), ignoreCase = true)
-                    matchesCategory && matchesQuery
+        if (isPlayerFullscreen) {
+            Dialog(
+                onDismissRequest = { isPlayerFullscreen = false },
+                properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black)
+                ) {
+                    // Fullscreen YouTube Player
+                    key(currentVideo.id) {
+                        AndroidView(
+                            factory = { ctx ->
+                                WebView(ctx).apply {
+                                    settings.javaScriptEnabled = true
+                                    settings.domStorageEnabled = true
+                                    settings.mediaPlaybackRequiresUserGesture = false
+                                    settings.userAgentString = "Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36"
+                                    webViewClient = object : WebViewClient() {
+                                        override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?) = false
+                                    }
+                                    webChromeClient = WebChromeClient()
+                                    val embedHtml = """
+                                        <!DOCTYPE html>
+                                        <html>
+                                        <head>
+                                            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+                                            <style>
+                                                * { margin:0; padding:0; box-sizing:border-box; }
+                                                body, html { width:100%; height:100%; background:#000; overflow:hidden; }
+                                                iframe { position:absolute; top:0; left:0; width:100%; height:100%; border:none; }
+                                            </style>
+                                        </head>
+                                        <body>
+                                            <iframe 
+                                                id="ytplayer_fs"
+                                                src="https://www.youtube.com/embed/${currentVideo.id}?autoplay=1&playsinline=1&controls=1&enablejsapi=1&fs=0&rel=0&modestbranding=1" 
+                                                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
+                                                allowfullscreen>
+                                            </iframe>
+                                        </body>
+                                        </html>
+                                    """.trimIndent()
+                                    loadDataWithBaseURL("https://www.youtube.com", embedHtml, "text/html", "UTF-8", null)
+                                }
+                            },
+                            update = { webView ->
+                                val vol = (videoVolume * 100).toInt()
+                                webView.evaluateJavascript(
+                                    "var f = document.getElementById('ytplayer_fs'); if (f) { f.contentWindow.postMessage('{\"event\":\"command\",\"func\":\"setVolume\",\"args\":[$vol]}', '*'); }",
+                                    null
+                                )
+                            },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+
+                    // Floating Top Bar in Fullscreen
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .statusBarsPadding()
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Surface(
+                            onClick = { isPlayerFullscreen = false },
+                            shape = CircleShape,
+                            color = Color(0xAA000000)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.FullscreenExit,
+                                    contentDescription = "تصغير",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Text(
+                                    text = "تصغير",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White,
+                                    fontFamily = TajawalFontFamily
+                                )
+                            }
+                        }
+
+                        Text(
+                            text = currentVideo.title,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            fontFamily = TajawalFontFamily,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(horizontal = 12.dp)
+                        )
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier
+                                .background(Color(0xAA000000), RoundedCornerShape(10.dp))
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (videoVolume > 0.5f) Icons.Default.VolumeUp else if (videoVolume > 0f) Icons.Default.VolumeDown else Icons.Default.VolumeMute,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = "${(videoVolume * 100).toInt()}%",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
+                    }
                 }
             }
+        }
+
+        // ====================================================
+        // 6. RICH SEARCH MODAL DIALOG (UNRESTRICTED REAL YOUTUBE RESULTS)
+        // ====================================================
+        if (isSearchModalOpen) {
+            val displayResults = if (realSearchResults.isNotEmpty()) realSearchResults else videoCatalog
 
             Dialog(
                 onDismissRequest = { isSearchModalOpen = false },
@@ -2178,22 +1460,21 @@ fun YouTubeRoomScreen(
                                         )
                                     }
                                     Text(
-                                        text = "نتائج البحث والمكتبة المرئية",
-                                        fontSize = 15.sp,
+                                        text = if (searchQuery.isNotEmpty()) "نتائج: $searchQuery" else "نتائج مقاطع اليوتيوب",
+                                        fontSize = 14.sp,
                                         fontWeight = FontWeight.Bold,
                                         fontFamily = TajawalFontFamily,
                                         color = Color(0xFF0F172A)
                                     )
                                 }
 
-                                // Total Results Counter Badge
                                 Surface(
                                     shape = RoundedCornerShape(10.dp),
                                     color = Color(0xFFEEF5FF),
                                     border = BorderStroke(1.dp, Color(0xFFDBEAFE))
                                 ) {
                                     Text(
-                                        text = "${queryFilteredResults.size} نتيجة متاحة",
+                                        text = "${displayResults.size} مقطع متاح",
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Bold,
                                         fontFamily = TajawalFontFamily,
@@ -2203,40 +1484,9 @@ fun YouTubeRoomScreen(
                                 }
                             }
 
-                            Spacer(modifier = Modifier.height(12.dp))
-
-                            // Category Filter Chips Row
-                            LazyRow(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                val categories = listOf("الكل", "القرآن الكريم", "بث مباشر", "وثائقيات", "أدعية وزيارات", "بودكاست", "تقنية", "لطميات ومراثي", "ألعاب وتحديات")
-                                items(categories) { cat ->
-                                    val isSelected = selectedFilterCategory == cat
-                                    Surface(
-                                        onClick = {
-                                            selectedFilterCategory = cat
-                                            playButtonBeep()
-                                        },
-                                        shape = RoundedCornerShape(14.dp),
-                                        color = if (isSelected) Color(0xFF2563EB) else Color.White,
-                                        border = BorderStroke(1.dp, if (isSelected) Color(0xFF2563EB) else Color(0xFFE2E8F0))
-                                    ) {
-                                        Text(
-                                            text = cat,
-                                            fontSize = 11.sp,
-                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                            fontFamily = TajawalFontFamily,
-                                            color = if (isSelected) Color.White else Color(0xFF475569),
-                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                                        )
-                                    }
-                                }
-                            }
-
                             Spacer(modifier = Modifier.height(10.dp))
 
-                            // Real YouTube Live Search Status Banner
+                            // Searching status indicator
                             if (isSearchingRealYouTube) {
                                 Surface(
                                     shape = RoundedCornerShape(14.dp),
@@ -2258,7 +1508,7 @@ fun YouTubeRoomScreen(
                                         )
                                         Spacer(modifier = Modifier.width(8.dp))
                                         Text(
-                                            text = "جاري جلب أحدث النتائج الحقيقية مباشرة من YouTube...",
+                                            text = "جاري جلب كافة نتائج YouTube بدون تحفظ...",
                                             fontSize = 11.sp,
                                             fontFamily = TajawalFontFamily,
                                             fontWeight = FontWeight.Bold,
@@ -2268,29 +1518,28 @@ fun YouTubeRoomScreen(
                                 }
                             }
 
-                            // 20+ Results List
+                            // Unrestricted Results List
                             LazyColumn(
                                 modifier = Modifier
                                     .weight(1f)
                                     .fillMaxWidth(),
                                 verticalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                items(queryFilteredResults) { item ->
+                                items(displayResults) { item ->
                                     Surface(
-                                        shape = RoundedCornerShape(18.dp),
+                                        onClick = { playSelectedVideo(item) },
+                                        shape = RoundedCornerShape(16.dp),
                                         color = Color.White,
                                         border = BorderStroke(1.dp, Color(0xFFE2EAFD)),
                                         shadowElevation = 1.dp,
                                         modifier = Modifier.fillMaxWidth()
                                     ) {
-                                        Column(
-                                            modifier = Modifier.padding(10.dp)
-                                        ) {
+                                        Column(modifier = Modifier.padding(10.dp)) {
                                             Row(
                                                 modifier = Modifier.fillMaxWidth(),
                                                 horizontalArrangement = Arrangement.spacedBy(10.dp)
                                             ) {
-                                                // Large High-Res Thumbnail with badge
+                                                // High-Res Thumbnail with badge
                                                 Box(
                                                     modifier = Modifier
                                                         .size(width = 115.dp, height = 75.dp)
@@ -2302,7 +1551,6 @@ fun YouTubeRoomScreen(
                                                         contentScale = ContentScale.Crop,
                                                         modifier = Modifier.fillMaxSize()
                                                     )
-                                                    // Duration / Live Badge
                                                     Box(
                                                         modifier = Modifier
                                                             .align(Alignment.BottomEnd)
@@ -2351,16 +1599,13 @@ fun YouTubeRoomScreen(
 
                                             Spacer(modifier = Modifier.height(8.dp))
 
-                                            // Action Buttons Row (تشغيل في الغرفة + إضافة للدور)
+                                            // Action Buttons: Play in Room & Add to Queue
                                             Row(
                                                 modifier = Modifier.fillMaxWidth(),
                                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                                             ) {
                                                 Button(
-                                                    onClick = {
-                                                        playSelectedVideo(item)
-                                                        isSearchModalOpen = false
-                                                    },
+                                                    onClick = { playSelectedVideo(item) },
                                                     modifier = Modifier.weight(1f),
                                                     shape = RoundedCornerShape(10.dp),
                                                     colors = ButtonDefaults.buttonColors(
@@ -2389,9 +1634,7 @@ fun YouTubeRoomScreen(
                                                 }
 
                                                 OutlinedButton(
-                                                    onClick = {
-                                                        addVideoToQueue(item)
-                                                    },
+                                                    onClick = { addVideoToQueue(item) },
                                                     modifier = Modifier.weight(1f),
                                                     shape = RoundedCornerShape(10.dp),
                                                     border = BorderStroke(1.dp, Color(0xFF2563EB)),
@@ -2421,7 +1664,7 @@ fun YouTubeRoomScreen(
                                     }
                                 }
 
-                                // Load More Results (بحث أكثر وجلب مقاطع حقيقية من يوتيوب)
+                                // Load More Results from YouTube
                                 item {
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Surface(
@@ -2429,7 +1672,7 @@ fun YouTubeRoomScreen(
                                             if (!isExpandedSearchLoading) {
                                                 isExpandedSearchLoading = true
                                                 coroutineScope.launch {
-                                                    val q = if (searchQuery.trim().isNotEmpty() && searchQuery != "الكل") searchQuery.trim() else "قرآن وبث مباشر"
+                                                    val q = if (searchQuery.trim().isNotEmpty()) searchQuery.trim() else "يوتيوب مباشر"
                                                     val realMore = try {
                                                         YouTubeSearchEngine.searchRealYouTube("$q جديد")
                                                     } catch (_: Exception) {
@@ -2438,19 +1681,12 @@ fun YouTubeRoomScreen(
                                                     if (realMore.isNotEmpty()) {
                                                         var addedCount = 0
                                                         realMore.forEach { extraItem ->
-                                                            if (!videoCatalog.any { it.id == extraItem.id }) {
-                                                                videoCatalog.add(extraItem)
+                                                            if (!realSearchResults.any { it.id == extraItem.id }) {
+                                                                realSearchResults.add(extraItem)
                                                                 addedCount++
                                                             }
                                                         }
                                                         Toast.makeText(context, "تم جلب $addedCount مقطع فيديو إضافي من YouTube 🚀", Toast.LENGTH_SHORT).show()
-                                                    } else {
-                                                        EXTRA_EXPANDED_YOUTUBE_CATALOG.forEach { extraItem ->
-                                                            if (!videoCatalog.any { it.id == extraItem.id }) {
-                                                                videoCatalog.add(extraItem)
-                                                            }
-                                                        }
-                                                        Toast.makeText(context, "تم توسيع نتائج البحث بنجاح ✨", Toast.LENGTH_SHORT).show()
                                                     }
                                                     isExpandedSearchLoading = false
                                                 }
@@ -2483,7 +1719,7 @@ fun YouTubeRoomScreen(
                                                 Spacer(modifier = Modifier.width(6.dp))
                                             }
                                             Text(
-                                                text = if (isExpandedSearchLoading) "جاري البحث المباشر في يوتيوب..." else "✨ بحث أكثر وتوسيع النتائج من YouTube",
+                                                text = if (isExpandedSearchLoading) "جاري البحث المباشر في يوتيوب..." else "✨ بحث أكثر وجلب نتائج إضافية من YouTube",
                                                 fontSize = 12.sp,
                                                 fontWeight = FontWeight.Bold,
                                                 fontFamily = TajawalFontFamily,
@@ -2514,7 +1750,7 @@ private fun YouTubeDockIconButton(
     IconButton(
         onClick = onClick,
         modifier = Modifier
-            .size(40.dp)
+            .size(38.dp)
             .background(
                 if (isActive) Color(0xFF2563EB) else Color.Transparent,
                 CircleShape
@@ -2542,7 +1778,7 @@ private fun YouTubeStatMiniBlock(label: String, value: String) {
             text = value,
             fontSize = 11.sp,
             fontWeight = FontWeight.Bold,
-            color = Color.White
+            color = Color(0xFF1E3A8A)
         )
     }
 }
