@@ -155,7 +155,7 @@ fun ChatListScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(Color.White)
+            .background(getAppScreenBackground())
             .statusBarsPadding()
     ) {
         // 1. Top Bar: Title "الدردشات" on Right (Start in RTL), Action Icons on Left (End in RTL)

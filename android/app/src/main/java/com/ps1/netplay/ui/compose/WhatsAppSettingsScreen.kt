@@ -90,6 +90,7 @@ fun WhatsAppSettingsScreen(
 
     // Settings state
     var theme by remember { mutableStateOf(AppSettingsManager.getTheme(context)) }
+    var bgTheme by remember { mutableStateOf(AppSettingsManager.getBgTheme(context)) }
     var accentColor by remember { mutableStateOf(AppSettingsManager.getAccentColor(context)) }
     var statusBarEdge by remember { mutableStateOf(AppSettingsManager.isStatusBarEdge(context)) }
     var chatListStyle by remember { mutableStateOf(AppSettingsManager.getChatListStyle(context)) }
@@ -151,7 +152,7 @@ fun WhatsAppSettingsScreen(
 
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
         Scaffold(
-            containerColor = Color(0xFFF8FAFC),
+            containerColor = getAppScreenBackground(),
             topBar = {
                 // Unified Top Bar matching Chats, Friends, Calls, Stories
                 Row(
@@ -358,9 +359,9 @@ fun WhatsAppSettingsScreen(
                         isExpanded = isExpanded,
                         onToggle = { toggleExpand("appearance") }
                     ) {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             SettingsSubItem(
-                                title = "وضع الثيم",
+                                title = "وضع الثيم العام",
                                 subtitle = when (theme) {
                                     "dark" -> "داكن"
                                     "light" -> "فاتح (افتراضي)"
@@ -368,6 +369,114 @@ fun WhatsAppSettingsScreen(
                                 },
                                 onClick = { showThemeDialog = true }
                             )
+
+                            // Real Theme Background Selector (ثيم وخلفية الواجهات)
+                            Text(
+                                text = "خلفية وثيم الواجهات الموحد",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = TajawalFontFamily,
+                                color = Color(0xFF0F172A),
+                                modifier = Modifier.padding(top = 4.dp, bottom = 2.dp)
+                            )
+
+                            // Background Options Cards
+                            val bgOptions = listOf(
+                                Triple("stories", "ثيم واجهة الحالات (الافتراضي الموحد)", Color(0xFFF0F6FF)),
+                                Triple("login", "خلفية واجهة تسجيل الدخول", Color(0xFFF0F6FF)),
+                                Triple("pure_white", "الأبيض النقي (Pure White)", Color(0xFFFFFFFF)),
+                                Triple("slate_light", "السماوي الهادئ (Azure Sky)", Color(0xFFEBF3FE)),
+                                Triple("dark", "الوضع الليلي الفاخر (Dark Sapphire)", Color(0xFF0F172A))
+                            )
+
+                            bgOptions.forEach { (key, label, previewColor) ->
+                                val isSelected = bgTheme == key
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(if (isSelected) Color(0xFFEFF6FF) else Color(0xFFF8FAFC))
+                                        .border(
+                                            width = if (isSelected) 1.5.dp else 1.dp,
+                                            color = if (isSelected) Color(0xFF2563EB) else Color(0xFFE2E8F0),
+                                            shape = RoundedCornerShape(12.dp)
+                                        )
+                                        .clickable {
+                                            bgTheme = key
+                                            AppSettingsManager.setBgTheme(context, key)
+                                            if (key == "dark") {
+                                                theme = "dark"
+                                                AppSettingsManager.setTheme(context, "dark")
+                                            } else if (theme == "dark") {
+                                                theme = "light"
+                                                AppSettingsManager.setTheme(context, "light")
+                                            }
+                                            Toast.makeText(context, "تم تطبيق: $label", Toast.LENGTH_SHORT).show()
+                                        }
+                                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(24.dp)
+                                                .clip(CircleShape)
+                                                .background(previewColor)
+                                                .border(1.dp, Color(0xFFCBD5E1), CircleShape)
+                                        )
+                                        Spacer(modifier = Modifier.width(10.dp))
+                                        Column {
+                                            Text(
+                                                text = label,
+                                                fontSize = 13.sp,
+                                                fontFamily = TajawalFontFamily,
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                                color = if (isSelected) Color(0xFF2563EB) else Color(0xFF0F172A)
+                                            )
+                                            if (key == "login") {
+                                                Text(
+                                                    text = "الخلفية المستخدمة في شاشة تسجيل الدخول",
+                                                    fontSize = 11.sp,
+                                                    fontFamily = TajawalFontFamily,
+                                                    color = Color(0xFF64748B)
+                                                )
+                                            } else if (key == "stories") {
+                                                Text(
+                                                    text = "اللون الأزرق الهادئ الموحد لجميع شاشات التطبيق",
+                                                    fontSize = 11.sp,
+                                                    fontFamily = TajawalFontFamily,
+                                                    color = Color(0xFF64748B)
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    RadioButton(
+                                        selected = isSelected,
+                                        onClick = {
+                                            bgTheme = key
+                                            AppSettingsManager.setBgTheme(context, key)
+                                            if (key == "dark") {
+                                                theme = "dark"
+                                                AppSettingsManager.setTheme(context, "dark")
+                                            } else if (theme == "dark") {
+                                                theme = "light"
+                                                AppSettingsManager.setTheme(context, "light")
+                                            }
+                                            Toast.makeText(context, "تم تطبيق: $label", Toast.LENGTH_SHORT).show()
+                                        },
+                                        colors = RadioButtonDefaults.colors(
+                                            selectedColor = Color(0xFF2563EB)
+                                        )
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(4.dp))
 
                             SettingsSubItem(
                                 title = "لون التمييز الأساسي",

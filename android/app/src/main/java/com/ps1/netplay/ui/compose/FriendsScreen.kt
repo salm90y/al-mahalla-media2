@@ -135,9 +135,9 @@ fun FriendsScreen(
     Scaffold(
         modifier = modifier
             .fillMaxSize()
-            .background(Color.White)
+            .background(getAppScreenBackground())
             .statusBarsPadding(),
-        containerColor = Color.White
+        containerColor = getAppScreenBackground()
     ) { innerPadding ->
         Column(
             modifier = Modifier

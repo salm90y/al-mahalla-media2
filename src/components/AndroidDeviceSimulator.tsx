@@ -44,7 +44,14 @@ export const AndroidDeviceSimulator: React.FC<AndroidDeviceSimulatorProps> = ({
   const [settingsSearch, setSettingsSearch] = useState('');
 
   // Settings State
-  const [themeMode, setThemeMode] = useState('فاتح (افتراضي)');
+  const [themeBackground, setThemeBackground] = useState<'stories_theme' | 'login_theme' | 'dark_theme' | 'sky_theme'>(() => {
+    try {
+      return (localStorage.getItem('mahalla_theme_bg') as any) || 'stories_theme';
+    } catch {
+      return 'stories_theme';
+    }
+  });
+  const [themeMode, setThemeMode] = useState('ثيم الحالات الموحد (فاتح)');
   const [chatFontSize, setChatFontSize] = useState(15);
   const [sendOnEnter, setSendOnEnter] = useState(true);
   const [statusBarEdge, setStatusBarEdge] = useState(true);
@@ -448,6 +455,50 @@ export const AndroidDeviceSimulator: React.FC<AndroidDeviceSimulatorProps> = ({
     { id: 'games', title: 'ألعاب', icon: Gamepad2 }
   ];
 
+  const handleSetThemeBackground = (theme: 'stories_theme' | 'login_theme' | 'dark_theme' | 'sky_theme') => {
+    setThemeBackground(theme);
+    if (theme === 'stories_theme') setThemeMode('ثيم الحالات الموحد (أزرق هادئ)');
+    else if (theme === 'login_theme') setThemeMode('خلفية واجهة تسجيل الدخول');
+    else if (theme === 'dark_theme') setThemeMode('الوضع الليلي الأنيق');
+    else if (theme === 'sky_theme') setThemeMode('الخلفية السماوية النقية');
+    
+    try {
+      localStorage.setItem('mahalla_theme_bg', theme);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const getThemeBgClass = () => {
+    switch (themeBackground) {
+      case 'stories_theme':
+        return 'bg-[#F0F6FF]';
+      case 'login_theme':
+        return 'bg-[#F8FAFC]';
+      case 'dark_theme':
+        return 'bg-[#0F172A] text-slate-100';
+      case 'sky_theme':
+        return 'bg-[#E0F2FE]';
+      default:
+        return 'bg-[#F0F6FF]';
+    }
+  };
+
+  const getStatusBarBgClass = () => {
+    switch (themeBackground) {
+      case 'stories_theme':
+        return 'bg-[#F0F6FF] text-slate-800';
+      case 'login_theme':
+        return 'bg-[#F8FAFC] text-slate-800';
+      case 'dark_theme':
+        return 'bg-[#0F172A] text-slate-100';
+      case 'sky_theme':
+        return 'bg-[#E0F2FE] text-slate-800';
+      default:
+        return 'bg-[#F0F6FF] text-slate-800';
+    }
+  };
+
   const surahs = [
     { no: 1, name: 'الفاتحة', english: 'Al-Fatihah', verses: 7, type: 'مكية' },
     { no: 2, name: 'البقرة', english: 'Al-Baqarah', verses: 286, type: 'مدنية' },
@@ -466,22 +517,22 @@ export const AndroidDeviceSimulator: React.FC<AndroidDeviceSimulatorProps> = ({
   return (
     <div id="android-device-simulator-root" className="flex items-center justify-center p-2 sm:p-6 min-h-screen bg-slate-900 font-sans">
       {/* Phone Frame */}
-      <div className="w-full max-w-md h-[860px] max-h-[94vh] bg-[#F8FAFC] rounded-[42px] border-[8px] border-slate-800 shadow-2xl overflow-hidden flex flex-col relative" dir="rtl">
+      <div className={`w-full max-w-md h-[860px] max-h-[94vh] ${getThemeBgClass()} rounded-[42px] border-[8px] border-slate-800 shadow-2xl overflow-hidden flex flex-col relative transition-colors duration-200`} dir="rtl">
         
         {/* Device Top Status Bar */}
-        <div className="w-full bg-[#F8FAFC] pt-3 pb-1 px-6 flex justify-between items-center text-xs text-slate-800 select-none z-30 font-['Tajawal']">
+        <div className={`w-full ${getStatusBarBgClass()} pt-3 pb-1 px-6 flex justify-between items-center text-xs select-none z-30 font-['Tajawal'] transition-colors duration-200`}>
           <span className="font-bold">12:07</span>
-          <div className="w-20 h-4 bg-slate-200 rounded-full flex items-center justify-center">
+          <div className="w-20 h-4 bg-slate-200/80 rounded-full flex items-center justify-center">
             <div className="w-2 h-2 rounded-full bg-slate-400"></div>
           </div>
-          <div className="flex items-center space-x-1.5 space-x-reverse text-slate-600 font-semibold">
+          <div className="flex items-center space-x-1.5 space-x-reverse opacity-80 font-semibold">
             <span>5G</span>
             <span>100%</span>
           </div>
         </div>
 
         {/* Dynamic Screen Content */}
-        <main className="flex-1 overflow-y-auto pb-6 relative bg-[#F0F6FF]">
+        <main className={`flex-1 overflow-y-auto pb-6 relative ${getThemeBgClass()} transition-colors duration-200`}>
           
           {/* ================= 0. LOGIN SCREEN (WHEN NOT LOGGED IN - 100% MATCHING SCREENSHOT) ================= */}
           {!isLoggedIn ? (
@@ -729,15 +780,141 @@ export const AndroidDeviceSimulator: React.FC<AndroidDeviceSimulatorProps> = ({
                   </div>
 
                   {(expandedSettings['appearance'] || settingsSearch) && (
-                    <div className="px-4 pb-4 pt-1 border-t border-slate-100 space-y-3 bg-[#FAFCFF] animate-in fade-in duration-200">
-                      <div className="flex items-center justify-between py-1.5">
-                        <span className="text-sm font-semibold text-slate-800 font-['Tajawal']">وضع الثيم</span>
-                        <span className="text-xs text-[#2563EB] font-bold font-['Tajawal'] bg-blue-50 px-2.5 py-1 rounded-full">{themeMode}</span>
+                    <div className="px-4 pb-4 pt-2 border-t border-slate-100 space-y-4 bg-[#FAFCFF] animate-in fade-in duration-200">
+                      {/* Theme Mode Header */}
+                      <div className="flex items-center justify-between py-1">
+                        <span className="text-sm font-semibold text-slate-800 font-['Tajawal']">الثيم النشط حالياً</span>
+                        <span className="text-xs text-[#2563EB] font-bold font-['Tajawal'] bg-blue-50 border border-blue-100 px-3 py-1 rounded-full">{themeMode}</span>
                       </div>
+
+                      {/* Real Interface Background Selector */}
+                      <div className="space-y-2">
+                        <label className="block text-xs font-bold text-slate-700 font-['Tajawal']">
+                          اختيار لون وخلفية الواجهات (تطبيق فوري):
+                        </label>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                          {/* Option 1: Stories Theme (Default) */}
+                          <div 
+                            onClick={() => handleSetThemeBackground('stories_theme')}
+                            className={`p-3 rounded-xl border cursor-pointer transition flex items-start space-x-3 space-x-reverse ${
+                              themeBackground === 'stories_theme' 
+                                ? 'border-[#2563EB] bg-[#EEF5FF] shadow-xs' 
+                                : 'border-slate-200 bg-white hover:border-blue-200'
+                            }`}
+                          >
+                            <div className="w-8 h-8 rounded-lg bg-[#F0F6FF] border border-blue-200 flex items-center justify-center text-[#2563EB] shrink-0 mt-0.5 shadow-xs">
+                              {themeBackground === 'stories_theme' ? <Check className="w-4 h-4" /> : <Sparkles className="w-4 h-4" />}
+                            </div>
+                            <div className="text-right flex-1">
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-bold text-slate-900 font-['Tajawal']">ثيم واجهة الحالات</span>
+                                <span className="text-[10px] bg-blue-100 text-blue-800 font-bold px-1.5 py-0.5 rounded">افتراضي موحد</span>
+                              </div>
+                              <p className="text-[11px] text-slate-500 font-['Tajawal'] mt-0.5 leading-tight">
+                                اللون الأزرق الهادئ لواجهة الحالات مطبقاً على كافة شاشات التطبيق.
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* Option 2: Login Screen Theme */}
+                          <div 
+                            onClick={() => handleSetThemeBackground('login_theme')}
+                            className={`p-3 rounded-xl border cursor-pointer transition flex items-start space-x-3 space-x-reverse ${
+                              themeBackground === 'login_theme' 
+                                ? 'border-[#2563EB] bg-[#EEF5FF] shadow-xs' 
+                                : 'border-slate-200 bg-white hover:border-blue-200'
+                            }`}
+                          >
+                            <div className="w-8 h-8 rounded-lg bg-[#F8FAFC] border border-slate-300 flex items-center justify-center text-[#2563EB] shrink-0 mt-0.5 shadow-xs">
+                              {themeBackground === 'login_theme' ? <Check className="w-4 h-4" /> : <User className="w-4 h-4" />}
+                            </div>
+                            <div className="text-right flex-1">
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-bold text-slate-900 font-['Tajawal']">خلفية تسجيل الدخول</span>
+                                <span className="text-[10px] bg-slate-200 text-slate-800 font-bold px-1.5 py-0.5 rounded">أبيض ناصع</span>
+                              </div>
+                              <p className="text-[11px] text-slate-500 font-['Tajawal'] mt-0.5 leading-tight">
+                                الخلفية المميزة المستخدمة في واجهة تسجيل الدخول مع التوهج الناعم.
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* Option 3: Dark Mode */}
+                          <div 
+                            onClick={() => handleSetThemeBackground('dark_theme')}
+                            className={`p-3 rounded-xl border cursor-pointer transition flex items-start space-x-3 space-x-reverse ${
+                              themeBackground === 'dark_theme' 
+                                ? 'border-[#2563EB] bg-[#EEF5FF] shadow-xs' 
+                                : 'border-slate-200 bg-white hover:border-blue-200'
+                            }`}
+                          >
+                            <div className="w-8 h-8 rounded-lg bg-[#0F172A] border border-slate-700 flex items-center justify-center text-blue-400 shrink-0 mt-0.5 shadow-xs">
+                              {themeBackground === 'dark_theme' ? <Check className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
+                            </div>
+                            <div className="text-right flex-1">
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-bold text-slate-900 font-['Tajawal']">الوضع الليلي</span>
+                                <span className="text-[10px] bg-slate-800 text-white font-bold px-1.5 py-0.5 rounded">داكن فخم</span>
+                              </div>
+                              <p className="text-[11px] text-slate-500 font-['Tajawal'] mt-0.5 leading-tight">
+                                مظهر داكن مريح للعينين وموفر لاستهلاك البطارية.
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* Option 4: Sky Azure */}
+                          <div 
+                            onClick={() => handleSetThemeBackground('sky_theme')}
+                            className={`p-3 rounded-xl border cursor-pointer transition flex items-start space-x-3 space-x-reverse ${
+                              themeBackground === 'sky_theme' 
+                                ? 'border-[#2563EB] bg-[#EEF5FF] shadow-xs' 
+                                : 'border-slate-200 bg-white hover:border-blue-200'
+                            }`}
+                          >
+                            <div className="w-8 h-8 rounded-lg bg-[#E0F2FE] border border-blue-300 flex items-center justify-center text-[#2563EB] shrink-0 mt-0.5 shadow-xs">
+                              {themeBackground === 'sky_theme' ? <Check className="w-4 h-4" /> : <Globe className="w-4 h-4" />}
+                            </div>
+                            <div className="text-right flex-1">
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-bold text-slate-900 font-['Tajawal']">السماوي الناصع</span>
+                                <span className="text-[10px] bg-cyan-100 text-cyan-800 font-bold px-1.5 py-0.5 rounded">سماوي</span>
+                              </div>
+                              <p className="text-[11px] text-slate-500 font-['Tajawal'] mt-0.5 leading-tight">
+                                خلفية سماوية فاتحة تعطي شعوراً بالانتعاش والاتساع.
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Quick Login Background Toggle */}
+                      <div className="p-3 bg-white border border-slate-200 rounded-xl flex items-center justify-between">
+                        <div className="text-right">
+                          <span className="text-xs font-bold text-slate-800 font-['Tajawal'] block">
+                            تطبيق خلفية واجهة تسجيل الدخول لكافة الواجهات
+                          </span>
+                          <span className="text-[11px] text-slate-500 font-['Tajawal']">
+                            تبديل سريع بين خلفية الحالات وخلفية تسجيل الدخول
+                          </span>
+                        </div>
+                        <input 
+                          type="checkbox" 
+                          checked={themeBackground === 'login_theme'} 
+                          onChange={(e) => handleSetThemeBackground(e.target.checked ? 'login_theme' : 'stories_theme')}
+                          className="w-4 h-4 accent-[#2563EB] cursor-pointer"
+                        />
+                      </div>
+
+                      {/* Primary Accent Color */}
                       <div className="flex items-center justify-between py-1.5">
                         <span className="text-sm font-semibold text-slate-800 font-['Tajawal']">لون التمييز الأساسي</span>
-                        <div className="w-6 h-6 rounded-full bg-[#2563EB] shadow-xs"></div>
+                        <div className="flex items-center space-x-2 space-x-reverse">
+                          <div className="w-6 h-6 rounded-full bg-[#2563EB] ring-2 ring-blue-300 shadow-xs"></div>
+                          <span className="text-xs text-slate-600 font-bold font-['Tajawal']">أزرق المحلة</span>
+                        </div>
                       </div>
+
+                      {/* Status Bar Edge */}
                       <div className="flex items-center justify-between py-1.5">
                         <span className="text-sm font-semibold text-slate-800 font-['Tajawal']">شريط الحالة ممتد للحواف</span>
                         <input 
@@ -747,10 +924,40 @@ export const AndroidDeviceSimulator: React.FC<AndroidDeviceSimulatorProps> = ({
                           className="w-4 h-4 accent-[#2563EB]"
                         />
                       </div>
-                      <div className="flex items-center justify-between py-1.5">
-                        <span className="text-sm font-semibold text-slate-800 font-['Tajawal']">حجم خط الدردشة</span>
-                        <span className="text-xs text-slate-500 font-['Tajawal']">{chatFontSize} نقطة</span>
+
+                      {/* Chat Font Size with Interactive Controls */}
+                      <div className="space-y-1.5 py-1">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-semibold text-slate-800 font-['Tajawal']">حجم خط الدردشة</span>
+                          <span className="text-xs text-[#2563EB] font-bold font-['Tajawal']">{chatFontSize} نقطة</span>
+                        </div>
+                        <div className="flex items-center space-x-3 space-x-reverse">
+                          <button
+                            onClick={() => setChatFontSize(Math.max(12, chatFontSize - 1))}
+                            className="w-8 h-8 bg-slate-100 hover:bg-slate-200 rounded-lg text-xs font-bold text-slate-700 flex items-center justify-center transition"
+                            title="تصغير الخط"
+                          >
+                            A-
+                          </button>
+                          <input 
+                            type="range"
+                            min="12"
+                            max="20"
+                            value={chatFontSize}
+                            onChange={(e) => setChatFontSize(Number(e.target.value))}
+                            className="flex-1 accent-[#2563EB]"
+                          />
+                          <button
+                            onClick={() => setChatFontSize(Math.min(20, chatFontSize + 1))}
+                            className="w-8 h-8 bg-slate-100 hover:bg-slate-200 rounded-lg text-xs font-bold text-slate-700 flex items-center justify-center transition"
+                            title="تكبير الخط"
+                          >
+                            A+
+                          </button>
+                        </div>
                       </div>
+
+                      {/* Send on Enter */}
                       <div className="flex items-center justify-between py-1.5">
                         <span className="text-sm font-semibold text-slate-800 font-['Tajawal']">إرسال بزر الإدخال (Enter)</span>
                         <input 

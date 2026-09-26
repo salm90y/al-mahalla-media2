@@ -63,7 +63,7 @@ fun QuranHomeScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFFF8FAFC))
+            .background(getAppScreenBackground())
             .statusBarsPadding()
     ) {
         // Top Bar

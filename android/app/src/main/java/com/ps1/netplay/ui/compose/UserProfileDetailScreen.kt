@@ -280,14 +280,14 @@ fun UserProfileDetailScreen(
     }
 
     Scaffold(
-        containerColor = Color(0xFFF8FAFC),
+        containerColor = getAppScreenBackground(),
         topBar = {
             // UNIFIED TOP BAR (Fixed with Smooth Sticky Floating Header for User)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .statusBarsPadding()
-                    .background(Color(0xFFF8FAFC))
+                    .background(getAppScreenBackground())
                     .padding(horizontal = 20.dp, vertical = 14.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically

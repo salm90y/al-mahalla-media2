@@ -94,7 +94,7 @@ fun AdminDashboardScreen(
     }
 
     Scaffold(
-        containerColor = Color(0xFFF8FAFC),
+        containerColor = getAppScreenBackground(),
         topBar = {
             Column(
                 modifier = Modifier

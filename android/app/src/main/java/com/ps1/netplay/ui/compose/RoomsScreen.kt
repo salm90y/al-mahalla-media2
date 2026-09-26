@@ -217,7 +217,7 @@ fun RoomsScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFFF8FAFC))
+            .background(getAppScreenBackground())
             .statusBarsPadding()
     ) {
         // 1. Unified Top Bar: Title "الغرف" on Right (Start in RTL), Back navigation icon on Left (End in RTL)

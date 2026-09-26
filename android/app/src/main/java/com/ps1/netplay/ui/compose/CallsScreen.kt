@@ -184,7 +184,7 @@ fun CallsScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(Color.White)
+            .background(getAppScreenBackground())
             .statusBarsPadding()
     ) {
         // 1. Unified Top Bar: Title "المكالمات"

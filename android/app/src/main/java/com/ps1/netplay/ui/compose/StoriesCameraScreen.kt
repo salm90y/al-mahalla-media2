@@ -47,7 +47,7 @@ fun StoriesCameraScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFFF8FAFC))
+            .background(getAppScreenBackground())
             .statusBarsPadding()
     ) {
         // 1. Top Bar: Title "الحالات"

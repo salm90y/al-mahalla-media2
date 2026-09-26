@@ -28,12 +28,18 @@ val TajawalFontFamily = FontFamily(
 )
 
 val PrimaryBlue = Color(0xFF2563EB)
-val LightBg = Color(0xFFF8FAFC)
+val LightBg = Color(0xFFF0F6FF) // Unified Stories Background (#F0F6FF)
 val LightSurface = Color(0xFFFFFFFF)
 val LightPillBg = Color(0xFFEEF4FB)
 val TextPrimary = Color(0xFF0F172A)
 val TextSecondary = Color(0xFF64748B)
 val LightBorder = Color(0xFFE2E8F0)
+
+val StoriesBg = Color(0xFFF0F6FF)
+val LoginBg = Color(0xFFF0F6FF)
+val PureWhiteBg = Color(0xFFFFFFFF)
+val SlateLightBg = Color(0xFFF8FAFC)
+val DarkSapphireBg = Color(0xFF0F172A)
 
 val DarkBg = Color(0xFF000000)
 val DarkSurface = Color(0xFF111827)
@@ -46,13 +52,28 @@ val SecondaryAccent = Color(0xFF3B82F6)
 val OnlineIndicator = Color(0xFF10B981)
 val UnreadBadge = Color(0xFF2563EB)
 val DarkBackground = Color(0xFF0F172A)
-val LightBackground = Color(0xFFF8FAFC)
+val LightBackground = Color(0xFFF0F6FF)
 
 val HeaderGradientStart = Color(0xFF2563EB)
 val HeaderGradientEnd = Color(0xFF1D4ED8)
 val PrimaryHeaderGradient = Brush.verticalGradient(
     colors = listOf(HeaderGradientStart, HeaderGradientEnd)
 )
+
+@Composable
+fun getAppScreenBackground(): Color {
+    val currentThemeSetting = AppSettingsManager.themeModeState.value
+    if (currentThemeSetting == "dark") {
+        return DarkBg
+    }
+    return when (AppSettingsManager.bgThemeState.value) {
+        "login" -> LoginBg
+        "pure_white" -> PureWhiteBg
+        "slate_light" -> SlateLightBg
+        "dark" -> DarkSapphireBg
+        else -> StoriesBg // "stories" is the default unified theme
+    }
+}
 
 @Composable
 fun NetPlayTheme(
@@ -98,7 +119,7 @@ fun NetPlayTheme(
     } else {
         lightColorScheme(
             primary = PrimaryBlue,
-            background = LightBg,
+            background = getAppScreenBackground(),
             surface = LightSurface,
             onPrimary = Color.White,
             onBackground = TextPrimary,

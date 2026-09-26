@@ -45,6 +45,7 @@ object AppSettingsManager {
     private var prefs: SharedPreferences? = null
     // Keys
 const val KEY_THEME = "app_theme" // "dark", "light", "system"
+const val KEY_BG_THEME = "app_bg_theme" // "stories", "login", "pure_white", "slate_light", "dark"
 const val KEY_ACCENT_COLOR = "accent_color" // "#7B5DFF", "#00D2D3", "#2ED573"
 const val KEY_STATUS_BAR_EDGE = "status_bar_edge" // Boolean
 const val KEY_CHAT_LIST_STYLE = "chat_list_style" // "free" (default), "card"
@@ -95,6 +96,7 @@ const val KEY_USER_NAME = "user_display_name"
 // REACTIVE STATE (Recomposes UI instantly without restarting the app)
 // =========================================================================
     val themeModeState = mutableStateOf("dark")
+val bgThemeState = mutableStateOf("stories")
 val accentColorState = mutableStateOf("#7B5DFF")
 val isStatusBarEdgeState = mutableStateOf(true)
 val chatListStyleState = mutableStateOf("free")
@@ -148,6 +150,7 @@ val userAvatarState = mutableStateOf("https://images.unsplash.com/photo-15345287
     fun loadAll(context: Context) {
         val p = getPrefs(context)
         themeModeState.value = p.getString(KEY_THEME, "dark") ?: "dark"
+        bgThemeState.value = p.getString(KEY_BG_THEME, "stories") ?: "stories"
         accentColorState.value = p.getString(KEY_ACCENT_COLOR, "#7B5DFF") ?: "#7B5DFF"
         isStatusBarEdgeState.value = p.getBoolean(KEY_STATUS_BAR_EDGE, true)
         chatListStyleState.value = p.getString(KEY_CHAT_LIST_STYLE, "free") ?: "free"
@@ -198,6 +201,14 @@ fun initIfNeeded(context: Context) {
 fun setTheme(context: Context, theme: String) {
         themeModeState.value = theme
         getPrefs(context).edit().putString(KEY_THEME, theme).apply()
+    }
+fun getBgTheme(context: Context): String {
+        initIfNeeded(context)
+        return bgThemeState.value
+    }
+fun setBgTheme(context: Context, bgTheme: String) {
+        bgThemeState.value = bgTheme
+        getPrefs(context).edit().putString(KEY_BG_THEME, bgTheme).apply()
     }
 fun getAccentColor(context: Context): String {
         initIfNeeded(context)
