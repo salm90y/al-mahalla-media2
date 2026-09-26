@@ -26,6 +26,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
@@ -1250,32 +1251,32 @@ fun YouTubeRoomScreen(
                         horizontalArrangement = Arrangement.SpaceEvenly,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        DockIconButton(
+                        YouTubeDockIconButton(
                             icon = Icons.Default.SmartDisplay,
                             isActive = activeSubTab == YouTubeRoomSubTab.PLAYER,
                             onClick = { activeSubTab = YouTubeRoomSubTab.PLAYER }
                         )
-                        DockIconButton(
+                        YouTubeDockIconButton(
                             icon = Icons.Outlined.ChatBubbleOutline,
                             isActive = activeSubTab == YouTubeRoomSubTab.CHAT,
                             onClick = { activeSubTab = YouTubeRoomSubTab.CHAT }
                         )
-                        DockIconButton(
+                        YouTubeDockIconButton(
                             icon = Icons.Default.Sensors,
                             isActive = activeSubTab == YouTubeRoomSubTab.LIVE_SYNC,
                             onClick = { activeSubTab = YouTubeRoomSubTab.LIVE_SYNC }
                         )
-                        DockIconButton(
+                        YouTubeDockIconButton(
                             icon = Icons.Outlined.Mic,
                             isActive = activeSubTab == YouTubeRoomSubTab.INTERCOM,
                             onClick = { activeSubTab = YouTubeRoomSubTab.INTERCOM }
                         )
-                        DockIconButton(
+                        YouTubeDockIconButton(
                             icon = Icons.Outlined.PeopleOutline,
                             isActive = activeSubTab == YouTubeRoomSubTab.USERS,
                             onClick = { activeSubTab = YouTubeRoomSubTab.USERS }
                         )
-                        DockIconButton(
+                        YouTubeDockIconButton(
                             icon = Icons.Outlined.Settings,
                             isActive = activeSubTab == YouTubeRoomSubTab.SETTINGS,
                             onClick = { activeSubTab = YouTubeRoomSubTab.SETTINGS }
@@ -1714,10 +1715,10 @@ fun YouTubeRoomScreen(
                                             modifier = Modifier.fillMaxWidth(),
                                             horizontalArrangement = Arrangement.SpaceAround
                                         ) {
-                                            StatMiniBlock(label = "البروتوكول", value = "HLS / WebRTC")
-                                            StatMiniBlock(label = "معدل البت", value = "12,400 kbps")
-                                            StatMiniBlock(label = "الفقد (Loss)", value = "0.0%")
-                                            StatMiniBlock(label = "المزامنة", value = "Active ⚡")
+                                            YouTubeStatMiniBlock(label = "البروتوكول", value = "HLS / WebRTC")
+                                            YouTubeStatMiniBlock(label = "معدل البت", value = "12,400 kbps")
+                                            YouTubeStatMiniBlock(label = "الفقد (Loss)", value = "0.0%")
+                                            YouTubeStatMiniBlock(label = "المزامنة", value = "Active ⚡")
                                         }
                                     }
                                 }
@@ -2009,22 +2010,22 @@ fun YouTubeRoomScreen(
                                     .verticalScroll(rememberScrollState()),
                                 verticalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                SettingsSwitchItem(
+                                YouTubeSettingsSwitchItem(
                                     title = "تسريع السحابة عبر Cloudflare CDN",
                                     subtitle = "تقليل استهلاك البيانات وتحسين سرعة استجابة الفيديو",
                                     isChecked = true
                                 )
-                                SettingsSwitchItem(
+                                YouTubeSettingsSwitchItem(
                                     title = "المزامنة التلقائية التامة",
                                     subtitle = "مطابقة توقيت التشغيل مع مضيف الغرفة بدقة 0.1 ثانية",
                                     isChecked = isSynchronizedWithRoom
                                 )
-                                SettingsSwitchItem(
+                                YouTubeSettingsSwitchItem(
                                     title = "الوضع السينمائي المحيطي (Cinema Glow)",
                                     subtitle = "توهج إضاءة ذكية حول الفيديو حسب ألوان المشهد",
                                     isChecked = true
                                 )
-                                SettingsSwitchItem(
+                                YouTubeSettingsSwitchItem(
                                     title = "تشغيل الصوت في الخلفية",
                                     subtitle = "استمرار الاستماع للتلاوات والمقاطع عند قفل الشاشة",
                                     isChecked = true
@@ -2374,7 +2375,7 @@ fun YouTubeRoomScreen(
 // 7. HELPER COMPOSABLE SUB-COMPONENTS
 // ----------------------------------------------------
 @Composable
-private fun DockIconButton(
+private fun YouTubeDockIconButton(
     icon: ImageVector,
     isActive: Boolean,
     onClick: () -> Unit
@@ -2398,7 +2399,7 @@ private fun DockIconButton(
 }
 
 @Composable
-private fun StatMiniBlock(label: String, value: String) {
+private fun YouTubeStatMiniBlock(label: String, value: String) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
             text = label,
@@ -2416,7 +2417,7 @@ private fun StatMiniBlock(label: String, value: String) {
 }
 
 @Composable
-private fun SettingsSwitchItem(
+private fun YouTubeSettingsSwitchItem(
     title: String,
     subtitle: String,
     isChecked: Boolean
