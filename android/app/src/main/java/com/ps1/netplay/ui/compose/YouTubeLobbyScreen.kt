@@ -7,12 +7,10 @@ import android.media.AudioManager
 import android.media.ToneGenerator
 import android.widget.Toast
 import androidx.compose.animation.*
-import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -24,10 +22,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -42,112 +37,22 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
+import com.ps1.netplay.network.CloudflareClient
+import kotlinx.coroutines.launch
 
 // ----------------------------------------------------
-// 1. DATA MODELS FOR LIVE PUBLIC YOUTUBE ROOMS
-// ----------------------------------------------------
-data class PublicYouTubeRoom(
-    val roomId: String,
-    val roomCode: String,
-    val title: String,
-    val hostName: String,
-    val hostAvatarBg: Color,
-    val currentVideoTitle: String,
-    val videoId: String,
-    val thumbnailUrl: String,
-    val viewersCount: Int,
-    val isLive: Boolean = true,
-    val durationText: String = "مباشر",
-    val pingMs: String = "12ms",
-    val privacyMode: RoomPrivacyMode = RoomPrivacyMode.PUBLIC
-)
-
-val INITIAL_PUBLIC_YOUTUBE_ROOMS = listOf(
-    PublicYouTubeRoom(
-        roomId = "room_1",
-        roomCode = "#YT-1042",
-        title = "سهرة وثائقيات وتكنولوجيا وفضاء 🚀",
-        hostName = "م. حسام العراقي",
-        hostAvatarBg = Color(0xFF2563EB),
-        currentVideoTitle = "وثائقي تلسكوب جيمس ويب الفضائي: أعمق صور نشأة الكون",
-        videoId = "space_james_webb",
-        thumbnailUrl = "https://images.unsplash.com/photo-1446776811953-b23d57bd21aa?w=600&auto=format&fit=crop&q=80",
-        viewersCount = 142,
-        isLive = true,
-        durationText = "24:18",
-        pingMs = "12ms • Cloudflare"
-    ),
-    PublicYouTubeRoom(
-        roomId = "room_2",
-        roomCode = "#YT-8821",
-        title = "مجلس التلاوات الخاشعة والقرآن الكريم 4K 🕋",
-        hostName = "الشيخ قاسم",
-        hostAvatarBg = Color(0xFF10B981),
-        currentVideoTitle = "تلاوة خاشعة ومريحة للأعصاب من سورة مريم بصوت القارئ إسلام صبحي",
-        videoId = "yK4U4XkMhFk",
-        thumbnailUrl = "https://images.unsplash.com/photo-1609599006353-e629aaabfeae?w=600&auto=format&fit=crop&q=80",
-        viewersCount = 320,
-        isLive = true,
-        durationText = "32:45",
-        pingMs = "8ms • خوادم بغداد"
-    ),
-    PublicYouTubeRoom(
-        roomId = "room_3",
-        roomCode = "#YT-5519",
-        title = "بودكاست ونقاشات الذكاء الاصطناعي 2026 🤖",
-        hostName = "أحمد المطور",
-        hostAvatarBg = Color(0xFF8B5CF6),
-        currentVideoTitle = "بودكاست فنجان: أسرار بناء المستقبل والذكاء الاصطناعي",
-        videoId = "podcast_101",
-        thumbnailUrl = "https://images.unsplash.com/photo-1590602847861-f357a9332bbc?w=600&auto=format&fit=crop&q=80",
-        viewersCount = 85,
-        isLive = false,
-        durationText = "1:42:10",
-        pingMs = "14ms • Cloudflare"
-    ),
-    PublicYouTubeRoom(
-        roomId = "room_4",
-        roomCode = "#YT-7730",
-        title = "أهداف وجنون الساحرة المستديرة العالمية ⚽",
-        hostName = "كابتن سجاد",
-        hostAvatarBg = Color(0xFFDC2626),
-        currentVideoTitle = "تحديات ومهارات كروية استثنائية: أفضل أهداف وتمريرات الموسم",
-        videoId = "esports_championship_live",
-        thumbnailUrl = "https://images.unsplash.com/photo-1542751371-adc38448a05e?w=600&auto=format&fit=crop&q=80",
-        viewersCount = 210,
-        isLive = true,
-        durationText = "17:45",
-        pingMs = "15ms • البث السريع"
-    ),
-    PublicYouTubeRoom(
-        roomId = "room_5",
-        roomCode = "#YT-3312",
-        title = "استرخاء ومناظر طبيعية ساحرة 4K 🌿",
-        hostName = "نور الزهراء",
-        hostAvatarBg = Color(0xFF06B6D4),
-        currentVideoTitle = "رحلة ساحرة عبر جبال الألب السويسرية والطبيعة الخلابة 60FPS",
-        videoId = "nature_relax_4k",
-        thumbnailUrl = "https://images.unsplash.com/photo-1506744038136-46273834b3fb?w=600&auto=format&fit=crop&q=80",
-        viewersCount = 94,
-        isLive = false,
-        durationText = "45:00",
-        pingMs = "10ms • Cloudflare"
-    )
-)
-
-// ----------------------------------------------------
-// 2. MAIN COMPOSABLE: YouTubeLobbyScreen
+// MAIN COMPOSABLE: YouTubeLobbyScreen
 // ----------------------------------------------------
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun YouTubeLobbyScreen(
     onBack: () -> Unit,
-    onEnterRoom: (roomId: String, videoId: String, roomTitle: String) -> Unit
+    onEnterRoom: (roomId: String, videoId: String, roomTitle: String, roomCode: String) -> Unit
 ) {
     val context = LocalContext.current
     val haptics = LocalHapticFeedback.current
+    val coroutineScope = rememberCoroutineScope()
 
-    // Audio beep player
     fun playButtonBeep(type: Int = ToneGenerator.TONE_PROP_BEEP) {
         try {
             val toneGen = ToneGenerator(AudioManager.STREAM_MUSIC, 40)
@@ -155,25 +60,42 @@ fun YouTubeLobbyScreen(
         } catch (_: Exception) {}
     }
 
-    // Live Public Rooms State
-    val publicRooms = remember {
-        mutableStateListOf<PublicYouTubeRoom>().apply {
-            addAll(INITIAL_PUBLIC_YOUTUBE_ROOMS)
-        }
-    }
+    // Real active public rooms state (NO fake items)
+    val publicRooms = remember { mutableStateListOf<PublicYouTubeRoom>() }
+    var isLoadingRooms by remember { mutableStateOf(true) }
 
     // Dialog States
     var isCreateRoomDialogOpen by remember { mutableStateOf(false) }
     var isJoinRoomDialogOpen by remember { mutableStateOf(false) }
-    var searchQuery by remember { mutableStateOf("") }
-    var isSearchActive by remember { mutableStateOf(false) }
+    var isCreatingRoom by remember { mutableStateOf(false) }
+    var isVerifyingJoin by remember { mutableStateOf(false) }
+    var joinErrorMessage by remember { mutableStateOf<String?>(null) }
 
     // Dialog Inputs
     var newRoomTitle by remember { mutableStateOf("") }
     var newRoomPrivacy by remember { mutableStateOf(RoomPrivacyMode.PUBLIC) }
     var joinRoomCodeInput by remember { mutableStateOf("") }
 
-    // Filtered rooms
+    // Search query within active rooms
+    var searchQuery by remember { mutableStateOf("") }
+    var isSearchActive by remember { mutableStateOf(false) }
+
+    // Refresh real rooms from backend & local storage
+    fun refreshRooms() {
+        isLoadingRooms = true
+        YouTubeRoomManager.fetchRealPublicRooms(context) { rooms ->
+            publicRooms.clear()
+            publicRooms.addAll(rooms)
+            isLoadingRooms = false
+        }
+    }
+
+    // Initial load
+    LaunchedEffect(Unit) {
+        refreshRooms()
+    }
+
+    // Filtered real rooms
     val filteredRooms = remember(searchQuery, publicRooms.size) {
         if (searchQuery.trim().isEmpty()) {
             publicRooms.toList()
@@ -187,12 +109,12 @@ fun YouTubeLobbyScreen(
         }
     }
 
-    // Total online viewers across all public rooms
+    // Total online viewers across real rooms
     val totalOnlineViewers = remember(publicRooms.size) {
         publicRooms.sumOf { it.viewersCount }
     }
 
-    // Full RTL Layout
+    // Full RTL Layout matching the app theme 100%
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
         Box(
             modifier = Modifier
@@ -207,7 +129,7 @@ fun YouTubeLobbyScreen(
                     .padding(horizontal = 16.dp, vertical = 6.dp)
             ) {
                 // ====================================================
-                // 1. TOP HEADER: Back Button + Title + Status + Action Icons
+                // 1. TOP HEADER: Back Button + Title + Quick Actions
                 // ====================================================
                 Row(
                     modifier = Modifier
@@ -232,34 +154,24 @@ fun YouTubeLobbyScreen(
                         )
                     }
 
-                    // Title & Online pulse
+                    // Title
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(8.dp)
-                                    .background(Color(0xFF10B981), CircleShape)
-                            )
-                            Text(
-                                text = "سينما اليوتيوب",
-                                fontSize = 17.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = TajawalFontFamily,
-                                color = Color(0xFF0F172A)
-                            )
-                        }
                         Text(
-                            text = "$totalOnlineViewers متصل عبر سحابة Cloudflare",
+                            text = "غرف اليوتيوب",
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = TajawalFontFamily,
+                            color = Color(0xFF0F172A)
+                        )
+                        Text(
+                            text = if (publicRooms.isEmpty()) "المشاهدة الجماعية المتزامنة" else "$totalOnlineViewers متصل الآن في الغرف",
                             fontSize = 10.sp,
                             fontFamily = TajawalFontFamily,
                             color = Color(0xFF64748B)
                         )
                     }
 
-                    // Top Quick Action Icons (Search + Refresh)
+                    // Top Action Icons (Search + Refresh)
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -284,7 +196,8 @@ fun YouTubeLobbyScreen(
                         IconButton(
                             onClick = {
                                 playButtonBeep()
-                                Toast.makeText(context, "تم تحديث قائمة الغرف العامة ✨", Toast.LENGTH_SHORT).show()
+                                refreshRooms()
+                                Toast.makeText(context, "تم تحديث الغرف النشطة", Toast.LENGTH_SHORT).show()
                             },
                             modifier = Modifier
                                 .size(34.dp)
@@ -308,7 +221,7 @@ fun YouTubeLobbyScreen(
                         OutlinedTextField(
                             value = searchQuery,
                             onValueChange = { searchQuery = it },
-                            placeholder = { Text("ابحث في الغرف العامة أو اسم المضيف...", fontSize = 11.sp, fontFamily = TajawalFontFamily) },
+                            placeholder = { Text("ابحث برمز الغرفة أو العنوان أو المضيف...", fontSize = 11.sp, fontFamily = TajawalFontFamily) },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(46.dp),
@@ -331,7 +244,7 @@ fun YouTubeLobbyScreen(
                 Spacer(modifier = Modifier.height(6.dp))
 
                 // ====================================================
-                // 2. ULTRA-MODERN ACTION CARD (إنشاء غرفة + انضمام إلى غرفة برموز بدون كتابة)
+                // 2. ULTRA-MODERN ACTION CARD (زر إنشاء غرفة + زر انضمام إلى غرفة برموز بدون كتابة)
                 // ====================================================
                 Surface(
                     shape = RoundedCornerShape(22.dp),
@@ -343,74 +256,44 @@ fun YouTubeLobbyScreen(
                     Column(
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column {
-                                Text(
-                                    text = "المشاهدة الجماعية المتزامنة",
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = TajawalFontFamily,
-                                    color = Color(0xFF1E3A8A)
-                                )
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    text = "أنشئ غرفتك الخاصة أو انضم لأصدقائك بضغطة زر",
-                                    fontSize = 11.sp,
-                                    fontFamily = TajawalFontFamily,
-                                    color = Color(0xFF64748B)
-                                )
-                            }
-
-                            // Cloudflare live tag
-                            Surface(
-                                shape = RoundedCornerShape(10.dp),
-                                color = Color(0xFFEEF5FF),
-                                border = BorderStroke(1.dp, Color(0xFFDBEAFE))
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Bolt,
-                                        contentDescription = null,
-                                        tint = Color(0xFF2563EB),
-                                        modifier = Modifier.size(12.dp)
-                                    )
-                                    Text(
-                                        text = "12ms ⚡",
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF2563EB)
-                                    )
-                                }
-                            }
+                        Column {
+                            Text(
+                                text = "المشاهدة الجماعية المتزامنة",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = TajawalFontFamily,
+                                color = Color(0xFF1E3A8A)
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "أنشئ غرفتك الخاصة أو انضم لأصدقائك بضغطة زر",
+                                fontSize = 11.sp,
+                                fontFamily = TajawalFontFamily,
+                                color = Color(0xFF64748B)
+                            )
                         }
 
                         Spacer(modifier = Modifier.height(14.dp))
 
-                        // Modern Row of Icon-Only Action Buttons (أنيقة وصغيرة برموز بدون كتابة)
+                        // Modern Row of ONLY 2 Icon-Only Action Buttons (أنيقة وصغيرة برموز بدون كتابة)
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceEvenly,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // 1. زر إنشاء غرفة (Create Room: Red Gradient Icon Button)
+                            // 1. زر إنشاء غرفة (Create Room: Red Icon Button)
                             Surface(
                                 onClick = {
                                     playButtonBeep()
                                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    val currentUserName = CloudflareClient.getCurrentUsername(context).ifBlank { "أحمد" }
+                                    newRoomTitle = "غرفة $currentUserName"
                                     isCreateRoomDialogOpen = true
                                 },
                                 shape = RoundedCornerShape(16.dp),
                                 color = Color(0xFFDC2626),
                                 shadowElevation = 3.dp,
-                                modifier = Modifier.size(width = 72.dp, height = 48.dp)
+                                modifier = Modifier.size(width = 84.dp, height = 48.dp)
                             ) {
                                 Box(
                                     contentAlignment = Alignment.Center,
@@ -430,12 +313,14 @@ fun YouTubeLobbyScreen(
                                 onClick = {
                                     playButtonBeep()
                                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    joinRoomCodeInput = ""
+                                    joinErrorMessage = null
                                     isJoinRoomDialogOpen = true
                                 },
                                 shape = RoundedCornerShape(16.dp),
                                 color = Color(0xFF2563EB),
                                 shadowElevation = 3.dp,
-                                modifier = Modifier.size(width = 72.dp, height = 48.dp)
+                                modifier = Modifier.size(width = 84.dp, height = 48.dp)
                             ) {
                                 Box(
                                     contentAlignment = Alignment.Center,
@@ -449,59 +334,6 @@ fun YouTubeLobbyScreen(
                                     )
                                 }
                             }
-
-                            // 3. زر بث عشوائي سريع (Quick Instant Stream: Emerald Icon Button)
-                            Surface(
-                                onClick = {
-                                    playButtonBeep()
-                                    val randomRoom = publicRooms.random()
-                                    onEnterRoom(randomRoom.roomId, randomRoom.videoId, randomRoom.title)
-                                },
-                                shape = RoundedCornerShape(16.dp),
-                                color = Color(0xFF10B981),
-                                shadowElevation = 3.dp,
-                                modifier = Modifier.size(width = 72.dp, height = 48.dp)
-                            ) {
-                                Box(
-                                    contentAlignment = Alignment.Center,
-                                    modifier = Modifier.fillMaxSize()
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.PlayArrow,
-                                        contentDescription = "دخول سريع",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(26.dp)
-                                    )
-                                }
-                            }
-
-                            // 4. زر مشاركة الرابط (Share Hub: Indigo Icon Button)
-                            Surface(
-                                onClick = {
-                                    try {
-                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                        val clip = ClipData.newPlainText("سينما اليوتيوب", "انضم إلينا الآن في سينما اليوتيوب التفاعلية: #YT-9024 🎬")
-                                        clipboard.setPrimaryClip(clip)
-                                        Toast.makeText(context, "تم نسخ دعوة سينما اليوتيوب للمشاركة! 🍿", Toast.LENGTH_SHORT).show()
-                                    } catch (_: Exception) {}
-                                },
-                                shape = RoundedCornerShape(16.dp),
-                                color = Color(0xFFF1F5F9),
-                                border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
-                                modifier = Modifier.size(width = 72.dp, height = 48.dp)
-                            ) {
-                                Box(
-                                    contentAlignment = Alignment.Center,
-                                    modifier = Modifier.fillMaxSize()
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Share,
-                                        contentDescription = "مشاركة",
-                                        tint = Color(0xFF475569),
-                                        modifier = Modifier.size(22.dp)
-                                    )
-                                }
-                            }
                         }
                     }
                 }
@@ -509,7 +341,7 @@ fun YouTubeLobbyScreen(
                 Spacer(modifier = Modifier.height(14.dp))
 
                 // ====================================================
-                // 3. LIST OF PUBLIC ROOMS CURRENTLY ONLINE (الغرف العامة أونلاين حالياً)
+                // 3. LIST OF REAL PUBLIC ROOMS (الغرف العامة النشطة أونلاين حالياً)
                 // ====================================================
                 Row(
                     modifier = Modifier
@@ -535,228 +367,265 @@ fun YouTubeLobbyScreen(
                             color = Color(0xFF0F172A)
                         )
                     }
-
-                    Text(
-                        text = "تحديث حي 🟢",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = TajawalFontFamily,
-                        color = Color(0xFF10B981)
-                    )
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // Online Rooms LazyColumn
-                LazyColumn(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    items(filteredRooms, key = { it.roomId }) { room ->
-                        Surface(
-                            onClick = {
-                                playButtonBeep()
-                                onEnterRoom(room.roomId, room.videoId, room.title)
-                            },
-                            shape = RoundedCornerShape(18.dp),
-                            color = Color.White,
-                            border = BorderStroke(1.dp, Color(0xFFE2EAFD)),
-                            shadowElevation = 1.dp,
-                            modifier = Modifier.fillMaxWidth()
+                // Online Rooms List or Empty State
+                if (isLoadingRooms) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator(
+                            color = Color(0xFF2563EB),
+                            modifier = Modifier.size(32.dp)
+                        )
+                    }
+                } else if (filteredRooms.isEmpty()) {
+                    // Clean Modern Empty State
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = Color.White,
+                        border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 16.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 36.dp, horizontal = 24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Column(
-                                modifier = Modifier.padding(12.dp)
+                            Box(
+                                modifier = Modifier
+                                    .size(56.dp)
+                                    .background(Color(0xFFEFF6FF), CircleShape),
+                                contentAlignment = Alignment.Center
                             ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                    verticalAlignment = Alignment.CenterVertically
+                                Icon(
+                                    imageVector = Icons.Default.SmartDisplay,
+                                    contentDescription = null,
+                                    tint = Color(0xFF2563EB),
+                                    modifier = Modifier.size(28.dp)
+                                )
+                            }
+                            Text(
+                                text = "لا توجد غرف عامة نشطة حالياً",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = TajawalFontFamily,
+                                color = Color(0xFF0F172A)
+                            )
+                            Text(
+                                text = "كن أول من ينشئ غرفة مشاهدة يوتيوب حقيقية وشارك الكود مع أصدقائك للاستمتاع بالمشاهدة الجماعية المتزامنة.",
+                                fontSize = 12.sp,
+                                fontFamily = TajawalFontFamily,
+                                color = Color(0xFF64748B),
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        items(filteredRooms, key = { it.roomId }) { room ->
+                            Surface(
+                                onClick = {
+                                    playButtonBeep()
+                                    onEnterRoom(room.roomId, room.videoId, room.title, room.roomCode)
+                                },
+                                shape = RoundedCornerShape(18.dp),
+                                color = Color.White,
+                                border = BorderStroke(1.dp, Color(0xFFE2EAFD)),
+                                shadowElevation = 1.dp,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(12.dp)
                                 ) {
-                                    // Room Video Thumbnail with Live Badge
-                                    Box(
-                                        modifier = Modifier
-                                            .size(width = 112.dp, height = 76.dp)
-                                            .clip(RoundedCornerShape(14.dp))
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        AsyncImage(
-                                            model = room.thumbnailUrl,
-                                            contentDescription = room.title,
-                                            contentScale = ContentScale.Crop,
-                                            modifier = Modifier.fillMaxSize()
-                                        )
-
-                                        // Duration / Live Badge
+                                        // Room Thumbnail
                                         Box(
                                             modifier = Modifier
-                                                .align(Alignment.BottomEnd)
-                                                .padding(4.dp)
-                                                .background(
-                                                    if (room.isLive) Color(0xCCDC2626) else Color(0xCC000000),
-                                                    RoundedCornerShape(4.dp)
-                                                )
-                                                .padding(horizontal = 4.dp, vertical = 2.dp)
+                                                .size(width = 112.dp, height = 76.dp)
+                                                .clip(RoundedCornerShape(14.dp))
+                                                .background(Color(0xFF0F172A))
                                         ) {
-                                            Text(
-                                                text = room.durationText,
-                                                fontSize = 9.sp,
-                                                color = Color.White,
-                                                fontWeight = FontWeight.Bold
+                                            AsyncImage(
+                                                model = room.thumbnailUrl,
+                                                contentDescription = room.title,
+                                                contentScale = ContentScale.Crop,
+                                                modifier = Modifier.fillMaxSize()
                                             )
-                                        }
-                                    }
-
-                                    // Room Details
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = room.title,
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            fontFamily = TajawalFontFamily,
-                                            color = Color(0xFF0F172A),
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-
-                                        Spacer(modifier = Modifier.height(2.dp))
-
-                                        Text(
-                                            text = room.currentVideoTitle,
-                                            fontSize = 11.sp,
-                                            fontFamily = TajawalFontFamily,
-                                            color = Color(0xFF64748B),
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-
-                                        Spacer(modifier = Modifier.height(4.dp))
-
-                                        // Host Info + Ping
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                        ) {
                                             Box(
                                                 modifier = Modifier
-                                                    .size(18.dp)
-                                                    .background(room.hostAvatarBg, CircleShape),
-                                                contentAlignment = Alignment.Center
+                                                    .align(Alignment.BottomEnd)
+                                                    .padding(4.dp)
+                                                    .background(Color(0xCCDC2626), RoundedCornerShape(4.dp))
+                                                    .padding(horizontal = 4.dp, vertical = 2.dp)
                                             ) {
                                                 Text(
-                                                    text = room.hostName.take(1),
+                                                    text = "مباشر",
                                                     fontSize = 9.sp,
                                                     color = Color.White,
                                                     fontWeight = FontWeight.Bold
                                                 )
                                             }
-                                            Text(
-                                                text = room.hostName,
-                                                fontSize = 10.sp,
-                                                fontFamily = TajawalFontFamily,
-                                                color = Color(0xFF475569)
-                                            )
-                                            Text(
-                                                text = "•",
-                                                fontSize = 10.sp,
-                                                color = Color(0xFFCBD5E1)
-                                            )
-                                            Text(
-                                                text = room.pingMs,
-                                                fontSize = 10.sp,
-                                                fontFamily = TajawalFontFamily,
-                                                color = Color(0xFF2563EB)
-                                            )
                                         }
-                                    }
-                                }
 
-                                Spacer(modifier = Modifier.height(10.dp))
-                                Divider(color = Color(0xFFF1F5F9), thickness = 0.8.dp)
-                                Spacer(modifier = Modifier.height(8.dp))
-
-                                // Bottom Row: Viewers Count + Room Code + Join Icon Button
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    // Viewers Counter Badge
-                                    Surface(
-                                        shape = RoundedCornerShape(10.dp),
-                                        color = Color(0xFFFEF2F2),
-                                        border = BorderStroke(1.dp, Color(0xFFFECACA))
-                                    ) {
-                                        Row(
-                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                        ) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(6.dp)
-                                                    .background(Color(0xFFDC2626), CircleShape)
-                                            )
+                                        // Room Details
+                                        Column(modifier = Modifier.weight(1f)) {
                                             Text(
-                                                text = "${room.viewersCount} متصل الآن",
-                                                fontSize = 10.sp,
+                                                text = room.title,
+                                                fontSize = 13.sp,
                                                 fontWeight = FontWeight.Bold,
                                                 fontFamily = TajawalFontFamily,
-                                                color = Color(0xFFDC2626)
+                                                color = Color(0xFF0F172A),
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
                                             )
+
+                                            Spacer(modifier = Modifier.height(2.dp))
+
+                                            Text(
+                                                text = room.currentVideoTitle,
+                                                fontSize = 11.sp,
+                                                fontFamily = TajawalFontFamily,
+                                                color = Color(0xFF64748B),
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+
+                                            Spacer(modifier = Modifier.height(4.dp))
+
+                                            // Host Info
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(18.dp)
+                                                        .background(room.hostAvatarBg, CircleShape),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Text(
+                                                        text = room.hostName.take(1),
+                                                        fontSize = 9.sp,
+                                                        color = Color.White,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                }
+                                                Text(
+                                                    text = room.hostName,
+                                                    fontSize = 10.sp,
+                                                    fontFamily = TajawalFontFamily,
+                                                    color = Color(0xFF475569)
+                                                )
+                                            }
                                         }
                                     }
 
-                                    // Room Code Chip
-                                    Surface(
-                                        onClick = {
-                                            try {
-                                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                                val clip = ClipData.newPlainText("كود الغرفة", room.roomCode)
-                                                clipboard.setPrimaryClip(clip)
-                                                Toast.makeText(context, "تم نسخ كود الغرفة (${room.roomCode}) بنجاح!", Toast.LENGTH_SHORT).show()
-                                            } catch (_: Exception) {}
-                                        },
-                                        shape = RoundedCornerShape(10.dp),
-                                        color = Color(0xFFEEF5FF),
-                                        border = BorderStroke(1.dp, Color(0xFFDBEAFE))
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    HorizontalDivider(color = Color(0xFFF1F5F9), thickness = 0.8.dp)
+                                    Spacer(modifier = Modifier.height(8.dp))
+
+                                    // Bottom Row: Viewers Count + Room Code + Join Icon Button
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Row(
-                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        // Viewers Counter Badge
+                                        Surface(
+                                            shape = RoundedCornerShape(10.dp),
+                                            color = Color(0xFFFEF2F2),
+                                            border = BorderStroke(1.dp, Color(0xFFFECACA))
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(6.dp)
+                                                        .background(Color(0xFFDC2626), CircleShape)
+                                                )
+                                                Text(
+                                                    text = "${room.viewersCount} متصل الآن",
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontFamily = TajawalFontFamily,
+                                                    color = Color(0xFFDC2626)
+                                                )
+                                            }
+                                        }
+
+                                        // Room Code Chip
+                                        Surface(
+                                            onClick = {
+                                                try {
+                                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                                    val clip = ClipData.newPlainText("كود الغرفة", room.roomCode)
+                                                    clipboard.setPrimaryClip(clip)
+                                                    Toast.makeText(context, "تم نسخ كود الغرفة (${room.roomCode}) بنجاح!", Toast.LENGTH_SHORT).show()
+                                                } catch (_: Exception) {}
+                                            },
+                                            shape = RoundedCornerShape(10.dp),
+                                            color = Color(0xFFEEF5FF),
+                                            border = BorderStroke(1.dp, Color(0xFFDBEAFE))
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.ContentCopy,
+                                                    contentDescription = "نسخ",
+                                                    tint = Color(0xFF2563EB),
+                                                    modifier = Modifier.size(11.dp)
+                                                )
+                                                Text(
+                                                    text = room.roomCode,
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = Color(0xFF2563EB)
+                                                )
+                                            }
+                                        }
+
+                                        // Enter Room Icon Button
+                                        IconButton(
+                                            onClick = {
+                                                playButtonBeep()
+                                                onEnterRoom(room.roomId, room.videoId, room.title, room.roomCode)
+                                            },
+                                            modifier = Modifier
+                                                .size(34.dp)
+                                                .background(Color(0xFF2563EB), CircleShape)
                                         ) {
                                             Icon(
-                                                imageVector = Icons.Default.ContentCopy,
-                                                contentDescription = "نسخ",
-                                                tint = Color(0xFF2563EB),
-                                                modifier = Modifier.size(11.dp)
-                                            )
-                                            Text(
-                                                text = room.roomCode,
-                                                fontSize = 10.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = Color(0xFF2563EB)
+                                                imageVector = Icons.Default.ArrowBack,
+                                                contentDescription = "دخول الغرفة",
+                                                tint = Color.White,
+                                                modifier = Modifier.size(16.dp)
                                             )
                                         }
-                                    }
-
-                                    // Enter Room Icon Button (Sleek icon only)
-                                    IconButton(
-                                        onClick = {
-                                            playButtonBeep()
-                                            onEnterRoom(room.roomId, room.videoId, room.title)
-                                        },
-                                        modifier = Modifier
-                                            .size(34.dp)
-                                            .background(Color(0xFF2563EB), CircleShape)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.ArrowBack, // Back in RTL points forward into the room
-                                            contentDescription = "دخول الغرفة",
-                                            tint = Color.White,
-                                            modifier = Modifier.size(16.dp)
-                                        )
                                     }
                                 }
                             }
@@ -767,11 +636,11 @@ fun YouTubeLobbyScreen(
         }
 
         // ====================================================
-        // 4. CREATE ROOM MODAL DIALOG (نافذة إنشاء غرفة جديدة)
+        // 4. CREATE ROOM MODAL DIALOG (إنشاء غرفة حقيقية بكود حقيقي)
         // ====================================================
         if (isCreateRoomDialogOpen) {
             Dialog(
-                onDismissRequest = { isCreateRoomDialogOpen = false },
+                onDismissRequest = { if (!isCreatingRoom) isCreateRoomDialogOpen = false },
                 properties = DialogProperties(usePlatformDefaultWidth = false)
             ) {
                 Surface(
@@ -800,7 +669,8 @@ fun YouTubeLobbyScreen(
                             )
                             IconButton(
                                 onClick = { isCreateRoomDialogOpen = false },
-                                modifier = Modifier.size(30.dp)
+                                modifier = Modifier.size(30.dp),
+                                enabled = !isCreatingRoom
                             ) {
                                 Icon(Icons.Default.Close, contentDescription = "إغلاق", tint = Color(0xFF94A3B8), modifier = Modifier.size(18.dp))
                             }
@@ -814,7 +684,8 @@ fun YouTubeLobbyScreen(
                             placeholder = { Text("مثال: سهرة أفلام ومقاطع ممتعة", fontSize = 11.sp, fontFamily = TajawalFontFamily) },
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(14.dp),
-                            singleLine = true
+                            singleLine = true,
+                            enabled = !isCreatingRoom
                         )
 
                         // Privacy Mode (رموز بدون كتابة)
@@ -840,7 +711,7 @@ fun YouTubeLobbyScreen(
                             privacyOptions.forEach { (mode, icon) ->
                                 val isSelected = newRoomPrivacy == mode
                                 Surface(
-                                    onClick = { newRoomPrivacy = mode },
+                                    onClick = { if (!isCreatingRoom) newRoomPrivacy = mode },
                                     shape = RoundedCornerShape(12.dp),
                                     color = if (isSelected) Color(0xFF2563EB) else Color(0xFFF8FAFC),
                                     border = BorderStroke(1.dp, if (isSelected) Color(0xFF2563EB) else Color(0xFFE2E8F0)),
@@ -863,37 +734,46 @@ fun YouTubeLobbyScreen(
                         // Confirm Create Button
                         Button(
                             onClick = {
-                                val generatedCode = "#YT-${(1000..9999).random()}"
-                                val roomTitle = if (newRoomTitle.trim().isNotEmpty()) newRoomTitle.trim() else "غرفة مشاهدة يوتيوب"
-                                val newRoom = PublicYouTubeRoom(
-                                    roomId = "room_${System.currentTimeMillis()}",
-                                    roomCode = generatedCode,
-                                    title = roomTitle,
-                                    hostName = "أنا (المضيف)",
-                                    hostAvatarBg = Color(0xFF2563EB),
-                                    currentVideoTitle = "بث مباشر 4K",
-                                    videoId = "jfKfPfyJRdk",
-                                    thumbnailUrl = "https://images.unsplash.com/photo-1564769625905-50e93615e769?w=600&auto=format&fit=crop&q=80",
-                                    viewersCount = 1,
-                                    privacyMode = newRoomPrivacy
-                                )
-                                publicRooms.add(0, newRoom)
-                                isCreateRoomDialogOpen = false
+                                if (isCreatingRoom) return@Button
+                                isCreatingRoom = true
                                 playButtonBeep()
-                                Toast.makeText(context, "تم إنشاء الغرفة ($generatedCode) بنجاح! 🍿", Toast.LENGTH_SHORT).show()
-                                onEnterRoom(newRoom.roomId, newRoom.videoId, newRoom.title)
+                                YouTubeRoomManager.createRealRoom(
+                                    context = context,
+                                    title = newRoomTitle,
+                                    privacyMode = newRoomPrivacy,
+                                    initialVideoId = "dQw4w9WgXcQ",
+                                    initialVideoTitle = "مشاهدة متزامنة عبر Cloudflare"
+                                ) { result ->
+                                    isCreatingRoom = false
+                                    isCreateRoomDialogOpen = false
+                                    result.onSuccess { createdRoom ->
+                                        if (createdRoom.privacyMode == RoomPrivacyMode.PUBLIC) {
+                                            publicRooms.removeAll { it.roomId == createdRoom.roomId }
+                                            publicRooms.add(0, createdRoom)
+                                        }
+                                        Toast.makeText(context, "تم إنشاء الغرفة بنجاح! كود الغرفة: ${createdRoom.roomCode} 🍿", Toast.LENGTH_LONG).show()
+                                        onEnterRoom(createdRoom.roomId, createdRoom.videoId, createdRoom.title, createdRoom.roomCode)
+                                    }.onFailure { err ->
+                                        Toast.makeText(context, err.message ?: "فشل إنشاء الغرفة", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
                             },
                             modifier = Modifier.fillMaxWidth().height(48.dp),
                             shape = RoundedCornerShape(14.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626))
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
+                            enabled = !isCreatingRoom
                         ) {
-                            Text(
-                                text = "إنشاء الغرفة وبدء المشاهدة 🚀",
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = TajawalFontFamily,
-                                color = Color.White
-                            )
+                            if (isCreatingRoom) {
+                                CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp))
+                            } else {
+                                Text(
+                                    text = "إنشاء الغرفة وبدء المشاهدة 🚀",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = TajawalFontFamily,
+                                    color = Color.White
+                                )
+                            }
                         }
                     }
                 }
@@ -901,11 +781,11 @@ fun YouTubeLobbyScreen(
         }
 
         // ====================================================
-        // 5. JOIN ROOM BY CODE MODAL DIALOG (نافذة الانضمام بكود)
+        // 5. JOIN ROOM BY CODE MODAL DIALOG (الانضمام الحقيقي والتحقق الصارم من الكود)
         // ====================================================
         if (isJoinRoomDialogOpen) {
             Dialog(
-                onDismissRequest = { isJoinRoomDialogOpen = false },
+                onDismissRequest = { if (!isVerifyingJoin) isJoinRoomDialogOpen = false },
                 properties = DialogProperties(usePlatformDefaultWidth = false)
             ) {
                 Surface(
@@ -934,7 +814,8 @@ fun YouTubeLobbyScreen(
                             )
                             IconButton(
                                 onClick = { isJoinRoomDialogOpen = false },
-                                modifier = Modifier.size(30.dp)
+                                modifier = Modifier.size(30.dp),
+                                enabled = !isVerifyingJoin
                             ) {
                                 Icon(Icons.Default.Close, contentDescription = "إغلاق", tint = Color(0xFF94A3B8), modifier = Modifier.size(18.dp))
                             }
@@ -943,12 +824,17 @@ fun YouTubeLobbyScreen(
                         // Room Code Input
                         OutlinedTextField(
                             value = joinRoomCodeInput,
-                            onValueChange = { joinRoomCodeInput = it },
+                            onValueChange = {
+                                joinRoomCodeInput = it
+                                joinErrorMessage = null
+                            },
                             label = { Text("كود الغرفة", fontSize = 12.sp, fontFamily = TajawalFontFamily) },
-                            placeholder = { Text("مثال: #YT-9024", fontSize = 11.sp, fontFamily = TajawalFontFamily) },
+                            placeholder = { Text("أدخل الكود المكون من 6 أرقام (مثال: #YT-492104)", fontSize = 11.sp, fontFamily = TajawalFontFamily) },
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(14.dp),
                             singleLine = true,
+                            isError = joinErrorMessage != null,
+                            enabled = !isVerifyingJoin,
                             trailingIcon = {
                                 IconButton(onClick = {
                                     try {
@@ -956,6 +842,7 @@ fun YouTubeLobbyScreen(
                                         val clip = clipboard.primaryClip?.getItemAt(0)?.text?.toString() ?: ""
                                         if (clip.isNotEmpty()) {
                                             joinRoomCodeInput = clip
+                                            joinErrorMessage = null
                                         }
                                     } catch (_: Exception) {}
                                 }) {
@@ -964,36 +851,57 @@ fun YouTubeLobbyScreen(
                             }
                         )
 
-                        // Confirm Join Button
+                        // Strict Error Message if code is invalid
+                        joinErrorMessage?.let { errMsg ->
+                            Text(
+                                text = errMsg,
+                                color = Color(0xFFDC2626),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = TajawalFontFamily
+                            )
+                        }
+
+                        // Confirm Join Button (Validates strictly against real database/network)
                         Button(
                             onClick = {
                                 val code = joinRoomCodeInput.trim()
-                                if (code.isNotEmpty()) {
-                                    val matched = publicRooms.firstOrNull { it.roomCode.equals(code, ignoreCase = true) }
-                                    isJoinRoomDialogOpen = false
-                                    playButtonBeep()
-                                    if (matched != null) {
+                                if (code.isEmpty()) {
+                                    joinErrorMessage = "يرجى إدخال كود الغرفة"
+                                    return@Button
+                                }
+                                isVerifyingJoin = true
+                                joinErrorMessage = null
+                                playButtonBeep()
+
+                                YouTubeRoomManager.joinRealRoomByCode(context, code) { result ->
+                                    isVerifyingJoin = false
+                                    result.onSuccess { matchedRoom ->
+                                        isJoinRoomDialogOpen = false
                                         Toast.makeText(context, "تم الانضمام للغرفة بنجاح! 🎬", Toast.LENGTH_SHORT).show()
-                                        onEnterRoom(matched.roomId, matched.videoId, matched.title)
-                                    } else {
-                                        Toast.makeText(context, "جاري الدخول إلى الغرفة الخاصة ($code)...", Toast.LENGTH_SHORT).show()
-                                        onEnterRoom("room_custom", "yK4U4XkMhFk", "غرفة $code")
+                                        onEnterRoom(matchedRoom.roomId, matchedRoom.videoId, matchedRoom.title, matchedRoom.roomCode)
+                                    }.onFailure { error ->
+                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        joinErrorMessage = error.message ?: "رمز الغرفة غير صحيح أو الغرفة غير موجودة"
                                     }
-                                } else {
-                                    Toast.makeText(context, "يرجى كتابة كود الغرفة أولاً", Toast.LENGTH_SHORT).show()
                                 }
                             },
                             modifier = Modifier.fillMaxWidth().height(48.dp),
                             shape = RoundedCornerShape(14.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
+                            enabled = !isVerifyingJoin
                         ) {
-                            Text(
-                                text = "انضمام الآن 🎬",
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = TajawalFontFamily,
-                                color = Color.White
-                            )
+                            if (isVerifyingJoin) {
+                                CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp))
+                            } else {
+                                Text(
+                                    text = "انضمام الآن 🎬",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = TajawalFontFamily,
+                                    color = Color.White
+                                )
+                            }
                         }
                     }
                 }

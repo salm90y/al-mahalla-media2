@@ -199,9 +199,34 @@ fun RootAppShell() {
                 composable("youtube_lobby") {
                     YouTubeLobbyScreen(
                         onBack = { navController.popBackStack() },
-                        onEnterRoom = { _, _, _ ->
-                            navController.navigate("youtube_room")
+                        onEnterRoom = { roomId, videoId, roomTitle, roomCode ->
+                            val encTitle = try { java.net.URLEncoder.encode(roomTitle, "UTF-8") } catch (_: Exception) { "room" }
+                            val encCode = try { java.net.URLEncoder.encode(roomCode, "UTF-8") } catch (_: Exception) { "code" }
+                            navController.navigate("youtube_room/$roomId/$videoId/$encTitle/$encCode")
                         }
+                    )
+                }
+                composable(
+                    route = "youtube_room/{roomId}/{videoId}/{roomTitle}/{roomCode}",
+                    arguments = listOf(
+                        androidx.navigation.navArgument("roomId") { type = androidx.navigation.NavType.StringType },
+                        androidx.navigation.navArgument("videoId") { type = androidx.navigation.NavType.StringType },
+                        androidx.navigation.navArgument("roomTitle") { type = androidx.navigation.NavType.StringType },
+                        androidx.navigation.navArgument("roomCode") { type = androidx.navigation.NavType.StringType }
+                    )
+                ) { backStackEntry ->
+                    val rId = backStackEntry.arguments?.getString("roomId") ?: "yt_room_default"
+                    val vId = backStackEntry.arguments?.getString("videoId") ?: "dQw4w9WgXcQ"
+                    val rawTitle = backStackEntry.arguments?.getString("roomTitle") ?: "غرفة اليوتيوب"
+                    val rawCode = backStackEntry.arguments?.getString("roomCode") ?: "#YT-9024"
+                    val rTitle = try { java.net.URLDecoder.decode(rawTitle, "UTF-8") } catch (_: Exception) { rawTitle }
+                    val rCode = try { java.net.URLDecoder.decode(rawCode, "UTF-8") } catch (_: Exception) { rawCode }
+                    YouTubeRoomScreen(
+                        roomId = rId,
+                        initialVideoId = vId,
+                        roomTitle = rTitle,
+                        roomCode = rCode,
+                        onBack = { navController.popBackStack() }
                     )
                 }
                 composable("youtube_room") {

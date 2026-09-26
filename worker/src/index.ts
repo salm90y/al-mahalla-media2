@@ -1407,6 +1407,98 @@ export default {
         return json({ success: true });
       }
 
+      // --- YOUTUBE ROOMS API ---
+      // 1. Create real room with unique code
+      if ((url.pathname === "/api/youtube/rooms/create" || url.pathname === "/youtube/rooms/create") && method === "POST") {
+        const body: any = await request.json().catch(() => ({}));
+        const title = (body.title || "غرفة سينما").trim();
+        const hostName = (body.hostName || "المضيف").trim();
+        const hostId = body.hostId || "host_" + Math.random().toString(36).substring(2, 8);
+        const videoId = body.videoId || "dQw4w9WgXcQ";
+        const videoTitle = body.videoTitle || "فيديو يوتيوب";
+        const privacyMode = body.privacyMode || "PUBLIC";
+        
+        // Generate real 6-digit room code
+        const codeNum = Math.floor(100000 + Math.random() * 900000);
+        const roomCode = `#YT-${codeNum}`;
+        const roomId = `yt_room_${codeNum}`;
+        
+        const roomData = {
+          roomId,
+          roomCode,
+          title,
+          hostName,
+          hostId,
+          videoId,
+          currentVideoTitle: videoTitle,
+          viewersCount: 1,
+          isLive: true,
+          privacyMode,
+          createdAt: Date.now(),
+          lastActive: Date.now()
+        };
+
+        if (env.SESSIONS) {
+          try {
+            await env.SESSIONS.put(`yt_room:${roomId}`, JSON.stringify(roomData), { expirationTtl: 86400 });
+            await env.SESSIONS.put(`yt_code:${codeNum}`, roomId, { expirationTtl: 86400 });
+            if (privacyMode === "PUBLIC") {
+              const currentListRaw = await env.SESSIONS.get("yt_public_rooms");
+              const currentList: string[] = currentListRaw ? JSON.parse(currentListRaw) : [];
+              if (!currentList.includes(roomId)) {
+                currentList.unshift(roomId);
+                await env.SESSIONS.put("yt_public_rooms", JSON.stringify(currentList.slice(0, 50)), { expirationTtl: 86400 });
+              }
+            }
+          } catch (e) {}
+        }
+
+        return json({ success: true, room: roomData });
+      }
+
+      // 2. Get public active rooms (ONLY real active rooms, no fake items)
+      if ((url.pathname === "/api/youtube/rooms/public" || url.pathname === "/youtube/rooms/public") && method === "GET") {
+        const rooms: any[] = [];
+        if (env.SESSIONS) {
+          try {
+            const currentListRaw = await env.SESSIONS.get("yt_public_rooms");
+            const currentList: string[] = currentListRaw ? JSON.parse(currentListRaw) : [];
+            for (const rId of currentList) {
+              const rRaw = await env.SESSIONS.get(`yt_room:${rId}`);
+              if (rRaw) {
+                rooms.push(JSON.parse(rRaw));
+              }
+            }
+          } catch (e) {}
+        }
+        return json({ success: true, rooms });
+      }
+
+      // 3. Get room by code or id (Strict Validation)
+      if ((url.pathname === "/api/youtube/rooms/get" || url.pathname === "/youtube/rooms/get") && method === "GET") {
+        const rawCode = (url.searchParams.get("code") || "").replace(/[^0-9]/g, "");
+        const rawRoomId = url.searchParams.get("id") || "";
+        
+        let targetRoomId = rawRoomId;
+        if (!targetRoomId && rawCode && env.SESSIONS) {
+          try {
+            targetRoomId = (await env.SESSIONS.get(`yt_code:${rawCode}`)) || "";
+          } catch (e) {}
+        }
+
+        if (targetRoomId && env.SESSIONS) {
+          try {
+            const rRaw = await env.SESSIONS.get(`yt_room:${targetRoomId}`);
+            if (rRaw) {
+              const room = JSON.parse(rRaw);
+              return json({ success: true, room });
+            }
+          } catch (e) {}
+        }
+
+        return json({ success: false, error: "رمز الغرفة غير صحيح أو الغرفة غير موجودة" }, 404);
+      }
+
       if (url.pathname === "/init-db" || url.pathname === "/api/init-db") {
         if (env.DB) await ensureAllTables(env.DB);
         return json({ success: true, message: "Database tables initialized" });

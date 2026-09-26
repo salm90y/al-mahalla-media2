@@ -159,6 +159,10 @@ val INITIAL_YOUTUBE_CATALOG = listOf(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun YouTubeRoomScreen(
+    roomId: String = "yt_room_default",
+    initialVideoId: String = "dQw4w9WgXcQ",
+    roomTitle: String = "سينما اليوتيوب",
+    roomCode: String = "#YT-9024",
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
@@ -176,7 +180,20 @@ fun YouTubeRoomScreen(
     }
 
     // Active currently playing video
-    var currentVideo by remember { mutableStateOf<YouTubeVideoItem>(videoCatalog[0]) }
+    var currentVideo by remember(initialVideoId) {
+        val found = videoCatalog.find { it.id == initialVideoId }
+        mutableStateOf(
+            found ?: YouTubeVideoItem(
+                id = initialVideoId.ifBlank { "dQw4w9WgXcQ" },
+                title = roomTitle.ifBlank { "فيديو يوتيوب متزامن" },
+                channelTitle = "سحابة Cloudflare",
+                duration = "مباشر",
+                viewCount = "متزامن",
+                publishedTime = "الآن",
+                thumbnailUrl = "https://img.youtube.com/vi/${initialVideoId.ifBlank { "dQw4w9WgXcQ" }}/hqdefault.jpg"
+            )
+        )
+    }
 
     // Playback and Volume states
     var isPlaying by remember { mutableStateOf(true) }
@@ -196,6 +213,51 @@ fun YouTubeRoomScreen(
             videoCatalog[1],
             videoCatalog[2]
         )
+    }
+
+    // Live Room Chat Messages State
+    val chatMessages = remember {
+        mutableStateListOf(
+            YouTubeChatMessage("1", "أحمد (المضيف)", "أهلاً بالجميع في غرفة $roomTitle! 🎬🍿", "الآن", false, Color(0xFF2563EB)),
+            YouTubeChatMessage("2", "سارة", "جودة البث عبر Cloudflare ممتازة وسريعة جداً ⚡", "الآن", false, Color(0xFF10B981))
+        )
+    }
+
+    // Real-Time WebSocket Synchronization Client
+    val syncSocket = remember(roomId) {
+        YouTubeSyncWebSocket(
+            context = context,
+            roomId = roomId,
+            onVideoChangeReceived = { vId, vTitle ->
+                currentVideo = YouTubeVideoItem(
+                    id = vId,
+                    title = vTitle.ifBlank { "فيديو يوتيوب متزامن" },
+                    channelTitle = "مشاهدة متزامنة",
+                    duration = "مباشر",
+                    viewCount = "متزامن",
+                    publishedTime = "الآن",
+                    thumbnailUrl = "https://img.youtube.com/vi/$vId/hqdefault.jpg"
+                )
+                isPlaying = true
+                Toast.makeText(context, "قام أحد الأعضاء بتغيير الفيديو 🎬", Toast.LENGTH_SHORT).show()
+            },
+            onPlaybackStateReceived = { playState, _ ->
+                isPlaying = playState
+            },
+            onChatMessageReceived = { newMsg ->
+                chatMessages.add(newMsg)
+            }
+        )
+    }
+
+    LaunchedEffect(roomId) {
+        syncSocket.connect()
+    }
+
+    DisposableEffect(roomId) {
+        onDispose {
+            syncSocket.disconnect()
+        }
     }
 
     // Search Bar & Instant Autocomplete Dropdown State
@@ -232,7 +294,7 @@ fun YouTubeRoomScreen(
         } catch (_: Exception) {}
     }
 
-    // Play a video directly in the player box
+    // Play a video directly in the player box and broadcast to room
     fun playSelectedVideo(video: YouTubeVideoItem) {
         playButtonBeep()
         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -240,6 +302,7 @@ fun YouTubeRoomScreen(
         isPlaying = true
         isSearchModalOpen = false
         isDropdownOpen = false
+        syncSocket.broadcastVideoChange(video.id, video.title)
         Toast.makeText(context, "جاري تشغيل: ${video.title.take(35)}... 🎬", Toast.LENGTH_SHORT).show()
     }
 
@@ -284,14 +347,6 @@ fun YouTubeRoomScreen(
         }
     }
 
-    // Live Room Chat Messages State
-    val chatMessages = remember {
-        mutableStateListOf(
-            YouTubeChatMessage("1", "أحمد (المضيف)", "أهلاً بالجميع في غرفة سينما اليوتيوب! 🎬🍿", "10:20 م", false, Color(0xFF2563EB)),
-            YouTubeChatMessage("2", "سارة", "جودة البث عبر Cloudflare ممتازة وسريعة جداً بدون أي تقطيع ⚡", "10:21 م", false, Color(0xFF10B981)),
-            YouTubeChatMessage("3", "محمد", "الصوت متزامن 100% مع الجميع ✨", "10:22 م", false, Color(0xFF8B5CF6))
-        )
-    }
     var chatInputText by remember { mutableStateOf("") }
 
     // Intercom / Voice Room State
@@ -441,9 +496,9 @@ fun YouTubeRoomScreen(
                         onClick = {
                             try {
                                 val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                                val clip = android.content.ClipData.newPlainText("كود الغرفة", "#YT-9024")
+                                val clip = android.content.ClipData.newPlainText("كود الغرفة", roomCode)
                                 clipboard.setPrimaryClip(clip)
-                                Toast.makeText(context, "تم نسخ كود الغرفة (#YT-9024) بنجاح!", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "تم نسخ كود الغرفة ($roomCode) بنجاح!", Toast.LENGTH_SHORT).show()
                             } catch (_: Exception) {}
                         },
                         shape = RoundedCornerShape(12.dp),
@@ -462,7 +517,7 @@ fun YouTubeRoomScreen(
                                 modifier = Modifier.size(12.dp)
                             )
                             Text(
-                                text = "#YT-9024",
+                                text = roomCode,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color(0xFF2563EB)
@@ -1012,16 +1067,18 @@ fun YouTubeRoomScreen(
                                     )
                                     IconButton(
                                         onClick = {
-                                            if (chatInputText.trim().isNotEmpty()) {
+                                            val text = chatInputText.trim()
+                                            if (text.isNotEmpty()) {
                                                 chatMessages.add(
                                                     YouTubeChatMessage(
                                                         id = System.currentTimeMillis().toString(),
                                                         sender = "أنا",
-                                                        text = chatInputText.trim(),
+                                                        text = text,
                                                         time = "الآن",
                                                         isMe = true
                                                     )
                                                 )
+                                                syncSocket.broadcastChatMessage(text)
                                                 chatInputText = ""
                                                 playButtonBeep()
                                             }
