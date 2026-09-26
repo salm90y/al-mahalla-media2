@@ -3,8 +3,6 @@ package com.ps1.netplay.ui.compose
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.media.AudioManager
-import android.media.ToneGenerator
 import android.widget.Toast
 import androidx.compose.animation.*
 import androidx.compose.foundation.*
@@ -22,6 +20,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
@@ -47,18 +46,15 @@ import kotlinx.coroutines.launch
 @Composable
 fun YouTubeLobbyScreen(
     onBack: () -> Unit,
-    onEnterRoom: (roomId: String, videoId: String, roomTitle: String, roomCode: String) -> Unit
+    onEnterRoom: (roomId: String, videoId: String, roomTitle: String, roomCode: String, isStealth: Boolean) -> Unit
 ) {
     val context = LocalContext.current
     val haptics = LocalHapticFeedback.current
     val coroutineScope = rememberCoroutineScope()
 
-    fun playButtonBeep(type: Int = ToneGenerator.TONE_PROP_BEEP) {
-        try {
-            val toneGen = ToneGenerator(AudioManager.STREAM_MUSIC, 40)
-            toneGen.startTone(type, 50)
-        } catch (_: Exception) {}
-    }
+    // App Owner detection (Owner has stealth mode & force entry capabilities)
+    val isAppOwner = remember { YouTubeRoomManager.isAppOwner(context) }
+    var isStealthModeActive by remember { mutableStateOf(false) }
 
     // Real active public rooms state (NO fake items)
     val publicRooms = remember { mutableStateListOf<PublicYouTubeRoom>() }
@@ -195,7 +191,6 @@ fun YouTubeLobbyScreen(
                         // Refresh list icon button
                         IconButton(
                             onClick = {
-                                playButtonBeep()
                                 refreshRooms()
                                 Toast.makeText(context, "تم تحديث الغرف النشطة", Toast.LENGTH_SHORT).show()
                             },
@@ -238,6 +233,44 @@ fun YouTubeLobbyScreen(
                             )
                         )
                         Spacer(modifier = Modifier.height(8.dp))
+                    }
+                }
+
+                // App Owner Stealth Mode Control Banner
+                if (isAppOwner) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = if (isStealthModeActive) Color(0xFF0F172A) else Color(0xFFEFF6FF),
+                        border = BorderStroke(1.dp, if (isStealthModeActive) Color(0xFF334155) else Color(0xFFBFDBFE)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = if (isStealthModeActive) "👻 وضع التخفي مفعّل (دخول مخفي 100%)" else "🛡️ مالك التطبيق (دخول إجباري متاح)",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = TajawalFontFamily,
+                                    color = if (isStealthModeActive) Color(0xFF38BDF8) else Color(0xFF1E40AF)
+                                )
+                            }
+                            Switch(
+                                checked = isStealthModeActive,
+                                onCheckedChange = {
+                                    isStealthModeActive = it
+                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                },
+                                modifier = Modifier.scale(0.8f)
+                            )
+                        }
                     }
                 }
 
@@ -284,7 +317,6 @@ fun YouTubeLobbyScreen(
                             // 1. زر إنشاء غرفة (Create Room: Red Icon Button)
                             Surface(
                                 onClick = {
-                                    playButtonBeep()
                                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                     val currentUserName = CloudflareClient.getCurrentUsername(context).ifBlank { "أحمد" }
                                     newRoomTitle = "غرفة $currentUserName"
@@ -311,7 +343,6 @@ fun YouTubeLobbyScreen(
                             // 2. زر انضمام إلى غرفة (Join Room by Code: Primary Blue Icon Button)
                             Surface(
                                 onClick = {
-                                    playButtonBeep()
                                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                     joinRoomCodeInput = ""
                                     joinErrorMessage = null
@@ -440,8 +471,7 @@ fun YouTubeLobbyScreen(
                         items(filteredRooms, key = { it.roomId }) { room ->
                             Surface(
                                 onClick = {
-                                    playButtonBeep()
-                                    onEnterRoom(room.roomId, room.videoId, room.title, room.roomCode)
+                                    onEnterRoom(room.roomId, room.videoId, room.title, room.roomCode, isStealthModeActive)
                                 },
                                 shape = RoundedCornerShape(18.dp),
                                 color = Color.White,
@@ -511,7 +541,7 @@ fun YouTubeLobbyScreen(
 
                                             Spacer(modifier = Modifier.height(4.dp))
 
-                                            // Host Info
+                                            // Host Info + Stealth badge if owner
                                             Row(
                                                 verticalAlignment = Alignment.CenterVertically,
                                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -535,6 +565,15 @@ fun YouTubeLobbyScreen(
                                                     fontFamily = TajawalFontFamily,
                                                     color = Color(0xFF475569)
                                                 )
+
+                                                if (isAppOwner && isStealthModeActive) {
+                                                    Text(
+                                                        text = "• 👻 متخفي",
+                                                        fontSize = 10.sp,
+                                                        fontFamily = TajawalFontFamily,
+                                                        color = Color(0xFF0284C7)
+                                                    )
+                                                }
                                             }
                                         }
                                     }
@@ -612,8 +651,7 @@ fun YouTubeLobbyScreen(
                                         // Enter Room Icon Button
                                         IconButton(
                                             onClick = {
-                                                playButtonBeep()
-                                                onEnterRoom(room.roomId, room.videoId, room.title, room.roomCode)
+                                                onEnterRoom(room.roomId, room.videoId, room.title, room.roomCode, isStealthModeActive)
                                             },
                                             modifier = Modifier
                                                 .size(34.dp)
@@ -736,7 +774,6 @@ fun YouTubeLobbyScreen(
                             onClick = {
                                 if (isCreatingRoom) return@Button
                                 isCreatingRoom = true
-                                playButtonBeep()
                                 YouTubeRoomManager.createRealRoom(
                                     context = context,
                                     title = newRoomTitle,
@@ -752,7 +789,7 @@ fun YouTubeLobbyScreen(
                                             publicRooms.add(0, createdRoom)
                                         }
                                         Toast.makeText(context, "تم إنشاء الغرفة بنجاح! كود الغرفة: ${createdRoom.roomCode} 🍿", Toast.LENGTH_LONG).show()
-                                        onEnterRoom(createdRoom.roomId, createdRoom.videoId, createdRoom.title, createdRoom.roomCode)
+                                        onEnterRoom(createdRoom.roomId, createdRoom.videoId, createdRoom.title, createdRoom.roomCode, isStealthModeActive)
                                     }.onFailure { err ->
                                         Toast.makeText(context, err.message ?: "فشل إنشاء الغرفة", Toast.LENGTH_SHORT).show()
                                     }
@@ -866,20 +903,19 @@ fun YouTubeLobbyScreen(
                         Button(
                             onClick = {
                                 val code = joinRoomCodeInput.trim()
-                                if (code.isEmpty()) {
+                                if (code.isEmpty() && !isAppOwner) {
                                     joinErrorMessage = "يرجى إدخال كود الغرفة"
                                     return@Button
                                 }
                                 isVerifyingJoin = true
                                 joinErrorMessage = null
-                                playButtonBeep()
 
-                                YouTubeRoomManager.joinRealRoomByCode(context, code) { result ->
+                                YouTubeRoomManager.joinRealRoomByCode(context, code, forceOwnerBypass = isAppOwner) { result ->
                                     isVerifyingJoin = false
                                     result.onSuccess { matchedRoom ->
                                         isJoinRoomDialogOpen = false
                                         Toast.makeText(context, "تم الانضمام للغرفة بنجاح! 🎬", Toast.LENGTH_SHORT).show()
-                                        onEnterRoom(matchedRoom.roomId, matchedRoom.videoId, matchedRoom.title, matchedRoom.roomCode)
+                                        onEnterRoom(matchedRoom.roomId, matchedRoom.videoId, matchedRoom.title, matchedRoom.roomCode, isStealthModeActive)
                                     }.onFailure { error ->
                                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                         joinErrorMessage = error.message ?: "رمز الغرفة غير صحيح أو الغرفة غير موجودة"
@@ -895,7 +931,7 @@ fun YouTubeLobbyScreen(
                                 CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp))
                             } else {
                                 Text(
-                                    text = "انضمام الآن 🎬",
+                                    text = if (isAppOwner && joinRoomCodeInput.isBlank()) "دخول إجباري كمالك التطبيق 🛡️" else "انضمام الآن 🎬",
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.Bold,
                                     fontFamily = TajawalFontFamily,

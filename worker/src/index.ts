@@ -1499,6 +1499,44 @@ export default {
         return json({ success: false, error: "رمز الغرفة غير صحيح أو الغرفة غير موجودة" }, 404);
       }
 
+      // 4. Update room video and state in real-time
+      if ((url.pathname === "/api/youtube/rooms/update" || url.pathname === "/youtube/rooms/update") && method === "POST") {
+        const body: any = await request.json().catch(() => ({}));
+        const roomId = body.roomId;
+        const videoId = body.videoId;
+        const videoTitle = body.videoTitle;
+        if (roomId && videoId && env.SESSIONS) {
+          try {
+            const rRaw = await env.SESSIONS.get(`yt_room:${roomId}`);
+            if (rRaw) {
+              const r = JSON.parse(rRaw);
+              r.videoId = videoId;
+              if (videoTitle) r.currentVideoTitle = videoTitle;
+              r.thumbnailUrl = `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
+              r.lastActive = Date.now();
+              await env.SESSIONS.put(`yt_room:${roomId}`, JSON.stringify(r), { expirationTtl: 86400 });
+            }
+          } catch (e) {}
+        }
+        return json({ success: true });
+      }
+
+      // 5. Get all rooms (including private for App Owner)
+      if ((url.pathname === "/api/youtube/rooms/all" || url.pathname === "/youtube/rooms/all") && method === "GET") {
+        const rooms: any[] = [];
+        if (env.SESSIONS) {
+          try {
+            const currentListRaw = await env.SESSIONS.get("yt_public_rooms");
+            const currentList: string[] = currentListRaw ? JSON.parse(currentListRaw) : [];
+            for (const rId of currentList) {
+              const rRaw = await env.SESSIONS.get(`yt_room:${rId}`);
+              if (rRaw) rooms.push(JSON.parse(rRaw));
+            }
+          } catch (e) {}
+        }
+        return json({ success: true, rooms });
+      }
+
       if (url.pathname === "/init-db" || url.pathname === "/api/init-db") {
         if (env.DB) await ensureAllTables(env.DB);
         return json({ success: true, message: "Database tables initialized" });

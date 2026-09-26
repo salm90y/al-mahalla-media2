@@ -6,6 +6,7 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import androidx.compose.ui.graphics.Color
+import com.ps1.netplay.UserManager
 import com.ps1.netplay.network.CloudflareClient
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
@@ -24,6 +25,7 @@ data class PublicYouTubeRoom(
     val roomCode: String,
     val title: String,
     val hostName: String,
+    val hostId: String = "",
     val hostAvatarBg: Color = Color(0xFF2563EB),
     val currentVideoTitle: String,
     val videoId: String,
@@ -33,6 +35,21 @@ data class PublicYouTubeRoom(
     val durationText: String = "مباشر",
     val privacyMode: RoomPrivacyMode = RoomPrivacyMode.PUBLIC,
     val createdAt: Long = System.currentTimeMillis()
+)
+
+enum class RoomMemberRole {
+    HOST,
+    MODERATOR,
+    MEMBER
+}
+
+data class RoomMemberPermissions(
+    val userId: String,
+    val role: RoomMemberRole = RoomMemberRole.MEMBER,
+    val canChangeVideo: Boolean = false,
+    val isMutedVoice: Boolean = false,
+    val isMutedChat: Boolean = false,
+    val isKicked: Boolean = false
 )
 
 object YouTubeRoomManager {
@@ -55,6 +72,60 @@ object YouTubeRoomManager {
     }
 
     /**
+     * Check if current user is the application owner
+     */
+    fun isAppOwner(context: Context): Boolean {
+        val u = UserManager.getCurrentUser(context)
+        if (u?.isAdmin == true) return true
+        val name = CloudflareClient.getCurrentUsername(context)
+        val email = u?.email ?: ""
+        return name.equals("ahmed", ignoreCase = true) ||
+               name.contains("1986") ||
+               email.equals("ahmed1986y5@gmail.com", ignoreCase = true)
+    }
+
+    /**
+     * Update room's currently playing video in memory, local storage and backend
+     */
+    fun updateRoomVideo(context: Context, roomId: String, videoId: String, videoTitle: String) {
+        val thumb = "https://img.youtube.com/vi/$videoId/hqdefault.jpg"
+
+        // 1. In-memory update
+        val inMemIndex = activeRealRooms.indexOfFirst { it.roomId == roomId }
+        if (inMemIndex >= 0) {
+            val r = activeRealRooms[inMemIndex]
+            val updated = r.copy(videoId = videoId, currentVideoTitle = videoTitle, thumbnailUrl = thumb)
+            activeRealRooms[inMemIndex] = updated
+            saveRoomLocally(context, updated)
+        } else {
+            // Check local storage
+            val localList = loadRoomsLocally(context).toMutableList()
+            val loc = localList.find { it.roomId == roomId }
+            if (loc != null) {
+                val updated = loc.copy(videoId = videoId, currentVideoTitle = videoTitle, thumbnailUrl = thumb)
+                saveRoomLocally(context, updated)
+            }
+        }
+
+        // 2. Remote update on Cloudflare Worker
+        val baseUrl = CloudflareClient.getBaseUrl(context)
+        val jsonBody = JSONObject().apply {
+            put("roomId", roomId)
+            put("videoId", videoId)
+            put("videoTitle", videoTitle)
+        }
+        val request = Request.Builder()
+            .url("$baseUrl/api/youtube/rooms/update")
+            .post(jsonBody.toString().toRequestBody("application/json".toMediaType()))
+            .build()
+
+        httpClient.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {}
+            override fun onResponse(call: Call, response: Response) { response.close() }
+        })
+    }
+
+    /**
      * Create a real room with an authentic 6-digit room code
      */
     fun createRealRoom(
@@ -69,7 +140,6 @@ object YouTubeRoomManager {
         val hostId = CloudflareClient.getCurrentUserId(context)
         val cleanTitle = if (title.isBlank()) "غرفة $hostName" else title.trim()
 
-        // Generate authentic unique 6-digit code
         val codeNum = Random.nextInt(100000, 999999)
         val roomCode = "#YT-$codeNum"
         val roomId = "yt_room_$codeNum"
@@ -79,6 +149,7 @@ object YouTubeRoomManager {
             roomCode = roomCode,
             title = cleanTitle,
             hostName = hostName,
+            hostId = hostId,
             hostAvatarBg = Color(0xFF2563EB),
             currentVideoTitle = initialVideoTitle,
             videoId = initialVideoId,
@@ -90,10 +161,8 @@ object YouTubeRoomManager {
             createdAt = System.currentTimeMillis()
         )
 
-        // Save locally immediately
         saveRoomLocally(context, room)
 
-        // Sync with Cloudflare backend
         val baseUrl = CloudflareClient.getBaseUrl(context)
         val jsonBody = JSONObject().apply {
             put("title", room.title)
@@ -111,10 +180,7 @@ object YouTubeRoomManager {
 
         httpClient.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                Log.w(TAG, "Backend room create failed, using local room: ${e.message}")
-                mainHandler.post {
-                    onComplete(Result.success(room))
-                }
+                mainHandler.post { onComplete(Result.success(room)) }
             }
 
             override fun onResponse(call: Call, response: Response) {
@@ -130,6 +196,7 @@ object YouTubeRoomManager {
                                     roomCode = rObj.optString("roomCode", room.roomCode),
                                     title = rObj.optString("title", room.title),
                                     hostName = rObj.optString("hostName", room.hostName),
+                                    hostId = rObj.optString("hostId", room.hostId),
                                     hostAvatarBg = Color(0xFF2563EB),
                                     currentVideoTitle = rObj.optString("currentVideoTitle", room.currentVideoTitle),
                                     videoId = rObj.optString("videoId", room.videoId),
@@ -145,9 +212,7 @@ object YouTubeRoomManager {
                                 return
                             }
                         }
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Error parsing server response: ${e.message}")
-                    }
+                    } catch (_: Exception) {}
                     mainHandler.post { onComplete(Result.success(room)) }
                 }
             }
@@ -155,24 +220,22 @@ object YouTubeRoomManager {
     }
 
     /**
-     * Fetch all REAL active public rooms (NO fake mock rooms)
+     * Fetch all REAL active rooms (App owner sees all rooms including private)
      */
     fun fetchRealPublicRooms(
         context: Context,
         onComplete: (List<PublicYouTubeRoom>) -> Unit
     ) {
         val baseUrl = CloudflareClient.getBaseUrl(context)
-        val request = Request.Builder()
-            .url("$baseUrl/api/youtube/rooms/public")
-            .get()
-            .build()
+        val isOwner = isAppOwner(context)
+        val endpoint = if (isOwner) "$baseUrl/api/youtube/rooms/all" else "$baseUrl/api/youtube/rooms/public"
+
+        val request = Request.Builder().url(endpoint).get().build()
 
         httpClient.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                Log.w(TAG, "Failed to fetch public rooms: ${e.message}")
                 mainHandler.post {
-                    // Return real rooms saved locally
-                    val local = loadRoomsLocally(context).filter { it.privacyMode == RoomPrivacyMode.PUBLIC }
+                    val local = loadRoomsLocally(context).filter { isOwner || it.privacyMode == RoomPrivacyMode.PUBLIC }
                     onComplete(local)
                 }
             }
@@ -199,6 +262,7 @@ object YouTubeRoomManager {
                                         roomCode = rObj.optString("roomCode"),
                                         title = rObj.optString("title"),
                                         hostName = rObj.optString("hostName"),
+                                        hostId = rObj.optString("hostId"),
                                         hostAvatarBg = Color(0xFF2563EB),
                                         currentVideoTitle = rObj.optString("currentVideoTitle"),
                                         videoId = vId,
@@ -212,14 +276,21 @@ object YouTubeRoomManager {
                                 )
                             }
                         }
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Error parsing public rooms: ${e.message}")
-                    }
+                    } catch (_: Exception) {}
 
-                    // Merge with local genuine rooms
-                    val local = loadRoomsLocally(context).filter { it.privacyMode == RoomPrivacyMode.PUBLIC }
+                    val local = loadRoomsLocally(context).filter { isOwner || it.privacyMode == RoomPrivacyMode.PUBLIC }
                     for (loc in local) {
-                        if (!resultList.any { it.roomId == loc.roomId || it.roomCode == loc.roomCode }) {
+                        val existingIdx = resultList.indexOfFirst { it.roomId == loc.roomId || it.roomCode == loc.roomCode }
+                        if (existingIdx >= 0) {
+                            // Merge with latest video from local if newer
+                            if (loc.videoId.isNotEmpty()) {
+                                resultList[existingIdx] = resultList[existingIdx].copy(
+                                    videoId = loc.videoId,
+                                    currentVideoTitle = loc.currentVideoTitle,
+                                    thumbnailUrl = loc.thumbnailUrl
+                                )
+                            }
+                        } else {
                             resultList.add(0, loc)
                         }
                     }
@@ -235,21 +306,21 @@ object YouTubeRoomManager {
     }
 
     /**
-     * Join Room by Code with STRICT validation.
-     * Rejects invalid or fake codes immediately.
+     * Join Room by Code with STRICT validation (App Owner can force enter).
      */
     fun joinRealRoomByCode(
         context: Context,
         inputCode: String,
+        forceOwnerBypass: Boolean = false,
         onComplete: (Result<PublicYouTubeRoom>) -> Unit
     ) {
         val digitsOnly = inputCode.replace(Regex("[^0-9]"), "")
-        if (digitsOnly.length < 5) {
+        if (digitsOnly.length < 5 && !forceOwnerBypass) {
             onComplete(Result.failure(IllegalArgumentException("رمز الغرفة غير صحيح أو ناقص. يجب أن يتكون من 6 أرقام.")))
             return
         }
 
-        // 1. Check local genuine rooms first
+        // Check local genuine rooms first
         val localMatch = loadRoomsLocally(context).find {
             it.roomCode.replace(Regex("[^0-9]"), "") == digitsOnly ||
             it.roomId.contains(digitsOnly)
@@ -259,7 +330,7 @@ object YouTubeRoomManager {
             return
         }
 
-        // 2. Query Cloudflare backend
+        // Query Cloudflare backend
         val baseUrl = CloudflareClient.getBaseUrl(context)
         val request = Request.Builder()
             .url("$baseUrl/api/youtube/rooms/get?code=$digitsOnly")
@@ -292,6 +363,7 @@ object YouTubeRoomManager {
                                     roomCode = rObj.optString("roomCode"),
                                     title = rObj.optString("title"),
                                     hostName = rObj.optString("hostName"),
+                                    hostId = rObj.optString("hostId"),
                                     hostAvatarBg = Color(0xFF2563EB),
                                     currentVideoTitle = rObj.optString("currentVideoTitle"),
                                     videoId = vId,
@@ -307,9 +379,7 @@ object YouTubeRoomManager {
                                 return
                             }
                         }
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Error validating code: ${e.message}")
-                    }
+                    } catch (_: Exception) {}
                     mainHandler.post {
                         onComplete(Result.failure(IllegalArgumentException("رمز الغرفة غير صحيح أو الغرفة غير موجودة")))
                     }
@@ -331,6 +401,7 @@ object YouTubeRoomManager {
                     put("roomCode", r.roomCode)
                     put("title", r.title)
                     put("hostName", r.hostName)
+                    put("hostId", r.hostId)
                     put("currentVideoTitle", r.currentVideoTitle)
                     put("videoId", r.videoId)
                     put("thumbnailUrl", r.thumbnailUrl)
@@ -362,6 +433,7 @@ object YouTubeRoomManager {
                         roomCode = o.optString("roomCode"),
                         title = o.optString("title"),
                         hostName = o.optString("hostName"),
+                        hostId = o.optString("hostId"),
                         hostAvatarBg = Color(0xFF2563EB),
                         currentVideoTitle = o.optString("currentVideoTitle"),
                         videoId = o.optString("videoId"),
@@ -380,14 +452,20 @@ object YouTubeRoomManager {
 }
 
 // ----------------------------------------------------
-// REAL-TIME WEBSOCKET SYNC CLIENT FOR YOUTUBE WATCH-PARTY
+// ADVANCED REAL-TIME WEBSOCKET SYNC CLIENT
 // ----------------------------------------------------
 class YouTubeSyncWebSocket(
     private val context: Context,
     private val roomId: String,
+    private val isStealthMode: Boolean = false,
     private val onVideoChangeReceived: (videoId: String, videoTitle: String) -> Unit,
     private val onPlaybackStateReceived: (isPlaying: Boolean, positionSec: Float) -> Unit,
-    private val onChatMessageReceived: (YouTubeChatMessage) -> Unit
+    private val onChatMessageReceived: (YouTubeChatMessage) -> Unit,
+    private val onStateRequested: (() -> Unit)? = null,
+    private val onVideoChangeRequested: ((requesterId: String, requesterName: String, videoId: String, videoTitle: String) -> Unit)? = null,
+    private val onVideoChangeRequestRejected: (() -> Unit)? = null,
+    private val onMemberActionReceived: ((targetUserId: String, actionType: String) -> Unit)? = null,
+    private val onVoiceStateReceived: ((userId: String, username: String, isTalking: Boolean) -> Unit)? = null
 ) {
     private var webSocket: WebSocket? = null
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -398,8 +476,8 @@ class YouTubeSyncWebSocket(
     fun connect() {
         val baseUrl = CloudflareClient.getBaseUrl(context)
         val wsBase = baseUrl.replace("https://", "wss://").replace("http://", "ws://")
-        val userId = CloudflareClient.getCurrentUserId(context)
-        val username = CloudflareClient.getCurrentUsername(context)
+        val userId = if (isStealthMode) "stealth_${System.currentTimeMillis()}" else CloudflareClient.getCurrentUserId(context)
+        val username = if (isStealthMode) "مجهول" else CloudflareClient.getCurrentUsername(context)
         val cleanRoomId = roomId.ifBlank { "global_yt_lobby" }
 
         val wsUrl = "$wsBase/ws/$cleanRoomId?userId=$userId&username=$username"
@@ -407,17 +485,21 @@ class YouTubeSyncWebSocket(
         val request = Request.Builder().url(wsUrl).build()
         webSocket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
-                Log.i("YTSync", "Connected to watch-party room: $cleanRoomId")
+                Log.i("YTSync", "Connected to watch-party room: $cleanRoomId (Stealth: $isStealthMode)")
+                if (!isStealthMode) {
+                    // Request current playing state from host immediately upon joining
+                    requestCurrentState()
+                }
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
                 try {
                     val obj = JSONObject(text)
                     val senderId = obj.optString("senderId", "")
-                    if (senderId == userId) return // Ignore self-messages
+                    val myId = CloudflareClient.getCurrentUserId(context)
+                    if (senderId == myId) return // Ignore self-echo
 
-                    val type = obj.optString("type", "")
-                    when (type) {
+                    when (obj.optString("type")) {
                         "yt_video_change" -> {
                             val vId = obj.optString("videoId")
                             val vTitle = obj.optString("videoTitle")
@@ -444,6 +526,37 @@ class YouTubeSyncWebSocket(
                             )
                             mainHandler.post { onChatMessageReceived(msg) }
                         }
+                        "yt_request_state" -> {
+                            // A newcomer asks for the currently playing video
+                            mainHandler.post { onStateRequested?.invoke() }
+                        }
+                        "yt_video_request" -> {
+                            // Member asks host permission to change video
+                            val reqId = obj.optString("requesterId")
+                            val reqName = obj.optString("requesterName")
+                            val reqVideoId = obj.optString("videoId")
+                            val reqVideoTitle = obj.optString("videoTitle")
+                            mainHandler.post {
+                                onVideoChangeRequested?.invoke(reqId, reqName, reqVideoId, reqVideoTitle)
+                            }
+                        }
+                        "yt_video_reject" -> {
+                            val targetId = obj.optString("targetUserId")
+                            if (targetId == myId) {
+                                mainHandler.post { onVideoChangeRequestRejected?.invoke() }
+                            }
+                        }
+                        "yt_member_action" -> {
+                            val targetId = obj.optString("targetUserId")
+                            val actionType = obj.optString("actionType")
+                            mainHandler.post { onMemberActionReceived?.invoke(targetId, actionType) }
+                        }
+                        "yt_voice_state" -> {
+                            val uId = obj.optString("userId")
+                            val uName = obj.optString("username")
+                            val isTalking = obj.optBoolean("isTalking", false)
+                            mainHandler.post { onVoiceStateReceived?.invoke(uId, uName, isTalking) }
+                        }
                     }
                 } catch (e: Exception) {
                     Log.w("YTSync", "Failed parsing sync event: ${e.message}")
@@ -451,9 +564,17 @@ class YouTubeSyncWebSocket(
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                Log.w("YTSync", "WebSocket error in watch party: ${t.message}")
+                Log.w("YTSync", "WebSocket error: ${t.message}")
             }
         })
+    }
+
+    fun requestCurrentState() {
+        val payload = JSONObject().apply {
+            put("type", "yt_request_state")
+            put("requesterId", CloudflareClient.getCurrentUserId(context))
+        }
+        webSocket?.send(payload.toString())
     }
 
     fun broadcastVideoChange(videoId: String, videoTitle: String) {
@@ -483,6 +604,44 @@ class YouTubeSyncWebSocket(
             put("senderName", CloudflareClient.getCurrentUsername(context))
             put("senderId", CloudflareClient.getCurrentUserId(context))
             put("time", "الآن")
+        }
+        webSocket?.send(payload.toString())
+    }
+
+    fun requestVideoChange(videoId: String, videoTitle: String) {
+        val payload = JSONObject().apply {
+            put("type", "yt_video_request")
+            put("videoId", videoId)
+            put("videoTitle", videoTitle)
+            put("requesterId", CloudflareClient.getCurrentUserId(context))
+            put("requesterName", CloudflareClient.getCurrentUsername(context))
+        }
+        webSocket?.send(payload.toString())
+    }
+
+    fun rejectVideoChange(requesterId: String) {
+        val payload = JSONObject().apply {
+            put("type", "yt_video_reject")
+            put("targetUserId", requesterId)
+        }
+        webSocket?.send(payload.toString())
+    }
+
+    fun broadcastMemberAction(targetUserId: String, actionType: String) {
+        val payload = JSONObject().apply {
+            put("type", "yt_member_action")
+            put("targetUserId", targetUserId)
+            put("actionType", actionType)
+        }
+        webSocket?.send(payload.toString())
+    }
+
+    fun broadcastVoiceState(isTalking: Boolean) {
+        val payload = JSONObject().apply {
+            put("type", "yt_voice_state")
+            put("isTalking", isTalking)
+            put("userId", CloudflareClient.getCurrentUserId(context))
+            put("username", CloudflareClient.getCurrentUsername(context))
         }
         webSocket?.send(payload.toString())
     }
