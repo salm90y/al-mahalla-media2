@@ -366,7 +366,7 @@ fun YouTubeRoomScreen(
                         },
                         modifier = Modifier
                             .weight(1f)
-                            .height(38.dp),
+                            .height(44.dp),
                         placeholder = {
                             Text(
                                 text = "ابحث في اليوتيوب...",
@@ -380,7 +380,7 @@ fun YouTubeRoomScreen(
                                 imageVector = Icons.Default.Search,
                                 contentDescription = null,
                                 tint = Color(0xFF64748B),
-                                modifier = Modifier.size(15.dp)
+                                modifier = Modifier.size(16.dp)
                             )
                         },
                         trailingIcon = {
@@ -408,7 +408,7 @@ fun YouTubeRoomScreen(
                                 executeSearch(searchQuery)
                             }
                         }),
-                        shape = RoundedCornerShape(19.dp),
+                        shape = RoundedCornerShape(22.dp),
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedContainerColor = Color.White,
                             unfocusedContainerColor = Color.White,
@@ -417,11 +417,10 @@ fun YouTubeRoomScreen(
                             cursorColor = Color(0xFF2563EB)
                         ),
                         textStyle = androidx.compose.ui.text.TextStyle(
-                            fontSize = 11.sp,
+                            fontSize = 12.sp,
                             fontFamily = TajawalFontFamily,
                             color = Color(0xFF0F172A)
-                        ),
-                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+                        )
                     )
 
                     // Small Search Icon Button (No text, icon-only, compact)
