@@ -522,7 +522,7 @@ class YouTubeSyncWebSocket(
     private val onVideoChangeReceived: (videoId: String, videoTitle: String) -> Unit,
     private val onPlaybackStateReceived: (isPlaying: Boolean, positionSec: Float) -> Unit,
     private val onChatMessageReceived: (YouTubeChatMessage) -> Unit,
-    private val onStateRequested: (() -> Unit)? = null,
+    private val onStateRequested: ((client: YouTubeSyncWebSocket) -> Unit)? = null,
     private val onVideoChangeRequested: ((requesterId: String, requesterName: String, videoId: String, videoTitle: String) -> Unit)? = null,
     private val onVideoChangeRequestRejected: (() -> Unit)? = null,
     private val onMemberActionReceived: ((targetUserId: String, actionType: String) -> Unit)? = null,
@@ -589,7 +589,7 @@ class YouTubeSyncWebSocket(
                         }
                         "yt_request_state" -> {
                             // A newcomer asks for the currently playing video
-                            mainHandler.post { onStateRequested?.invoke() }
+                            mainHandler.post { onStateRequested?.invoke(this@YouTubeSyncWebSocket) }
                         }
                         "yt_video_request" -> {
                             // Member asks host permission to change video

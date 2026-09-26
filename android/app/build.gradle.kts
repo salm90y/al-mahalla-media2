@@ -1,6 +1,7 @@
 import java.net.URL
 import java.util.zip.ZipInputStream
 import java.io.FileOutputStream
+import java.io.File
 
 plugins {
     id("com.android.application")
@@ -10,7 +11,16 @@ plugins {
 android {
     namespace = "com.ps1.netplay"
     compileSdk = 34
-    ndkVersion = "26.1.10909125"
+
+    // Auto-detect installed NDK on the environment (e.g. GitHub Actions runner or local SDK)
+    val sdkDir = System.getenv("ANDROID_HOME") ?: System.getenv("ANDROID_SDK_ROOT") ?: ""
+    val ndkDir = File(sdkDir, "ndk")
+    val detectedNdk = if (ndkDir.exists()) {
+        ndkDir.listFiles()?.filter { it.isDirectory && !it.name.startsWith(".") }?.map { it.name }?.sortedDescending()?.firstOrNull()
+    } else null
+    if (detectedNdk != null) {
+        ndkVersion = detectedNdk
+    }
 
     defaultConfig {
         applicationId = "com.ps1.netplay"

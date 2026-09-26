@@ -35,8 +35,11 @@ jobs:
           SDKMANAGER=$(which sdkmanager || echo "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager")
           if [ -x "$SDKMANAGER" ]; then
             yes | $SDKMANAGER --licenses || true
-            $SDKMANAGER "ndk;26.1.10909125" "cmake;3.22.1" "platforms;android-34" "build-tools;34.0.0" || true
           fi
+          echo "=== Pre-installed NDK versions ==="
+          ls -la "$ANDROID_HOME/ndk" 2>/dev/null || true
+          echo "=== Pre-installed CMake versions ==="
+          ls -la "$ANDROID_HOME/cmake" 2>/dev/null || true
 
       - name: Verify Android project structure
         run: |
@@ -66,6 +69,11 @@ jobs:
         run: |
           ./gradlew :app:assembleDebug --no-daemon --stacktrace
           ./gradlew :app:assembleRelease --no-daemon --stacktrace || true
+
+      - name: Verify Generated APKs
+        run: |
+          echo "=== Generated APK Files ==="
+          find android/app/build/outputs/apk/ -name "*.apk" -ls || true
 
       - name: Upload APK Artifacts
         uses: actions/upload-artifact@v4

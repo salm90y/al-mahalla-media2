@@ -333,10 +333,10 @@ fun YouTubeRoomScreen(
             onChatMessageReceived = { newMsg ->
                 chatMessages.add(newMsg)
             },
-            onStateRequested = {
+            onStateRequested = { client ->
                 // When newcomer joins, reply with current video and playback state
-                syncSocket.broadcastVideoChange(currentVideo.id, currentVideo.title)
-                syncSocket.broadcastPlaybackState(isPlaying, 0f)
+                client.broadcastVideoChange(currentVideo.id, currentVideo.title)
+                client.broadcastPlaybackState(isPlaying, 0f)
             },
             onVideoChangeRequested = { reqId, reqName, vId, vTitle ->
                 if (isHost || isAppOwner) {
