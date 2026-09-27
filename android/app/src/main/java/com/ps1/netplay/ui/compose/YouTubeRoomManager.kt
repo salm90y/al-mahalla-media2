@@ -20,6 +20,13 @@ import kotlin.random.Random
 // ----------------------------------------------------
 // SHARED REAL DATA MODELS FOR YOUTUBE ROOMS
 // ----------------------------------------------------
+enum class RoomPrivacyMode {
+    PUBLIC,
+    FRIENDS,
+    INVITE_ONLY,
+    ONLY_ME
+}
+
 data class PublicYouTubeRoom(
     val roomId: String,
     val roomCode: String,

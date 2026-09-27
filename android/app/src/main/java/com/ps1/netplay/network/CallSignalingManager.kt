@@ -66,7 +66,7 @@ object CallSignalingManager {
 
     // Observable states for Jetpack Compose
     var currentSession by mutableStateOf<ActiveCallSession?>(null)
-    var callState by mutableStateOf(CallState.IDLE)
+    var callState by mutableStateOf<CallState>(CallState.IDLE)
     var callDurationSeconds by mutableIntStateOf(0)
     var isMuted by mutableStateOf(false)
     var isSpeakerOn by mutableStateOf(false)

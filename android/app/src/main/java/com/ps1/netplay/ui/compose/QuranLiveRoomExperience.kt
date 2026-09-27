@@ -76,7 +76,7 @@ fun QuranLiveRoomExperience(
     val context = LocalContext.current
 
     // State management
-    var currentDockedTab by remember { mutableStateOf(QuranRoomDockedTab.MIC) }
+    var currentDockedTab by remember { mutableStateOf<QuranRoomDockedTab>(QuranRoomDockedTab.MIC) }
     var isPlaying by remember { mutableStateOf(room.isPlaying) }
     var isMicMuted by remember { mutableStateOf(false) }
     var isHandRaised by remember { mutableStateOf(false) }
@@ -98,7 +98,7 @@ fun QuranLiveRoomExperience(
     val currentAyah = surahAyahs.getOrElse(currentAyahIdx.coerceIn(0, surahAyahs.lastIndex)) { surahAyahs[0] }
 
     // Visual Effects Mode for the Quran display box
-    var currentVfx by remember { mutableStateOf(QuranDisplayVfx.GOLDEN_AURA) }
+    var currentVfx by remember { mutableStateOf<QuranDisplayVfx>(QuranDisplayVfx.GOLDEN_AURA) }
 
     // Settings tab states
     var recitationSpeed by remember { mutableStateOf("1.0x") }

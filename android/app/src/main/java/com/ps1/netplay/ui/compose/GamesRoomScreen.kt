@@ -112,7 +112,7 @@ fun GamesRoomScreen(
     val coroutineScope = rememberCoroutineScope()
 
     // Active sub-tab state (Gamepad is default matching screenshot)
-    var activeSubTab by remember { mutableStateOf(GamesRoomSubTab.GAMEPAD) }
+    var activeSubTab by remember { mutableStateOf<GamesRoomSubTab>(GamesRoomSubTab.GAMEPAD) }
 
     // ROMs Library Modal State
     var isRomsModalOpen by remember { mutableStateOf(false) }

@@ -82,7 +82,7 @@ fun YouTubeLobbyScreen(
 
     // Dialog Inputs
     var newRoomTitle by remember { mutableStateOf("") }
-    var newRoomPrivacy by remember { mutableStateOf(RoomPrivacyMode.PUBLIC) }
+    var newRoomPrivacy by remember { mutableStateOf<RoomPrivacyMode>(RoomPrivacyMode.PUBLIC) }
     var joinRoomCodeInput by remember { mutableStateOf("") }
 
     // Search query within active rooms

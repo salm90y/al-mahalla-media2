@@ -273,7 +273,7 @@ fun ImageEditorDialog(
 ) {
     val context = LocalContext.current
     var rotationAngle by remember { mutableStateOf(0f) }
-    var selectedFilter by remember { mutableStateOf(ImageFilterType.ORIGINAL) }
+    var selectedFilter by remember { mutableStateOf<ImageFilterType>(ImageFilterType.ORIGINAL) }
     var isDrawingMode by remember { mutableStateOf(false) }
     var isTextOverlayActive by remember { mutableStateOf(false) }
     var textOverlayValue by remember { mutableStateOf("") }

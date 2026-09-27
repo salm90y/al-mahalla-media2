@@ -214,7 +214,7 @@ fun YouTubeRoomScreen(
     val isHost = remember { isAppOwner || roomTitle.contains(currentUserName) }
 
     // Sub-tab selection (PLAYER default)
-    var activeSubTab by remember { mutableStateOf(YouTubeRoomSubTab.PLAYER) }
+    var activeSubTab by remember { mutableStateOf<YouTubeRoomSubTab>(YouTubeRoomSubTab.PLAYER) }
 
     // Video Catalog state
     val videoCatalog = remember {
@@ -246,14 +246,23 @@ fun YouTubeRoomScreen(
     var totalDurationSec by remember { mutableFloatStateOf(100f) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
 
+    // Search Bar & Exit Dialog States
+    var searchQuery by remember { mutableStateOf("") }
+    var isDropdownOpen by remember { mutableStateOf(false) }
+    var isSearchModalOpen by remember { mutableStateOf(false) }
+    var isSearchingRealYouTube by remember { mutableStateOf(false) }
+    val liveSearchSuggestions = remember { mutableStateListOf<String>() }
+    val realSearchResults = remember { mutableStateListOf<YouTubeVideoItem>() }
+    var isExitConfirmDialogOpen by remember { mutableStateOf(false) }
+
     // Walkie-Talkie Intercom State (Real Zego Engine + Loudspeaker)
     var isIntercomTalking by remember { mutableStateOf(false) }
 
     // Cameras Configuration & State: Small by default as requested!
     var isCameraActive by remember { mutableStateOf(false) }
     var isFrontCamera by remember { mutableStateOf(true) }
-    var cameraBoxSize by remember { mutableStateOf(CameraBoxSize.SMALL) }
-    var cameraBoxShape by remember { mutableStateOf(CameraBoxShape.ROUNDED) }
+    var cameraBoxSize by remember { mutableStateOf<CameraBoxSize>(CameraBoxSize.SMALL) }
+    var cameraBoxShape by remember { mutableStateOf<CameraBoxShape>(CameraBoxShape.ROUNDED) }
 
     // Dialog & Permission States
     var selectedUserForPermissions by remember { mutableStateOf<YouTubeRoomUser?>(null) }
@@ -536,14 +545,6 @@ fun YouTubeRoomScreen(
         Toast.makeText(context, "جاري تشغيل: ${video.title.take(35)}... 🎬", Toast.LENGTH_SHORT).show()
     }
 
-    // Search Bar States
-    var searchQuery by remember { mutableStateOf("") }
-    var isDropdownOpen by remember { mutableStateOf(false) }
-    var isSearchModalOpen by remember { mutableStateOf(false) }
-    var isSearchingRealYouTube by remember { mutableStateOf(false) }
-    val liveSearchSuggestions = remember { mutableStateListOf<String>() }
-    val realSearchResults = remember { mutableStateListOf<YouTubeVideoItem>() }
-
     // Live search suggestions
     LaunchedEffect(searchQuery) {
         val q = searchQuery.trim()
@@ -610,7 +611,7 @@ fun YouTubeRoomScreen(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 // ====================================================
-                // 1. TOP HEADER & COMPACT SLEEK SEARCH BAR
+                // 1. TOP HEADER & MODERN COMPACT SLEEK SEARCH BAR
                 // ====================================================
                 Row(
                     modifier = Modifier
@@ -619,18 +620,18 @@ fun YouTubeRoomScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(5.dp)
                 ) {
-                    // Back button
+                    // Sleek Exit Room Button (No text, icon only)
                     IconButton(
-                        onClick = onBack,
+                        onClick = { isExitConfirmDialogOpen = true },
                         modifier = Modifier
-                            .size(32.dp)
-                            .background(Color.White, CircleShape)
-                            .border(1.dp, Color(0xFFE2E8F0), CircleShape)
+                            .size(30.dp)
+                            .background(Color(0xFFFEF2F2), CircleShape)
+                            .border(1.dp, Color(0xFFFECACA), CircleShape)
                     ) {
                         Icon(
-                            imageVector = Icons.Default.ArrowForward,
-                            contentDescription = "رجوع",
-                            tint = Color(0xFF1E3A8A),
+                            imageVector = Icons.Default.Logout,
+                            contentDescription = "خروج من الغرفة",
+                            tint = Color(0xFFEF4444),
                             modifier = Modifier.size(15.dp)
                         )
                     }
@@ -639,18 +640,18 @@ fun YouTubeRoomScreen(
                     Row(
                         modifier = Modifier
                             .weight(1f)
-                            .height(36.dp)
-                            .background(Color.White, RoundedCornerShape(18.dp))
-                            .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(18.dp))
-                            .padding(horizontal = 10.dp),
+                            .height(32.dp)
+                            .background(Color.White, RoundedCornerShape(16.dp))
+                            .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(16.dp))
+                            .padding(horizontal = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.Search,
                             contentDescription = null,
-                            tint = Color(0xFFDC2626),
-                            modifier = Modifier.size(16.dp)
+                            tint = Color(0xFF94A3B8),
+                            modifier = Modifier.size(14.dp)
                         )
                         Box(
                             modifier = Modifier.weight(1f),
@@ -673,7 +674,7 @@ fun YouTubeRoomScreen(
                                 },
                                 singleLine = true,
                                 textStyle = TextStyle(
-                                    fontSize = 12.sp,
+                                    fontSize = 11.sp,
                                     color = Color(0xFF0F172A),
                                     fontFamily = TajawalFontFamily,
                                     fontWeight = FontWeight.Medium
@@ -690,19 +691,19 @@ fun YouTubeRoomScreen(
                                     searchQuery = ""
                                     isDropdownOpen = false
                                 },
-                                modifier = Modifier.size(18.dp)
+                                modifier = Modifier.size(16.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Close,
                                     contentDescription = "مسح",
                                     tint = Color(0xFF94A3B8),
-                                    modifier = Modifier.size(13.dp)
+                                    modifier = Modifier.size(12.dp)
                                 )
                             }
                         }
                     }
 
-                    // Search Button
+                    // Free-floating, Modern Compact Search Action Button
                     IconButton(
                         onClick = {
                             if (searchQuery.trim().isNotEmpty()) {
@@ -712,44 +713,46 @@ fun YouTubeRoomScreen(
                             }
                         },
                         modifier = Modifier
-                            .size(32.dp)
-                            .background(Color(0xFFDC2626), CircleShape)
-                            .shadow(1.dp, CircleShape)
+                            .size(30.dp)
+                            .background(
+                                Brush.linearGradient(listOf(Color(0xFFEF4444), Color(0xFFDC2626))),
+                                CircleShape
+                            )
                     ) {
                         Icon(
                             imageVector = Icons.Default.Search,
                             contentDescription = "بحث",
                             tint = Color.White,
-                            modifier = Modifier.size(15.dp)
+                            modifier = Modifier.size(14.dp)
                         )
                     }
 
                     // Live Participant Count Chip
                     Surface(
                         onClick = { activeSubTab = YouTubeRoomSubTab.USERS },
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(10.dp),
                         color = Color(0xFFEEF2FF),
                         border = BorderStroke(1.dp, Color(0xFFC7D2FE))
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 5.dp),
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(3.dp)
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(6.dp)
+                                    .size(5.dp)
                                     .background(Color(0xFF10B981), CircleShape)
                             )
                             Icon(
                                 imageVector = Icons.Default.People,
                                 contentDescription = null,
                                 tint = Color(0xFF4338CA),
-                                modifier = Modifier.size(12.dp)
+                                modifier = Modifier.size(11.dp)
                             )
                             Text(
                                 text = "${roomUsers.size}",
-                                fontSize = 11.sp,
+                                fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color(0xFF4338CA)
                             )
@@ -766,7 +769,7 @@ fun YouTubeRoomScreen(
                                 Toast.makeText(context, "تم نسخ كود الغرفة ($roomCode)", Toast.LENGTH_SHORT).show()
                             } catch (_: Exception) {}
                         },
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(10.dp),
                         color = Color(0xFFF1F5F9),
                         border = BorderStroke(1.dp, Color(0xFFE2E8F0))
                     ) {
@@ -775,7 +778,7 @@ fun YouTubeRoomScreen(
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color(0xFF2563EB),
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 5.dp)
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
                         )
                     }
                 }
@@ -862,6 +865,7 @@ fun YouTubeRoomScreen(
                                         mediaPlaybackRequiresUserGesture = false
                                         loadWithOverviewMode = true
                                         useWideViewPort = true
+                                        databaseEnabled = true
                                         userAgentString = "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36"
                                     }
                                     webChromeClient = WebChromeClient()
@@ -901,9 +905,21 @@ fun YouTubeRoomScreen(
                                         </head>
                                         <body>
                                             <div id="player-container"><div id="player"></div></div>
+                                            <script>
+                                                try {
+                                                    Object.defineProperty(document, 'hidden', { get: function() { return false; }, configurable: true });
+                                                    Object.defineProperty(document, 'visibilityState', { get: function() { return 'visible'; }, configurable: true });
+                                                    Object.defineProperty(document, 'webkitVisibilityState', { get: function() { return 'visible'; }, configurable: true });
+                                                    ['visibilitychange', 'webkitvisibilitychange', 'blur', 'pagehide'].forEach(function(evt) {
+                                                        window.addEventListener(evt, function(e) { e.stopImmediatePropagation(); }, true);
+                                                        document.addEventListener(evt, function(e) { e.stopImmediatePropagation(); }, true);
+                                                    });
+                                                } catch(e) {}
+                                            </script>
                                             <script src="https://www.youtube.com/iframe_api"></script>
                                             <script>
                                                 var player;
+                                                var isIntentionallyPaused = false;
                                                 function onYouTubeIframeAPIReady() {
                                                     player = new YT.Player('player', {
                                                         videoId: '$safeVideoId',
@@ -920,10 +936,21 @@ fun YouTubeRoomScreen(
                                                         },
                                                         events: {
                                                             'onReady': function(e) {
-                                                                e.target.setVolume(${ (videoVolume * 100).toInt() });
-                                                                e.target.playVideo();
+                                                                 e.target.setVolume(${ (videoVolume * 100).toInt() });
+                                                                 e.target.playVideo();
                                                             },
                                                             'onStateChange': function(e) {
+                                                                if (e.data === 1) {
+                                                                    isIntentionallyPaused = false;
+                                                                } else if (e.data === 2) {
+                                                                    if (!isIntentionallyPaused) {
+                                                                        setTimeout(function() {
+                                                                            if (!isIntentionallyPaused && player && typeof player.playVideo === 'function') {
+                                                                                player.playVideo();
+                                                                            }
+                                                                        }, 120);
+                                                                    }
+                                                                }
                                                                 if (window.AndroidBridge && window.AndroidBridge.reportState) {
                                                                     window.AndroidBridge.reportState(e.data);
                                                                 }
@@ -938,10 +965,22 @@ fun YouTubeRoomScreen(
                                                         }
                                                     }, 500);
                                                 }
-                                                function playVideo() { if (player && player.playVideo) player.playVideo(); }
-                                                function pauseVideo() { if (player && player.pauseVideo) player.pauseVideo(); }
+                                                function playVideo() {
+                                                    isIntentionallyPaused = false;
+                                                    if (player && player.playVideo) player.playVideo();
+                                                }
+                                                function pauseVideo() {
+                                                    isIntentionallyPaused = true;
+                                                    if (player && player.pauseVideo) player.pauseVideo();
+                                                }
                                                 function seekTo(sec) { if (player && player.seekTo) player.seekTo(sec, true); }
-                                                function loadVideoById(id) { if (player && player.loadVideoById) { player.loadVideoById(id, 0); player.playVideo(); } }
+                                                function loadVideoById(id) {
+                                                    isIntentionallyPaused = false;
+                                                    if (player && player.loadVideoById) {
+                                                        player.loadVideoById(id, 0);
+                                                        player.playVideo();
+                                                    }
+                                                }
                                                 function setPlayerVolume(vol) { if (player && player.setVolume) player.setVolume(vol); }
                                             </script>
                                         </body>
@@ -2139,6 +2178,122 @@ fun YouTubeRoomScreen(
                                             }
                                         }
                                     }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ====================================================
+            // EXIT ROOM CONFIRMATION DIALOG (Modern, Theme-Matching)
+            // ====================================================
+            if (isExitConfirmDialogOpen) {
+                Dialog(
+                    onDismissRequest = { isExitConfirmDialogOpen = false },
+                    properties = DialogProperties(usePlatformDefaultWidth = false)
+                ) {
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth(0.85f)
+                            .clip(RoundedCornerShape(22.dp)),
+                        shape = RoundedCornerShape(22.dp),
+                        color = Color.White,
+                        border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                        shadowElevation = 10.dp
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(20.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(14.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(50.dp)
+                                    .background(Color(0xFFFEF2F2), CircleShape)
+                                    .border(1.dp, Color(0xFFFECACA), CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Logout,
+                                    contentDescription = null,
+                                    tint = Color(0xFFDC2626),
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+
+                            Text(
+                                text = if (isHost) "هل تريد الخروج وإنهاء الغرفة؟" else "هل تود الخروج من الغرفة؟",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = TajawalFontFamily,
+                                color = Color(0xFF0F172A),
+                                textAlign = TextAlign.Center
+                            )
+
+                            Text(
+                                text = if (isHost)
+                                    "سيتم إغلاق الغرفة للجميع وإنهاء المشاهدة المتزامنة."
+                                else
+                                    "يمكنك العودة للانضمام إلى الغرفة لاحقاً.",
+                                fontSize = 11.sp,
+                                fontFamily = TajawalFontFamily,
+                                color = Color(0xFF64748B),
+                                textAlign = TextAlign.Center
+                            )
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Button(
+                                    onClick = { isExitConfirmDialogOpen = false },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(40.dp),
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = Color(0xFFF1F5F9),
+                                        contentColor = Color(0xFF334155)
+                                    ),
+                                    border = BorderStroke(1.dp, Color(0xFFCBD5E1))
+                                ) {
+                                    Text(
+                                        text = "لا",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = TajawalFontFamily
+                                    )
+                                }
+
+                                Button(
+                                    onClick = {
+                                        isExitConfirmDialogOpen = false
+                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        if (isHost) {
+                                            YouTubeRoomManager.deleteRoomLocally(context, roomId)
+                                        }
+                                        syncSocket.disconnect()
+                                        ZegoCallManager.endCall()
+                                        onBack()
+                                    },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(40.dp),
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = Color(0xFFDC2626),
+                                        contentColor = Color.White
+                                    )
+                                ) {
+                                    Text(
+                                        text = "نعم",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = TajawalFontFamily
+                                    )
                                 }
                             }
                         }
