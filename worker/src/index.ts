@@ -1558,6 +1558,24 @@ export default {
         return json({ success: true });
       }
 
+      // 4b. Delete/Close room
+      if ((url.pathname === "/api/youtube/rooms/delete" || url.pathname === "/youtube/rooms/delete") && method === "POST") {
+        const body: any = await request.json().catch(() => ({}));
+        const roomId = body.roomId;
+        if (roomId && env.SESSIONS) {
+          try {
+            await env.SESSIONS.delete(`yt_room:${roomId}`);
+            const currentListRaw = await env.SESSIONS.get("yt_public_rooms");
+            if (currentListRaw) {
+              const currentList: string[] = JSON.parse(currentListRaw);
+              const updatedList = currentList.filter((id: string) => id !== roomId);
+              await env.SESSIONS.put("yt_public_rooms", JSON.stringify(updatedList), { expirationTtl: 86400 });
+            }
+          } catch (e) {}
+        }
+        return json({ success: true });
+      }
+
       // 5. Get all rooms (including private for App Owner)
       if ((url.pathname === "/api/youtube/rooms/all" || url.pathname === "/youtube/rooms/all") && method === "GET") {
         const rooms: any[] = [];

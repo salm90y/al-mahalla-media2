@@ -517,6 +517,50 @@ object YouTubeRoomManager {
         } catch (_: Exception) {}
         return result
     }
+
+    /**
+     * Delete room locally and inform backend
+     */
+    fun deleteRoomLocally(context: Context, roomId: String) {
+        try {
+            activeRealRooms.removeAll { it.roomId == roomId }
+            val list = loadRoomsLocally(context).toMutableList()
+            list.removeAll { it.roomId == roomId }
+            val arr = JSONArray()
+            list.forEach { r ->
+                val o = JSONObject().apply {
+                    put("roomId", r.roomId)
+                    put("roomCode", r.roomCode)
+                    put("title", r.title)
+                    put("hostName", r.hostName)
+                    put("hostId", r.hostId)
+                    put("currentVideoTitle", r.currentVideoTitle)
+                    put("videoId", r.videoId)
+                    put("thumbnailUrl", r.thumbnailUrl)
+                    put("viewersCount", r.viewersCount)
+                    put("privacyMode", r.privacyMode.name)
+                    put("createdAt", r.createdAt)
+                }
+                arr.put(o)
+            }
+            getPrefs(context).edit().putString(KEY_LOCAL_ROOMS, arr.toString()).apply()
+
+            // Delete remotely on Cloudflare Worker if connected
+            val baseUrl = CloudflareClient.getBaseUrl(context)
+            val jsonBody = JSONObject().apply {
+                put("roomId", roomId)
+            }
+            val request = Request.Builder()
+                .url("$baseUrl/api/youtube/rooms/delete")
+                .post(jsonBody.toString().toRequestBody("application/json".toMediaType()))
+                .build()
+
+            httpClient.newCall(request).enqueue(object : Callback {
+                override fun onFailure(call: Call, e: IOException) {}
+                override fun onResponse(call: Call, response: Response) { response.close() }
+            })
+        } catch (_: Exception) {}
+    }
 }
 
 // ----------------------------------------------------

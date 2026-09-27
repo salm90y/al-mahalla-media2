@@ -2276,7 +2276,7 @@ fun YouTubeRoomScreen(
                                             YouTubeRoomManager.deleteRoomLocally(context, roomId)
                                         }
                                         syncSocket.disconnect()
-                                        ZegoCallManager.endCall()
+                                        ZegoCallManager.endCall(context, zegoAudioRoomId)
                                         onBack()
                                     },
                                     modifier = Modifier

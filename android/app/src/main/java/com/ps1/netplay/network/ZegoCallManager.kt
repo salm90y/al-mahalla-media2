@@ -234,7 +234,7 @@ object ZegoCallManager {
     /**
      * Leave call and clean up all room session resources
      */
-    fun endCall(context: Context, roomId: String = currentRoomId) {
+    fun endCall(context: Context? = null, roomId: String = currentRoomId) {
         try {
             val engine = zegoEngine
             if (engine != null) {
