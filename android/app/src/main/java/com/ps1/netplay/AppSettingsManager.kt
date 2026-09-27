@@ -95,8 +95,8 @@ const val KEY_USER_NAME = "user_display_name"
     // =========================================================================
 // REACTIVE STATE (Recomposes UI instantly without restarting the app)
 // =========================================================================
-    val themeModeState = mutableStateOf("dark")
-val bgThemeState = mutableStateOf("stories")
+    val themeModeState = mutableStateOf("light")
+val bgThemeState = mutableStateOf("pure_white")
 val accentColorState = mutableStateOf("#7B5DFF")
 val isStatusBarEdgeState = mutableStateOf(true)
 val chatListStyleState = mutableStateOf("free")
@@ -149,8 +149,8 @@ val userAvatarState = mutableStateOf("https://images.unsplash.com/photo-15345287
      */
     fun loadAll(context: Context) {
         val p = getPrefs(context)
-        themeModeState.value = p.getString(KEY_THEME, "dark") ?: "dark"
-        bgThemeState.value = p.getString(KEY_BG_THEME, "stories") ?: "stories"
+        themeModeState.value = p.getString(KEY_THEME, "light") ?: "light"
+        bgThemeState.value = p.getString(KEY_BG_THEME, "pure_white") ?: "pure_white"
         accentColorState.value = p.getString(KEY_ACCENT_COLOR, "#7B5DFF") ?: "#7B5DFF"
         isStatusBarEdgeState.value = p.getBoolean(KEY_STATUS_BAR_EDGE, true)
         chatListStyleState.value = p.getString(KEY_CHAT_LIST_STYLE, "free") ?: "free"

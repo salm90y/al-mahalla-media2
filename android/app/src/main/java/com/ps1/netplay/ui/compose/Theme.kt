@@ -28,31 +28,34 @@ val TajawalFontFamily = FontFamily(
 )
 
 val PrimaryBlue = Color(0xFF2563EB)
-val LightBg = Color(0xFFF0F6FF) // Unified Stories Background (#F0F6FF)
+val DarkPrimaryBlue = Color(0xFF3B82F6)
+val LightBg = Color(0xFFFFFFFF) // Default clean white background
 val LightSurface = Color(0xFFFFFFFF)
-val LightPillBg = Color(0xFFEEF4FB)
+val LightPillBg = Color(0xFFF1F5F9)
 val TextPrimary = Color(0xFF0F172A)
 val TextSecondary = Color(0xFF64748B)
 val LightBorder = Color(0xFFE2E8F0)
 
+val PureWhiteBg = Color(0xFFFFFFFF)
 val StoriesBg = Color(0xFFF0F6FF)
 val LoginBg = Color(0xFFF0F6FF)
-val PureWhiteBg = Color(0xFFFFFFFF)
 val SlateLightBg = Color(0xFFF8FAFC)
 val DarkSapphireBg = Color(0xFF0F172A)
 
-val DarkBg = Color(0xFF000000)
-val DarkSurface = Color(0xFF111827)
+// Modern, sleek dark theme (داكن عصري ومريح للعين، ليس أسود قاتم)
+val DarkBg = Color(0xFF0F172A) // Rich slate navy background (not pitch black)
+val DarkSurface = Color(0xFF1E293B) // Slate-800 for cards, surfaces and toolbars
+val DarkSurfaceVariant = Color(0xFF28334E) // Elevated card background
 val DarkTextPrimary = Color(0xFFF8FAFC)
 val DarkTextSecondary = Color(0xFF94A3B8)
-val DarkBorder = Color(0xFF1E293B)
+val DarkBorder = Color(0xFF334155) // Slate-700 border
 
 val PrimaryAccent = Color(0xFF2563EB)
 val SecondaryAccent = Color(0xFF3B82F6)
 val OnlineIndicator = Color(0xFF10B981)
 val UnreadBadge = Color(0xFF2563EB)
 val DarkBackground = Color(0xFF0F172A)
-val LightBackground = Color(0xFFF0F6FF)
+val LightBackground = Color(0xFFFFFFFF)
 
 val HeaderGradientStart = Color(0xFF2563EB)
 val HeaderGradientEnd = Color(0xFF1D4ED8)
@@ -61,17 +64,26 @@ val PrimaryHeaderGradient = Brush.verticalGradient(
 )
 
 @Composable
+fun isAppInDarkTheme(): Boolean {
+    val currentThemeSetting = AppSettingsManager.themeModeState.value
+    return when (currentThemeSetting) {
+        "dark" -> true
+        "light" -> false
+        else -> isSystemInDarkTheme()
+    }
+}
+
+@Composable
 fun getAppScreenBackground(): Color {
     val currentThemeSetting = AppSettingsManager.themeModeState.value
-    if (currentThemeSetting == "dark") {
+    if (currentThemeSetting == "dark" || (currentThemeSetting == "system" && isSystemInDarkTheme())) {
         return DarkBg
     }
     return when (AppSettingsManager.bgThemeState.value) {
         "login" -> LoginBg
-        "pure_white" -> PureWhiteBg
+        "stories" -> StoriesBg
         "slate_light" -> SlateLightBg
-        "dark" -> DarkSapphireBg
-        else -> StoriesBg // "stories" is the default unified theme
+        else -> PureWhiteBg // Default is Pure White
     }
 }
 

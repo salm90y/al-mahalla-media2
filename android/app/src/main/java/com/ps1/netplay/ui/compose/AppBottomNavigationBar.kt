@@ -51,10 +51,14 @@ fun AppBottomNavigationBar(
         }
     }
 
+    val isDark = isAppInDarkTheme()
+    val barBg = if (isDark) DarkSurface else Color.White
+    val barBorder = if (isDark) DarkBorder else Color(0xFFE2E8F0)
+
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .background(Color.White)
+            .background(barBg)
             .navigationBarsPadding(),
         contentAlignment = Alignment.BottomCenter
     ) {
@@ -63,10 +67,10 @@ fun AppBottomNavigationBar(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(64.dp)
-                .background(Color.White)
+                .background(barBg)
                 .border(
                     width = 1.dp,
-                    color = Color(0xFFE2E8F0)
+                    color = barBorder
                 )
         ) {
             Row(
@@ -156,8 +160,9 @@ private fun BottomNavItem(
     isSelected: Boolean,
     onClick: () -> Unit
 ) {
+    val isDark = isAppInDarkTheme()
     val contentColor by animateColorAsState(
-        targetValue = if (isSelected) Color(0xFF2563EB) else Color(0xFF64748B),
+        targetValue = if (isSelected) Color(0xFF2563EB) else if (isDark) Color(0xFF94A3B8) else Color(0xFF64748B),
         label = "nav_color"
     )
 

@@ -372,7 +372,7 @@ fun WhatsAppSettingsScreen(
 
                             // Real Theme Background Selector (ثيم وخلفية الواجهات)
                             Text(
-                                text = "خلفية وثيم الواجهات الموحد",
+                                text = "خلفية الواجهات (الوضع الفاتح)",
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
                                 fontFamily = TajawalFontFamily,
@@ -382,11 +382,10 @@ fun WhatsAppSettingsScreen(
 
                             // Background Options Cards
                             val bgOptions = listOf(
-                                Triple("stories", "ثيم واجهة الحالات (الافتراضي الموحد)", Color(0xFFF0F6FF)),
+                                Triple("pure_white", "الأبيض النقي (Pure White) - الافتراضي", Color(0xFFFFFFFF)),
+                                Triple("stories", "النمط الهادئ (Soft Azure)", Color(0xFFF0F6FF)),
                                 Triple("login", "خلفية واجهة تسجيل الدخول", Color(0xFFF0F6FF)),
-                                Triple("pure_white", "الأبيض النقي (Pure White)", Color(0xFFFFFFFF)),
-                                Triple("slate_light", "السماوي الهادئ (Azure Sky)", Color(0xFFEBF3FE)),
-                                Triple("dark", "الوضع الليلي الفاخر (Dark Sapphire)", Color(0xFF0F172A))
+                                Triple("slate_light", "السماوي الهادئ (Azure Sky)", Color(0xFFEBF3FE))
                             )
 
                             bgOptions.forEach { (key, label, previewColor) ->
@@ -404,13 +403,6 @@ fun WhatsAppSettingsScreen(
                                         .clickable {
                                             bgTheme = key
                                             AppSettingsManager.setBgTheme(context, key)
-                                            if (key == "dark") {
-                                                theme = "dark"
-                                                AppSettingsManager.setTheme(context, "dark")
-                                            } else if (theme == "dark") {
-                                                theme = "light"
-                                                AppSettingsManager.setTheme(context, "light")
-                                            }
                                             Toast.makeText(context, "تم تطبيق: $label", Toast.LENGTH_SHORT).show()
                                         }
                                         .padding(horizontal = 12.dp, vertical = 10.dp),
@@ -451,6 +443,13 @@ fun WhatsAppSettingsScreen(
                                                     fontFamily = TajawalFontFamily,
                                                     color = Color(0xFF64748B)
                                                 )
+                                            } else if (key == "pure_white") {
+                                                Text(
+                                                    text = "اللون الأبيض الكلاسيكي النظيف والأنيق",
+                                                    fontSize = 11.sp,
+                                                    fontFamily = TajawalFontFamily,
+                                                    color = Color(0xFF64748B)
+                                                )
                                             }
                                         }
                                     }
@@ -460,13 +459,6 @@ fun WhatsAppSettingsScreen(
                                         onClick = {
                                             bgTheme = key
                                             AppSettingsManager.setBgTheme(context, key)
-                                            if (key == "dark") {
-                                                theme = "dark"
-                                                AppSettingsManager.setTheme(context, "dark")
-                                            } else if (theme == "dark") {
-                                                theme = "light"
-                                                AppSettingsManager.setTheme(context, "light")
-                                            }
                                             Toast.makeText(context, "تم تطبيق: $label", Toast.LENGTH_SHORT).show()
                                         },
                                         colors = RadioButtonDefaults.colors(

@@ -275,7 +275,7 @@ fun YouTubeRoomScreen(
     // Dialog & Permission States
     var selectedUserForPermissions by remember { mutableStateOf<YouTubeRoomUser?>(null) }
 
-    // Room Participants state
+    // Room Participants state (Real authentic users only)
     val roomUsers = remember {
         mutableStateListOf<YouTubeRoomUser>().apply {
             if (!isStealthMode) {
@@ -294,34 +294,6 @@ fun YouTubeRoomScreen(
                     )
                 )
             }
-            add(
-                YouTubeRoomUser(
-                    id = "u_sarah",
-                    name = "سارة",
-                    role = "مشرفة 🛡️",
-                    isHost = false,
-                    isOnline = true,
-                    isSpeaking = false,
-                    hasCameraActive = true,
-                    isFrontCamera = true,
-                    avatarBg = Color(0xFF10B981),
-                    canChangeVideo = true
-                )
-            )
-            add(
-                YouTubeRoomUser(
-                    id = "u_guest_vip",
-                    name = "محمد علي",
-                    role = "مشاهد",
-                    isHost = false,
-                    isOnline = true,
-                    isSpeaking = false,
-                    hasCameraActive = false,
-                    isFrontCamera = true,
-                    avatarBg = Color(0xFF8B5CF6),
-                    canChangeVideo = true
-                )
-            )
         }
     }
 
@@ -374,14 +346,16 @@ fun YouTubeRoomScreen(
                 Toast.makeText(context, "تم تغيير الفيديو للغرفة: ${vTitle.take(30)} 🎬", Toast.LENGTH_SHORT).show()
             },
             onPlaybackStateReceived = { playState, pos ->
-                isPlaying = playState
-                if (pos >= 0f) {
+                // Smooth synchronization: only seek if playhead drift exceeds 2.5 seconds to avoid buffer stutter
+                if (pos >= 0f && kotlin.math.abs(currentPositionSec - pos) > 2.5f) {
                     currentPositionSec = pos
                     webViewRef?.evaluateJavascript("if (typeof seekTo === 'function') { seekTo($pos); }", null)
                 }
-                if (playState) {
+                if (playState && !isPlaying) {
+                    isPlaying = true
                     webViewRef?.evaluateJavascript("if (typeof playVideo === 'function') { playVideo(); }", null)
-                } else {
+                } else if (!playState && isPlaying) {
+                    isPlaying = false
                     webViewRef?.evaluateJavascript("if (typeof pauseVideo === 'function') { pauseVideo(); }", null)
                 }
             },
@@ -562,11 +536,11 @@ fun YouTubeRoomScreen(
         )
     }
 
-    // Periodic Heartbeat Sync: Host synchronizes playhead every 6 seconds to prevent any drift
+    // Periodic Heartbeat Sync: Host synchronizes playhead every 8 seconds to prevent any drift
     LaunchedEffect(isPlaying, isHost, isAppOwner) {
         if ((isHost || isAppOwner) && isPlaying) {
             while (true) {
-                delay(6000)
+                delay(8000)
                 if (isPlaying) {
                     syncSocket.broadcastPlaybackState(true, currentPositionSec)
                 }
@@ -700,13 +674,15 @@ fun YouTubeRoomScreen(
                     .padding(horizontal = 8.dp, vertical = 2.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
+                val isDark = isAppInDarkTheme()
+
                 // ====================================================
                 // 1. UNIFIED PROFESSIONAL TOOLBAR
                 // ====================================================
                 Surface(
                     shape = RoundedCornerShape(14.dp),
-                    color = Color.White,
-                    border = BorderStroke(1.dp, Color(0xFFE2EAFD)),
+                    color = if (isDark) DarkSurface else Color.White,
+                    border = BorderStroke(1.dp, if (isDark) DarkBorder else Color(0xFFE2EAFD)),
                     shadowElevation = 1.dp,
                     modifier = Modifier
                         .fillMaxWidth()
@@ -723,27 +699,27 @@ fun YouTubeRoomScreen(
                         Surface(
                             onClick = { isExitConfirmDialogOpen = true },
                             shape = RoundedCornerShape(10.dp),
-                            color = Color(0xFFFEF2F2),
-                            border = BorderStroke(1.dp, Color(0xFFFECACA)),
+                            color = if (isDark) Color(0xFF2A1719) else Color(0xFFFEF2F2),
+                            border = BorderStroke(1.dp, if (isDark) Color(0xFF4A2024) else Color(0xFFFECACA)),
                             modifier = Modifier.size(34.dp)
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
                                     imageVector = Icons.Default.Logout,
                                     contentDescription = "خروج من الغرفة",
-                                    tint = Color(0xFFDC2626),
+                                    tint = Color(0xFFEF4444),
                                     modifier = Modifier.size(16.dp)
                                 )
                             }
                         }
 
-                        // Unified YouTube Search Box (Integrated input + button)
+                        // Unified YouTube Search Box (Integrated input + neutral search trigger)
                         Row(
                             modifier = Modifier
                                 .weight(1f)
                                 .height(34.dp)
-                                .background(Color(0xFFF8FAFC), RoundedCornerShape(10.dp))
-                                .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(10.dp))
+                                .background(if (isDark) Color(0xFF131B2E) else Color(0xFFF8FAFC), RoundedCornerShape(10.dp))
+                                .border(1.dp, if (isDark) DarkBorder else Color(0xFFE2E8F0), RoundedCornerShape(10.dp))
                                 .padding(horizontal = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -751,7 +727,7 @@ fun YouTubeRoomScreen(
                             Icon(
                                 imageVector = Icons.Default.Search,
                                 contentDescription = null,
-                                tint = Color(0xFF94A3B8),
+                                tint = if (isDark) Color(0xFF94A3B8) else Color(0xFF94A3B8),
                                 modifier = Modifier.size(14.dp)
                             )
                             Box(
@@ -763,7 +739,7 @@ fun YouTubeRoomScreen(
                                         text = "ابحث في يوتيوب...",
                                         fontSize = 11.sp,
                                         fontFamily = TajawalFontFamily,
-                                        color = Color(0xFF94A3B8),
+                                        color = if (isDark) Color(0xFF64748B) else Color(0xFF94A3B8),
                                         maxLines = 1
                                     )
                                 }
@@ -776,11 +752,11 @@ fun YouTubeRoomScreen(
                                     singleLine = true,
                                     textStyle = TextStyle(
                                         fontSize = 11.sp,
-                                        color = Color(0xFF0F172A),
+                                        color = if (isDark) DarkTextPrimary else Color(0xFF0F172A),
                                         fontFamily = TajawalFontFamily,
                                         fontWeight = FontWeight.Medium
                                     ),
-                                    cursorBrush = SolidColor(Color(0xFF2563EB)),
+                                    cursorBrush = SolidColor(if (isDark) Color(0xFF60A5FA) else Color(0xFF2563EB)),
                                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                                     keyboardActions = KeyboardActions(onSearch = { executeSearch(searchQuery) }),
                                     modifier = Modifier.fillMaxWidth()
@@ -797,12 +773,12 @@ fun YouTubeRoomScreen(
                                     Icon(
                                         imageVector = Icons.Default.Close,
                                         contentDescription = "مسح",
-                                        tint = Color(0xFF94A3B8),
+                                        tint = if (isDark) Color(0xFF64748B) else Color(0xFF94A3B8),
                                         modifier = Modifier.size(12.dp)
                                     )
                                 }
                             }
-                            // Compact integrated search trigger
+                            // Compact integrated search trigger (Neutral without overpowering blue)
                             IconButton(
                                 onClick = {
                                     if (searchQuery.trim().isNotEmpty()) {
@@ -813,12 +789,12 @@ fun YouTubeRoomScreen(
                                 },
                                 modifier = Modifier
                                     .size(24.dp)
-                                    .background(Color(0xFF2563EB), RoundedCornerShape(8.dp))
+                                    .background(if (isDark) Color(0xFF334155) else Color(0xFFE2E8F0), RoundedCornerShape(8.dp))
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Search,
                                     contentDescription = "بحث",
-                                    tint = Color.White,
+                                    tint = if (isDark) Color(0xFFCBD5E1) else Color(0xFF475569),
                                     modifier = Modifier.size(12.dp)
                                 )
                             }
@@ -835,8 +811,8 @@ fun YouTubeRoomScreen(
                                 } catch (_: Exception) {}
                             },
                             shape = RoundedCornerShape(10.dp),
-                            color = Color(0xFFF1F5F9),
-                            border = BorderStroke(1.dp, Color(0xFFCBD5E1)),
+                            color = if (isDark) Color(0xFF131B2E) else Color(0xFFF1F5F9),
+                            border = BorderStroke(1.dp, if (isDark) DarkBorder else Color(0xFFCBD5E1)),
                             modifier = Modifier.height(34.dp)
                         ) {
                             Row(
@@ -847,14 +823,14 @@ fun YouTubeRoomScreen(
                                 Icon(
                                     imageVector = Icons.Default.Tag,
                                     contentDescription = null,
-                                    tint = Color(0xFF2563EB),
+                                    tint = if (isDark) Color(0xFF60A5FA) else Color(0xFF2563EB),
                                     modifier = Modifier.size(12.dp)
                                 )
                                 Text(
                                     text = roomCode,
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF1E293B),
+                                    color = if (isDark) DarkTextPrimary else Color(0xFF1E293B),
                                     fontFamily = TajawalFontFamily
                                 )
                             }
@@ -1027,14 +1003,6 @@ fun YouTubeRoomScreen(
                                                             'onStateChange': function(e) {
                                                                 if (e.data === 1) {
                                                                     isIntentionallyPaused = false;
-                                                                } else if (e.data === 2) {
-                                                                    if (!isIntentionallyPaused) {
-                                                                        setTimeout(function() {
-                                                                            if (!isIntentionallyPaused && player && typeof player.playVideo === 'function') {
-                                                                                player.playVideo();
-                                                                            }
-                                                                        }, 120);
-                                                                    }
                                                                 }
                                                                 if (window.AndroidBridge && window.AndroidBridge.reportState) {
                                                                     window.AndroidBridge.reportState(e.data);
@@ -1177,19 +1145,21 @@ fun YouTubeRoomScreen(
                 Spacer(modifier = Modifier.height(6.dp))
 
                 // ====================================================
-                // 3. SUB-TABS DOCK BAR (Unified size & equal distribution)
+                // 3. SUB-TABS DOCK BAR (Slim, reduced height & thickness)
                 // ====================================================
                 Surface(
-                    shape = RoundedCornerShape(14.dp),
-                    color = Color.White,
-                    border = BorderStroke(1.dp, Color(0xFFE2EAFD)),
-                    shadowElevation = 1.dp,
-                    modifier = Modifier.fillMaxWidth()
+                    shape = RoundedCornerShape(12.dp),
+                    color = if (isDark) DarkSurface else Color.White,
+                    border = BorderStroke(0.5.dp, if (isDark) DarkBorder else Color(0xFFE2EAFD)),
+                    shadowElevation = 0.5.dp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(38.dp)
                 ) {
                     Row(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp, horizontal = 2.dp),
+                            .fillMaxSize()
+                            .padding(horizontal = 2.dp),
                         horizontalArrangement = Arrangement.SpaceEvenly,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -1198,6 +1168,7 @@ fun YouTubeRoomScreen(
                             YouTubeDockIconButton(
                                 icon = Icons.Default.PlayCircle,
                                 isActive = activeSubTab == YouTubeRoomSubTab.PLAYER,
+                                isDark = isDark,
                                 onClick = { activeSubTab = YouTubeRoomSubTab.PLAYER }
                             )
                         }
@@ -1206,6 +1177,7 @@ fun YouTubeRoomScreen(
                             YouTubeDockIconButton(
                                 icon = Icons.Default.ChatBubbleOutline,
                                 isActive = activeSubTab == YouTubeRoomSubTab.CHAT,
+                                isDark = isDark,
                                 onClick = { activeSubTab = YouTubeRoomSubTab.CHAT }
                             )
                         }
@@ -1214,6 +1186,7 @@ fun YouTubeRoomScreen(
                             YouTubeDockIconButton(
                                 icon = Icons.Default.Videocam,
                                 isActive = activeSubTab == YouTubeRoomSubTab.CAMERAS,
+                                isDark = isDark,
                                 onClick = { activeSubTab = YouTubeRoomSubTab.CAMERAS }
                             )
                         }
@@ -1222,6 +1195,7 @@ fun YouTubeRoomScreen(
                             YouTubeDockIconButton(
                                 icon = Icons.Default.RecordVoiceOver,
                                 isActive = activeSubTab == YouTubeRoomSubTab.INTERCOM,
+                                isDark = isDark,
                                 onClick = { activeSubTab = YouTubeRoomSubTab.INTERCOM }
                             )
                         }
@@ -1231,6 +1205,7 @@ fun YouTubeRoomScreen(
                                 icon = Icons.Default.PeopleOutline,
                                 isActive = activeSubTab == YouTubeRoomSubTab.USERS,
                                 badgeCount = roomUsers.size,
+                                isDark = isDark,
                                 onClick = { activeSubTab = YouTubeRoomSubTab.USERS }
                             )
                         }
@@ -1239,6 +1214,7 @@ fun YouTubeRoomScreen(
                             YouTubeDockIconButton(
                                 icon = Icons.Default.Settings,
                                 isActive = activeSubTab == YouTubeRoomSubTab.SETTINGS,
+                                isDark = isDark,
                                 onClick = { activeSubTab = YouTubeRoomSubTab.SETTINGS }
                             )
                         }
@@ -1269,8 +1245,8 @@ fun YouTubeRoomScreen(
                                     Surface(
                                         onClick = { playSelectedVideo(video) },
                                         shape = RoundedCornerShape(14.dp),
-                                        color = if (isCurrent) Color(0xFFEFF6FF) else Color.White,
-                                        border = BorderStroke(1.dp, if (isCurrent) Color(0xFF2563EB) else Color(0xFFE2EAFD)),
+                                        color = if (isCurrent) (if (isDark) Color(0xFF1E3A8A).copy(alpha = 0.6f) else Color(0xFFEFF6FF)) else (if (isDark) DarkSurface else Color.White),
+                                        border = BorderStroke(1.dp, if (isCurrent) (if (isDark) Color(0xFF3B82F6) else Color(0xFF2563EB)) else (if (isDark) DarkBorder else Color(0xFFE2EAFD))),
                                         modifier = Modifier.fillMaxWidth()
                                     ) {
                                         Row(
@@ -1299,20 +1275,20 @@ fun YouTubeRoomScreen(
                                                     fontFamily = TajawalFontFamily,
                                                     maxLines = 1,
                                                     overflow = TextOverflow.Ellipsis,
-                                                    color = if (isCurrent) Color(0xFF2563EB) else Color(0xFF0F172A)
+                                                    color = if (isCurrent) (if (isDark) Color(0xFF93C5FD) else Color(0xFF2563EB)) else (if (isDark) DarkTextPrimary else Color(0xFF0F172A))
                                                 )
                                                 Text(
                                                     text = video.channelTitle,
                                                     fontSize = 10.sp,
                                                     fontFamily = TajawalFontFamily,
-                                                    color = Color(0xFF64748B)
+                                                    color = if (isDark) DarkTextSecondary else Color(0xFF64748B)
                                                 )
                                             }
                                             if (isCurrent) {
                                                 Icon(
                                                     imageVector = Icons.Default.Equalizer,
                                                     contentDescription = "مشغل الآن",
-                                                    tint = Color(0xFF2563EB),
+                                                    tint = if (isDark) Color(0xFF60A5FA) else Color(0xFF2563EB),
                                                     modifier = Modifier.size(16.dp)
                                                 )
                                             }
@@ -1348,8 +1324,8 @@ fun YouTubeRoomScreen(
                                             ) {
                                                 Surface(
                                                     shape = RoundedCornerShape(10.dp),
-                                                    color = Color(0xFFF8FAFC),
-                                                    border = BorderStroke(1.dp, Color(0xFFE2E8F0))
+                                                    color = if (isDark) Color(0xFF131B2E) else Color(0xFFF8FAFC),
+                                                    border = BorderStroke(1.dp, if (isDark) DarkBorder else Color(0xFFE2E8F0))
                                                 ) {
                                                     Row(
                                                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
@@ -1359,14 +1335,14 @@ fun YouTubeRoomScreen(
                                                         Icon(
                                                             imageVector = Icons.Default.Info,
                                                             contentDescription = null,
-                                                            tint = Color(0xFF2563EB),
+                                                            tint = if (isDark) Color(0xFF60A5FA) else Color(0xFF2563EB),
                                                             modifier = Modifier.size(12.dp)
                                                         )
                                                         Text(
                                                             text = msg.text,
                                                             fontSize = 10.sp,
                                                             fontFamily = TajawalFontFamily,
-                                                            color = Color(0xFF475569)
+                                                            color = if (isDark) DarkTextSecondary else Color(0xFF475569)
                                                         )
                                                     }
                                                 }
@@ -1386,19 +1362,32 @@ fun YouTubeRoomScreen(
                                                         bottomStart = if (msg.isMe) 14.dp else 3.dp,
                                                         bottomEnd = if (msg.isMe) 3.dp else 14.dp
                                                     ),
-                                                    color = if (msg.isMe) Color(0xFF2563EB) else Color.White,
-                                                    border = BorderStroke(1.dp, if (msg.isMe) Color(0xFF1D4ED8) else Color(0xFFE2E8F0)),
+                                                    color = if (msg.isMe) Color(0xFF2563EB) else (if (isDark) DarkSurface else Color.White),
+                                                    border = BorderStroke(
+                                                        width = if (msg.imageUrl != null) 0.5.dp else 1.dp,
+                                                        color = if (msg.isMe) {
+                                                            if (msg.imageUrl != null) Color(0xFF60A5FA).copy(alpha = 0.35f) else Color(0xFF1D4ED8)
+                                                        } else {
+                                                            if (isDark) DarkBorder else Color(0xFFE2E8F0)
+                                                        }
+                                                    ),
                                                     shadowElevation = 0.5.dp,
                                                     modifier = Modifier.widthIn(max = 280.dp)
                                                 ) {
-                                                    Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
+                                                    Column(
+                                                        modifier = Modifier.padding(
+                                                            horizontal = if (msg.imageUrl != null) 3.dp else 10.dp,
+                                                            vertical = if (msg.imageUrl != null) 3.dp else 6.dp
+                                                        )
+                                                    ) {
                                                         if (!msg.isMe) {
                                                             Text(
                                                                 text = msg.sender,
                                                                 fontSize = 10.sp,
                                                                 fontWeight = FontWeight.Bold,
-                                                                color = Color(0xFF2563EB),
-                                                                fontFamily = TajawalFontFamily
+                                                                color = if (isDark) Color(0xFF60A5FA) else Color(0xFF2563EB),
+                                                                fontFamily = TajawalFontFamily,
+                                                                modifier = if (msg.imageUrl != null) Modifier.padding(horizontal = 4.dp, vertical = 2.dp) else Modifier
                                                             )
                                                             Spacer(modifier = Modifier.height(2.dp))
                                                         }
@@ -1412,22 +1401,27 @@ fun YouTubeRoomScreen(
                                                                     .heightIn(max = 180.dp)
                                                                     .clip(RoundedCornerShape(8.dp))
                                                             )
-                                                            Spacer(modifier = Modifier.height(4.dp))
+                                                            Spacer(modifier = Modifier.height(3.dp))
                                                         }
-                                                        Text(
-                                                            text = msg.text,
-                                                            fontSize = 12.sp,
-                                                            fontFamily = TajawalFontFamily,
-                                                            color = if (msg.isMe) Color.White else Color(0xFF0F172A),
-                                                            lineHeight = 16.sp
-                                                        )
-                                                        Spacer(modifier = Modifier.height(2.dp))
+                                                        if (msg.text.isNotBlank() && msg.text != "📷 صورة") {
+                                                            Text(
+                                                                text = msg.text,
+                                                                fontSize = 12.sp,
+                                                                fontFamily = TajawalFontFamily,
+                                                                color = if (msg.isMe) Color.White else (if (isDark) DarkTextPrimary else Color(0xFF0F172A)),
+                                                                lineHeight = 16.sp,
+                                                                modifier = if (msg.imageUrl != null) Modifier.padding(horizontal = 4.dp) else Modifier
+                                                            )
+                                                            Spacer(modifier = Modifier.height(2.dp))
+                                                        }
                                                         Text(
                                                             text = msg.time,
                                                             fontSize = 8.sp,
                                                             fontFamily = TajawalFontFamily,
-                                                            color = if (msg.isMe) Color(0xCCFFFFFF) else Color(0xFF94A3B8),
-                                                            modifier = Modifier.align(if (msg.isMe) Alignment.Start else Alignment.End)
+                                                            color = if (msg.isMe) Color(0xCCFFFFFF) else (if (isDark) DarkTextSecondary else Color(0xFF94A3B8)),
+                                                            modifier = Modifier
+                                                                .align(if (msg.isMe) Alignment.Start else Alignment.End)
+                                                                .then(if (msg.imageUrl != null) Modifier.padding(horizontal = 4.dp, vertical = 1.dp) else Modifier)
                                                         )
                                                     }
                                                 }
@@ -1439,8 +1433,8 @@ fun YouTubeRoomScreen(
                                 // Integrated Compact Message Input Bar
                                 Surface(
                                     shape = RoundedCornerShape(22.dp),
-                                    color = Color.White,
-                                    border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                                    color = if (isDark) DarkSurface else Color.White,
+                                    border = BorderStroke(1.dp, if (isDark) DarkBorder else Color(0xFFE2E8F0)),
                                     shadowElevation = 1.dp,
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -1472,7 +1466,7 @@ fun YouTubeRoomScreen(
                                             Icon(
                                                 imageVector = Icons.Default.Image,
                                                 contentDescription = "صورة",
-                                                tint = Color(0xFF64748B),
+                                                tint = if (isDark) Color(0xFF94A3B8) else Color(0xFF64748B),
                                                 modifier = Modifier.size(17.dp)
                                             )
                                         }
@@ -1485,7 +1479,7 @@ fun YouTubeRoomScreen(
                                             Icon(
                                                 imageVector = if (isIntercomTalking) Icons.Default.Mic else Icons.Default.MicNone,
                                                 contentDescription = "صوت",
-                                                tint = if (isIntercomTalking) Color(0xFF10B981) else Color(0xFF64748B),
+                                                tint = if (isIntercomTalking) Color(0xFF10B981) else (if (isDark) Color(0xFF94A3B8) else Color(0xFF64748B)),
                                                 modifier = Modifier.size(17.dp)
                                             )
                                         }
@@ -1500,7 +1494,7 @@ fun YouTubeRoomScreen(
                                                     text = if (isChatMuted) "تم تقييد الدردشة لك 🔇" else "اكتب رسالة...",
                                                     fontSize = 12.sp,
                                                     fontFamily = TajawalFontFamily,
-                                                    color = Color(0xFF94A3B8)
+                                                    color = if (isDark) Color(0xFF64748B) else Color(0xFF94A3B8)
                                                 )
                                             }
                                             BasicTextField(
@@ -1510,10 +1504,10 @@ fun YouTubeRoomScreen(
                                                 singleLine = true,
                                                 textStyle = TextStyle(
                                                     fontSize = 12.sp,
-                                                    color = Color(0xFF0F172A),
+                                                    color = if (isDark) DarkTextPrimary else Color(0xFF0F172A),
                                                     fontFamily = TajawalFontFamily
                                                 ),
-                                                cursorBrush = SolidColor(Color(0xFF2563EB)),
+                                                cursorBrush = SolidColor(if (isDark) Color(0xFF60A5FA) else Color(0xFF2563EB)),
                                                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                                                 keyboardActions = KeyboardActions(onSend = {
                                                     val text = chatInputText.trim()
@@ -2699,30 +2693,22 @@ private fun YouTubeDockIconButton(
     icon: ImageVector,
     isActive: Boolean,
     badgeCount: Int? = null,
+    isDark: Boolean = false,
     onClick: () -> Unit
 ) {
     Box(
         contentAlignment = Alignment.Center,
-        modifier = Modifier.size(40.dp)
+        modifier = Modifier.size(36.dp)
     ) {
         IconButton(
             onClick = onClick,
-            modifier = Modifier
-                .size(36.dp)
-                .background(
-                    if (isActive) Color(0xFFEFF6FF) else Color.Transparent,
-                    RoundedCornerShape(10.dp)
-                )
-                .border(
-                    BorderStroke(1.dp, if (isActive) Color(0xFFBFDBFE) else Color.Transparent),
-                    RoundedCornerShape(10.dp)
-                )
+            modifier = Modifier.size(32.dp)
         ) {
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                tint = if (isActive) Color(0xFF2563EB) else Color(0xFF64748B),
-                modifier = Modifier.size(20.dp)
+                tint = if (isActive) Color(0xFF2563EB) else (if (isDark) Color(0xFF94A3B8) else Color(0xFF64748B)),
+                modifier = Modifier.size(if (isActive) 21.dp else 19.dp)
             )
         }
         if (badgeCount != null && badgeCount > 0) {
@@ -2731,7 +2717,7 @@ private fun YouTubeDockIconButton(
                     .align(Alignment.TopEnd)
                     .offset(x = 1.dp, y = (-1).dp)
                     .background(Color(0xFFEF4444), RoundedCornerShape(8.dp))
-                    .border(1.dp, Color.White, RoundedCornerShape(8.dp))
+                    .border(1.dp, if (isDark) DarkSurface else Color.White, RoundedCornerShape(8.dp))
                     .padding(horizontal = 4.dp, vertical = 0.5.dp)
             ) {
                 Text(
