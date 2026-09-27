@@ -347,7 +347,7 @@ fun YouTubeRoomScreen(
                 currentPositionSec = 0f
                 // Execute instant video load on WebView for all clients including room owner
                 webViewRef?.evaluateJavascript(
-                    "if (typeof loadVideoById === 'function') { loadVideoById('$vId'); } else if (player && player.loadVideoById) { player.loadVideoById('$vId', 0); player.playVideo(); }",
+                    "if (typeof loadVideoById === 'function') { loadVideoById('$vId'); } else { var ifr = document.getElementById('player'); if (ifr) { ifr.src = 'https://www.youtube.com/embed/$vId?autoplay=1&enablejsapi=1&playsinline=1&controls=0&fs=0&rel=0&modestbranding=1'; } }",
                     null
                 )
                 Toast.makeText(context, "تم تغيير الفيديو للغرفة: ${vTitle.take(30)} 🎬", Toast.LENGTH_SHORT).show()
@@ -615,16 +615,16 @@ fun YouTubeRoomScreen(
         isSearchModalOpen = false
         isDropdownOpen = false
 
-        // 1. Direct Webview playback update with multiple fallback strategies
+        // 1. Direct Webview playback update with instant iframe load
         val jsCmd = """
             (function() {
-                window.currentVideoId = '$cleanId';
-                window.pendingVideoId = '$cleanId';
                 if (typeof loadVideoById === 'function') {
                     loadVideoById('$cleanId');
-                } else if (window.player && typeof window.player.loadVideoById === 'function') {
-                    window.player.loadVideoById({ videoId: '$cleanId', startSeconds: 0 });
-                    window.player.playVideo();
+                } else {
+                    var ifr = document.getElementById('player');
+                    if (ifr) {
+                        ifr.src = "https://www.youtube.com/embed/$cleanId?autoplay=1&enablejsapi=1&playsinline=1&controls=0&fs=0&rel=0&modestbranding=1";
+                    }
                 }
             })();
         """.trimIndent()
@@ -722,14 +722,14 @@ fun YouTubeRoomScreen(
                 val isDark = isAppInDarkTheme()
 
                 // ====================================================
-                // 1. DEDICATED TOP VIDEO PLAYER BOX (Comfortably Positioned, Lowered & Framed)
-                // (No top toolbar or text clutter, pure modern video experience)
+                // 1. DEDICATED TOP VIDEO PLAYER BOX (Comfortably Lowered, Expanded Downwards & Framed)
+                // (Larger immersive video view, framed cleanly inside YouTube room)
                 // ====================================================
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 16.dp, start = 4.dp, end = 4.dp, bottom = 8.dp)
-                        .height(218.dp)
+                        .padding(top = 16.dp, start = 4.dp, end = 4.dp, bottom = 6.dp)
+                        .height(265.dp)
                         .clip(RoundedCornerShape(16.dp))
                         .background(Color.Black)
                         .border(1.5.dp, if (isDark) DarkBorder else Color(0xFFCBD5E1), RoundedCornerShape(16.dp)),
@@ -737,13 +737,15 @@ fun YouTubeRoomScreen(
                 ) {
                     AndroidView(
                         factory = { ctx ->
-                            CookieManager.getInstance().setAcceptCookie(true)
+                            val cookieMgr = CookieManager.getInstance()
+                            cookieMgr.setAcceptCookie(true)
                             object : WebView(ctx) {
                                 override fun onWindowVisibilityChanged(visibility: Int) {
                                     // Keep running audio and video playback when app is minimized or backgrounded
                                     super.onWindowVisibilityChanged(View.VISIBLE)
                                 }
                             }.apply {
+                                cookieMgr.setAcceptThirdPartyCookies(this, true)
                                 layoutParams = ViewGroup.LayoutParams(
                                     ViewGroup.LayoutParams.MATCH_PARENT,
                                     ViewGroup.LayoutParams.MATCH_PARENT
@@ -751,30 +753,18 @@ fun YouTubeRoomScreen(
                                 settings.apply {
                                     javaScriptEnabled = true
                                     domStorageEnabled = true
+                                    databaseEnabled = true
                                     mediaPlaybackRequiresUserGesture = false
                                     loadWithOverviewMode = true
                                     useWideViewPort = true
-                                    databaseEnabled = true
-                                    userAgentString = "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36"
+                                    allowContentAccess = true
+                                    allowFileAccess = true
+                                    mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                                    userAgentString = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36"
                                 }
                                 webChromeClient = WebChromeClient()
                                 webViewClient = object : WebViewClient() {
                                     override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean = false
-
-                                    // Modern Ad-Blocking & Tracker Interception (Safe, never touches media streams)
-                                    override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
-                                        val url = request?.url?.toString()?.lowercase() ?: return null
-                                        if (!url.contains("googlevideo.com") && !url.contains("/s/player/") && !url.contains("/youtubei/")) {
-                                            if (url.contains("doubleclick.net") ||
-                                                url.contains("googleads.g.doubleclick.net") ||
-                                                url.contains("pagead2.googlesyndication.com") ||
-                                                url.contains("adservice.google.com")
-                                            ) {
-                                                return WebResourceResponse("text/plain", "UTF-8", java.io.ByteArrayInputStream(ByteArray(0)))
-                                            }
-                                        }
-                                        return super.shouldInterceptRequest(view, request)
-                                    }
                                 }
                                 addJavascriptInterface(
                                     object {
@@ -805,141 +795,74 @@ fun YouTubeRoomScreen(
                                             html, body { width: 100%; height: 100%; background: #000; overflow: hidden; display: flex; align-items: center; justify-content: center; }
                                             #player-container { width: 100%; height: 100%; position: absolute; top: 0; left: 0; right: 0; bottom: 0; }
                                             iframe { width: 100% !important; height: 100% !important; border: none; }
-                                            /* Advanced CSS Ad Suppression */
-                                            .video-ads, .ytp-ad-module, .ytp-ad-overlay-container, .ytp-ad-message-container,
-                                            .ytp-ad-player-overlay, .ytp-ad-skip-button-container, .ytp-ad-overlay-slot,
-                                            .ytp-ad-preview-container, .ytp-ad-image-overlay, .ad-showing, .ad-interrupting,
-                                            .ytp-ad-action-interstitial, .ytp-ad-feedback-dialog-container, .ytp-pause-overlay {
-                                                display: none !important;
-                                                visibility: hidden !important;
-                                                opacity: 0 !important;
-                                                pointer-events: none !important;
-                                                width: 0 !important;
-                                                height: 0 !important;
-                                            }
                                         </style>
                                     </head>
                                     <body>
-                                        <div id="player-container"><div id="player"></div></div>
+                                        <div id="player-container">
+                                            <iframe id="player"
+                                                type="text/html"
+                                                src="https://www.youtube.com/embed/$initialId?autoplay=1&enablejsapi=1&playsinline=1&controls=0&fs=0&rel=0&modestbranding=1"
+                                                frameborder="0"
+                                                allow="autoplay; encrypted-media; picture-in-picture"
+                                                allowfullscreen>
+                                            </iframe>
+                                        </div>
                                         <script>
-                                            try {
-                                                Object.defineProperty(document, 'hidden', { get: function() { return false; }, configurable: true });
-                                                Object.defineProperty(document, 'visibilityState', { get: function() { return 'visible'; }, configurable: true });
-                                                Object.defineProperty(document, 'webkitHidden', { get: function() { return false; }, configurable: true });
-                                                Object.defineProperty(document, 'webkitVisibilityState', { get: function() { return 'visible'; }, configurable: true });
-                                                ['visibilitychange', 'webkitvisibilitychange', 'blur', 'pagehide'].forEach(function(evt) {
-                                                    window.addEventListener(evt, function(e) { e.stopImmediatePropagation(); }, true);
-                                                    document.addEventListener(evt, function(e) { e.stopImmediatePropagation(); }, true);
-                                                });
-                                            } catch(e) {}
-                                        </script>
-                                        <script src="https://www.youtube-nocookie.com/iframe_api"></script>
-                                        <script>
-                                            var player;
-                                            var isIntentionallyPaused = false;
-                                            var isPlayerReady = false;
-                                            window.currentVideoId = '$initialId';
-                                            window.pendingVideoId = '$initialId';
+                                            var playerIframe = document.getElementById('player');
+                                            var currentVid = '$initialId';
 
-                                            function triggerClick(el) {
-                                                if (!el) return;
-                                                try { el.click(); } catch(e) {}
+                                            function sendCommand(func, args) {
                                                 try {
-                                                    var evt = new MouseEvent('click', { bubbles: true, cancelable: true, view: window });
-                                                    el.dispatchEvent(evt);
+                                                    if (playerIframe && playerIframe.contentWindow) {
+                                                        playerIframe.contentWindow.postMessage(JSON.stringify({
+                                                            "event": "command",
+                                                            "func": func,
+                                                            "args": args || []
+                                                        }), "*");
+                                                    }
                                                 } catch(e) {}
                                             }
 
-                                            // Automatic instant background Ad skipper & audio silencer
-                                            function autoSkipAds() {
-                                                try {
-                                                    var skipButtons = document.querySelectorAll('.ytp-ad-skip-button, .ytp-ad-skip-button-modern, .ytp-skip-ad-button, .ytp-ad-skip-button-slot button, .ytp-ad-overlay-close-button, .videoAdUiSkipButton, button[class*="skip"], [id*="skip-button"]');
-                                                    for (var i = 0; i < skipButtons.length; i++) {
-                                                        triggerClick(skipButtons[i]);
-                                                    }
-                                                    var video = document.querySelector('video');
-                                                    var isAd = document.querySelector('.ad-showing, .ad-interrupting');
-                                                    if (video && isAd) {
-                                                        video.muted = true;
-                                                        video.playbackRate = 16.0;
-                                                        if (isFinite(video.duration) && video.duration > 0) {
-                                                            video.currentTime = video.duration - 0.1;
-                                                        }
-                                                    }
-                                                } catch(e) {}
-                                            }
-                                            setInterval(autoSkipAds, 100);
-
-                                            function onYouTubeIframeAPIReady() {
-                                                var vid = window.pendingVideoId || window.currentVideoId || '$initialId';
-                                                window.currentVideoId = vid;
-                                                player = new YT.Player('player', {
-                                                    videoId: vid,
-                                                    host: 'https://www.youtube-nocookie.com',
-                                                    playerVars: {
-                                                        'autoplay': 1,
-                                                        'controls': 0,
-                                                        'playsinline': 1,
-                                                        'rel': 0,
-                                                        'modestbranding': 1,
-                                                        'enablejsapi': 1,
-                                                        'disablekb': 1,
-                                                        'fs': 0,
-                                                        'iv_load_policy': 3,
-                                                        'origin': 'https://www.youtube-nocookie.com'
-                                                    },
-                                                    events: {
-                                                        'onReady': function(e) {
-                                                            isPlayerReady = true;
-                                                            e.target.setVolume(${ (videoVolume * 100).toInt() });
-                                                            e.target.playVideo();
-                                                            if (window.pendingVideoId && window.pendingVideoId !== vid) {
-                                                                loadVideoById(window.pendingVideoId);
-                                                            }
-                                                        },
-                                                        'onStateChange': function(e) {
-                                                            if (e.data === 1) {
-                                                                isIntentionallyPaused = false;
-                                                            }
-                                                            if (window.AndroidBridge && window.AndroidBridge.reportState) {
-                                                                window.AndroidBridge.reportState(e.data);
-                                                            }
-                                                        }
-                                                    }
-                                                });
-                                                setInterval(function() {
-                                                    if (player && typeof player.getCurrentTime === 'function' && typeof player.getDuration === 'function') {
-                                                        if (window.AndroidBridge && window.AndroidBridge.reportTime) {
-                                                            window.AndroidBridge.reportTime(player.getCurrentTime(), player.getDuration());
-                                                        }
-                                                    }
-                                                }, 500);
-                                            }
                                             function playVideo() {
-                                                isIntentionallyPaused = false;
-                                                if (player && player.playVideo) player.playVideo();
+                                                sendCommand("playVideo");
                                             }
+
                                             function pauseVideo() {
-                                                isIntentionallyPaused = true;
-                                                if (player && player.pauseVideo) player.pauseVideo();
+                                                sendCommand("pauseVideo");
                                             }
-                                            function seekTo(sec) { if (player && player.seekTo) player.seekTo(sec, true); }
-                                            function loadVideoById(id) {
-                                                if (!id) return;
-                                                isIntentionallyPaused = false;
-                                                window.currentVideoId = id;
-                                                window.pendingVideoId = id;
-                                                if (player && typeof player.loadVideoById === 'function') {
-                                                    player.loadVideoById({ videoId: id, startSeconds: 0 });
-                                                    player.playVideo();
+
+                                            function seekTo(seconds) {
+                                                sendCommand("seekTo", [seconds, true]);
+                                            }
+
+                                            function setPlayerVolume(volume) {
+                                                sendCommand("setVolume", [volume]);
+                                            }
+
+                                            function loadVideoById(videoId) {
+                                                if (!videoId) return;
+                                                currentVid = videoId;
+                                                if (playerIframe) {
+                                                    playerIframe.src = "https://www.youtube.com/embed/" + videoId + "?autoplay=1&enablejsapi=1&playsinline=1&controls=0&fs=0&rel=0&modestbranding=1";
                                                 }
                                             }
-                                            function setPlayerVolume(vol) { if (player && player.setVolume) player.setVolume(vol); }
+
+                                            window.addEventListener("message", function(event) {
+                                                try {
+                                                    var data = typeof event.data === "string" ? JSON.parse(event.data) : event.data;
+                                                    if (data && data.event === "onStateChange" && window.AndroidBridge) {
+                                                        window.AndroidBridge.reportState(data.info);
+                                                    }
+                                                    if (data && data.info && typeof data.info.currentTime === 'number' && window.AndroidBridge) {
+                                                        window.AndroidBridge.reportTime(data.info.currentTime, data.info.duration || 0);
+                                                    }
+                                                } catch(e) {}
+                                            });
                                         </script>
                                     </body>
                                     </html>
                                 """.trimIndent()
-                                loadDataWithBaseURL("https://www.youtube-nocookie.com", customHtml, "text/html", "UTF-8", null)
+                                loadDataWithBaseURL("https://www.youtube.com", customHtml, "text/html", "UTF-8", null)
                             }
                         },
                         update = { webView ->
@@ -951,15 +874,8 @@ fun YouTubeRoomScreen(
                                     if (typeof setPlayerVolume === 'function') {
                                         setPlayerVolume($vol);
                                     }
-                                    if (window.currentVideoId !== '$targetId') {
-                                        window.currentVideoId = '$targetId';
-                                        window.pendingVideoId = '$targetId';
-                                        if (typeof loadVideoById === 'function') {
-                                            loadVideoById('$targetId');
-                                        } else if (window.player && typeof window.player.loadVideoById === 'function') {
-                                            window.player.loadVideoById({ videoId: '$targetId', startSeconds: 0 });
-                                            window.player.playVideo();
-                                        }
+                                    if (typeof currentVid !== 'undefined' && currentVid !== '$targetId') {
+                                        loadVideoById('$targetId');
                                     }
                                 })();
                             """.trimIndent(), null)
