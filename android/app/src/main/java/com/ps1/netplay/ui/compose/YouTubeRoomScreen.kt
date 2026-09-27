@@ -594,24 +594,46 @@ fun YouTubeRoomScreen(
         syncSocket.broadcastPlaybackState(nextPlay, currentPositionSec)
     }
 
+    // Helper to extract video ID from direct YouTube URLs or clean strings
+    fun extractYouTubeVideoId(input: String): String? {
+        val trimmed = input.trim()
+        if (trimmed.length == 11 && trimmed.matches(Regex("[a-zA-Z0-9_-]{11}"))) {
+            return trimmed
+        }
+        val pattern = Regex("""(?:youtu\.be/|youtube\.com/(?:watch\?v=|embed/|v/|shorts/))([a-zA-Z0-9_-]{11})""")
+        return pattern.find(trimmed)?.groupValues?.get(1)
+    }
+
     // Direct, Instant Video Change that IMMEDIATELY updates on Room Owner & All Users
     fun playSelectedVideo(video: YouTubeVideoItem) {
+        val cleanId = extractYouTubeVideoId(video.id) ?: video.id.trim()
+        if (cleanId.isEmpty()) return
         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-        currentVideo = video
+        currentVideo = video.copy(id = cleanId)
         isPlaying = true
         currentPositionSec = 0f
         isSearchModalOpen = false
         isDropdownOpen = false
 
         // 1. Direct Webview playback update
-        webViewRef?.evaluateJavascript(
-            "if (typeof loadVideoById === 'function') { loadVideoById('${video.id}'); } else if (player && player.loadVideoById) { player.loadVideoById('${video.id}', 0); player.playVideo(); }",
-            null
-        )
+        val jsCmd = """
+            (function() {
+                window.currentVideoId = '$cleanId';
+                if (typeof loadVideoById === 'function') {
+                    loadVideoById('$cleanId');
+                } else if (window.player && typeof window.player.loadVideoById === 'function') {
+                    window.player.loadVideoById('$cleanId', 0);
+                    window.player.playVideo();
+                } else {
+                    window.pendingVideoId = '$cleanId';
+                }
+            })();
+        """.trimIndent()
+        webViewRef?.evaluateJavascript(jsCmd, null)
 
         // 2. Broadcast to room owner and all participants
-        YouTubeRoomManager.updateRoomVideo(context, roomId, video.id, video.title)
-        syncSocket.broadcastVideoChange(video.id, video.title)
+        YouTubeRoomManager.updateRoomVideo(context, roomId, cleanId, video.title)
+        syncSocket.broadcastVideoChange(cleanId, video.title)
         syncSocket.broadcastPlaybackState(true, 0f)
         Toast.makeText(context, "جاري تشغيل: ${video.title.take(35)}... 🎬", Toast.LENGTH_SHORT).show()
     }
@@ -641,6 +663,21 @@ fun YouTubeRoomScreen(
         activeSubTab = YouTubeRoomSubTab.PLAYER
 
         if (cleanQuery.isNotEmpty()) {
+            val directId = extractYouTubeVideoId(cleanQuery)
+            if (directId != null) {
+                val directItem = YouTubeVideoItem(
+                    id = directId,
+                    title = "فيديو يوتيوب مخصص",
+                    channelTitle = "رابط مباشر",
+                    duration = "مباشر",
+                    thumbnailUrl = "https://img.youtube.com/vi/$directId/hqdefault.jpg"
+                )
+                videoCatalog.removeAll { it.id == directId }
+                videoCatalog.add(0, directItem)
+                playSelectedVideo(directItem)
+                return
+            }
+
             coroutineScope.launch {
                 isSearchingRealYouTube = true
                 try {
@@ -678,239 +715,254 @@ fun YouTubeRoomScreen(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 8.dp, vertical = 2.dp),
+                    .padding(horizontal = 10.dp, vertical = 4.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 val isDark = isAppInDarkTheme()
 
                 // ====================================================
-                // 1. DEDICATED TOP VIDEO PLAYER BOX (Enlarged, Sleek & Edge-to-Edge)
+                // 1. DEDICATED TOP VIDEO PLAYER BOX (Comfortably Positioned, Lowered & Framed)
                 // (No top toolbar or text clutter, pure modern video experience)
                 // ====================================================
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(280.dp)
-                        .clip(RoundedCornerShape(18.dp))
+                        .padding(top = 10.dp, bottom = 8.dp)
+                        .height(240.dp)
+                        .clip(RoundedCornerShape(16.dp))
                         .background(Color.Black)
-                        .border(1.dp, if (isDark) DarkBorder else Color(0xFF1E293B), RoundedCornerShape(18.dp)),
+                        .border(1.5.dp, if (isDark) DarkBorder else Color(0xFFCBD5E1), RoundedCornerShape(16.dp)),
                     contentAlignment = Alignment.Center
                 ) {
-                    key(currentVideo.id) {
-                        AndroidView(
-                            factory = { ctx ->
-                                CookieManager.getInstance().setAcceptCookie(true)
-                                object : WebView(ctx) {
-                                    override fun onWindowVisibilityChanged(visibility: Int) {
-                                        // Keep running audio and video playback when app is minimized or backgrounded
-                                        super.onWindowVisibilityChanged(View.VISIBLE)
-                                    }
-                                }.apply {
-                                    layoutParams = ViewGroup.LayoutParams(
-                                        ViewGroup.LayoutParams.MATCH_PARENT,
-                                        ViewGroup.LayoutParams.MATCH_PARENT
-                                    )
-                                    settings.apply {
-                                        javaScriptEnabled = true
-                                        domStorageEnabled = true
-                                        mediaPlaybackRequiresUserGesture = false
-                                        loadWithOverviewMode = true
-                                        useWideViewPort = true
-                                        databaseEnabled = true
-                                        userAgentString = "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36"
-                                    }
-                                    webChromeClient = WebChromeClient()
-                                    webViewClient = object : WebViewClient() {
-                                        override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean = false
+                    AndroidView(
+                        factory = { ctx ->
+                            CookieManager.getInstance().setAcceptCookie(true)
+                            object : WebView(ctx) {
+                                override fun onWindowVisibilityChanged(visibility: Int) {
+                                    // Keep running audio and video playback when app is minimized or backgrounded
+                                    super.onWindowVisibilityChanged(View.VISIBLE)
+                                }
+                            }.apply {
+                                layoutParams = ViewGroup.LayoutParams(
+                                    ViewGroup.LayoutParams.MATCH_PARENT,
+                                    ViewGroup.LayoutParams.MATCH_PARENT
+                                )
+                                settings.apply {
+                                    javaScriptEnabled = true
+                                    domStorageEnabled = true
+                                    mediaPlaybackRequiresUserGesture = false
+                                    loadWithOverviewMode = true
+                                    useWideViewPort = true
+                                    databaseEnabled = true
+                                    userAgentString = "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36"
+                                }
+                                webChromeClient = WebChromeClient()
+                                webViewClient = object : WebViewClient() {
+                                    override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean = false
 
-                                        // Modern Ad-Blocking & Tracker Interception
-                                        override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
-                                            val url = request?.url?.toString()?.lowercase() ?: return null
+                                    // Modern Ad-Blocking & Tracker Interception (Safe, never touches media streams)
+                                    override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
+                                        val url = request?.url?.toString()?.lowercase() ?: return null
+                                        if (!url.contains("googlevideo.com") && !url.contains("/s/player/") && !url.contains("/youtubei/")) {
                                             if (url.contains("doubleclick.net") ||
-                                                url.contains("/pagead/") ||
-                                                url.contains("googleads") ||
-                                                url.contains("/api/stats/ads") ||
-                                                url.contains("adservice.google") ||
-                                                url.contains("googlesyndication.com") ||
-                                                url.contains("youtube.com/api/stats/qoe?adformat") ||
-                                                url.contains("youtube.com/ptracking") ||
-                                                url.contains("youtube.com/get_midroll_info") ||
-                                                url.contains("youtube.com/pagead") ||
-                                                url.contains("static.doubleclick.net") ||
-                                                url.contains("ad.doubleclick.net") ||
-                                                url.contains("/ads?") ||
-                                                url.contains("ad_format")
+                                                url.contains("googleads.g.doubleclick.net") ||
+                                                url.contains("pagead2.googlesyndication.com") ||
+                                                url.contains("adservice.google.com")
                                             ) {
                                                 return WebResourceResponse("text/plain", "UTF-8", java.io.ByteArrayInputStream(ByteArray(0)))
                                             }
-                                            return super.shouldInterceptRequest(view, request)
+                                        }
+                                        return super.shouldInterceptRequest(view, request)
+                                    }
+                                }
+                                addJavascriptInterface(
+                                    object {
+                                        @JavascriptInterface
+                                        fun reportTime(curr: Float, dur: Float) {
+                                            currentPositionSec = curr
+                                            if (dur > 0f) totalDurationSec = dur
+                                        }
+
+                                        @JavascriptInterface
+                                        fun reportState(state: Int) {
+                                            if (state == 1) isPlaying = true
+                                            else if (state == 2) isPlaying = false
+                                        }
+                                    },
+                                    "AndroidBridge"
+                                )
+                                webViewRef = this
+
+                                val initialId = currentVideo.id.ifBlank { "dQw4w9WgXcQ" }
+                                val customHtml = """
+                                    <!DOCTYPE html>
+                                    <html>
+                                    <head>
+                                        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+                                        <style>
+                                            * { margin: 0; padding: 0; box-sizing: border-box; }
+                                            html, body { width: 100%; height: 100%; background: #000; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+                                            #player-container { width: 100vw; height: 100vh; }
+                                            iframe { width: 100% !important; height: 100% !important; border: none; }
+                                            /* Advanced CSS Ad Suppression */
+                                            .video-ads, .ytp-ad-module, .ytp-ad-overlay-container, .ytp-ad-message-container,
+                                            .ytp-ad-player-overlay, .ytp-ad-skip-button-container, .ytp-ad-overlay-slot,
+                                            .ytp-ad-preview-container, .ytp-ad-image-overlay, .ad-showing, .ad-interrupting,
+                                            .ytp-ad-action-interstitial, .ytp-ad-feedback-dialog-container, .ytp-pause-overlay {
+                                                display: none !important;
+                                                visibility: hidden !important;
+                                                opacity: 0 !important;
+                                                pointer-events: none !important;
+                                                width: 0 !important;
+                                                height: 0 !important;
+                                            }
+                                        </style>
+                                    </head>
+                                    <body>
+                                        <div id="player-container"><div id="player"></div></div>
+                                        <script>
+                                            try {
+                                                Object.defineProperty(document, 'hidden', { get: function() { return false; }, configurable: true });
+                                                Object.defineProperty(document, 'visibilityState', { get: function() { return 'visible'; }, configurable: true });
+                                                Object.defineProperty(document, 'webkitHidden', { get: function() { return false; }, configurable: true });
+                                                Object.defineProperty(document, 'webkitVisibilityState', { get: function() { return 'visible'; }, configurable: true });
+                                                ['visibilitychange', 'webkitvisibilitychange', 'blur', 'pagehide'].forEach(function(evt) {
+                                                    window.addEventListener(evt, function(e) { e.stopImmediatePropagation(); }, true);
+                                                    document.addEventListener(evt, function(e) { e.stopImmediatePropagation(); }, true);
+                                                });
+                                            } catch(e) {}
+                                        </script>
+                                        <script src="https://www.youtube.com/iframe_api"></script>
+                                        <script>
+                                            var player;
+                                            var isIntentionallyPaused = false;
+                                            window.currentVideoId = '$initialId';
+
+                                            function triggerClick(el) {
+                                                if (!el) return;
+                                                try { el.click(); } catch(e) {}
+                                                try {
+                                                    var evt = new MouseEvent('click', { bubbles: true, cancelable: true, view: window });
+                                                    el.dispatchEvent(evt);
+                                                } catch(e) {}
+                                            }
+
+                                            // Automatic instant background Ad skipper & audio silencer
+                                            function autoSkipAds() {
+                                                try {
+                                                    var skipButtons = document.querySelectorAll('.ytp-ad-skip-button, .ytp-ad-skip-button-modern, .ytp-skip-ad-button, .ytp-ad-skip-button-slot button, .ytp-ad-overlay-close-button, .videoAdUiSkipButton, button[class*="skip"], [id*="skip-button"]');
+                                                    for (var i = 0; i < skipButtons.length; i++) {
+                                                        triggerClick(skipButtons[i]);
+                                                    }
+                                                    var video = document.querySelector('video');
+                                                    var isAd = document.querySelector('.ad-showing, .ad-interrupting');
+                                                    if (video && isAd) {
+                                                        video.muted = true;
+                                                        video.playbackRate = 16.0;
+                                                        if (isFinite(video.duration) && video.duration > 0) {
+                                                            video.currentTime = video.duration - 0.1;
+                                                        }
+                                                    }
+                                                } catch(e) {}
+                                            }
+                                            setInterval(autoSkipAds, 100);
+
+                                            function onYouTubeIframeAPIReady() {
+                                                var vid = window.pendingVideoId || window.currentVideoId || '$initialId';
+                                                window.currentVideoId = vid;
+                                                player = new YT.Player('player', {
+                                                    videoId: vid,
+                                                    host: 'https://www.youtube.com',
+                                                    playerVars: {
+                                                        'autoplay': 1,
+                                                        'controls': 0,
+                                                        'playsinline': 1,
+                                                        'rel': 0,
+                                                        'modestbranding': 1,
+                                                        'enablejsapi': 1,
+                                                        'disablekb': 1,
+                                                        'fs': 0,
+                                                        'iv_load_policy': 3,
+                                                        'origin': 'https://www.youtube.com'
+                                                    },
+                                                    events: {
+                                                        'onReady': function(e) {
+                                                            e.target.setVolume(${ (videoVolume * 100).toInt() });
+                                                            e.target.playVideo();
+                                                            if (window.pendingVideoId && window.pendingVideoId !== vid) {
+                                                                loadVideoById(window.pendingVideoId);
+                                                            }
+                                                        },
+                                                        'onStateChange': function(e) {
+                                                            if (e.data === 1) {
+                                                                isIntentionallyPaused = false;
+                                                            }
+                                                            if (window.AndroidBridge && window.AndroidBridge.reportState) {
+                                                                window.AndroidBridge.reportState(e.data);
+                                                            }
+                                                        }
+                                                    }
+                                                });
+                                                setInterval(function() {
+                                                    if (player && typeof player.getCurrentTime === 'function' && typeof player.getDuration === 'function') {
+                                                        if (window.AndroidBridge && window.AndroidBridge.reportTime) {
+                                                            window.AndroidBridge.reportTime(player.getCurrentTime(), player.getDuration());
+                                                        }
+                                                    }
+                                                }, 500);
+                                            }
+                                            function playVideo() {
+                                                isIntentionallyPaused = false;
+                                                if (player && player.playVideo) player.playVideo();
+                                            }
+                                            function pauseVideo() {
+                                                isIntentionallyPaused = true;
+                                                if (player && player.pauseVideo) player.pauseVideo();
+                                            }
+                                            function seekTo(sec) { if (player && player.seekTo) player.seekTo(sec, true); }
+                                            function loadVideoById(id) {
+                                                isIntentionallyPaused = false;
+                                                window.currentVideoId = id;
+                                                if (player && typeof player.loadVideoById === 'function') {
+                                                    player.loadVideoById(id, 0);
+                                                    player.playVideo();
+                                                } else {
+                                                    window.pendingVideoId = id;
+                                                }
+                                            }
+                                            function setPlayerVolume(vol) { if (player && player.setVolume) player.setVolume(vol); }
+                                        </script>
+                                    </body>
+                                    </html>
+                                """.trimIndent()
+                                loadDataWithBaseURL("https://www.youtube.com", customHtml, "text/html", "UTF-8", null)
+                            }
+                        },
+                        update = { webView ->
+                            webViewRef = webView
+                            val targetId = currentVideo.id.trim()
+                            val vol = (videoVolume * 100).toInt()
+                            webView.evaluateJavascript("""
+                                (function() {
+                                    if (typeof setPlayerVolume === 'function') {
+                                        setPlayerVolume($vol);
+                                    }
+                                    if (window.currentVideoId !== '$targetId') {
+                                        window.currentVideoId = '$targetId';
+                                        if (typeof loadVideoById === 'function') {
+                                            loadVideoById('$targetId');
+                                        } else if (window.player && typeof window.player.loadVideoById === 'function') {
+                                            window.player.loadVideoById('$targetId', 0);
+                                            window.player.playVideo();
+                                        } else {
+                                            window.pendingVideoId = '$targetId';
                                         }
                                     }
-                                    addJavascriptInterface(
-                                        object {
-                                            @JavascriptInterface
-                                            fun reportTime(curr: Float, dur: Float) {
-                                                currentPositionSec = curr
-                                                if (dur > 0f) totalDurationSec = dur
-                                            }
-
-                                            @JavascriptInterface
-                                            fun reportState(state: Int) {
-                                                if (state == 1) isPlaying = true
-                                                else if (state == 2) isPlaying = false
-                                            }
-                                        },
-                                        "AndroidBridge"
-                                    )
-                                    webViewRef = this
-
-                                    val safeVideoId = currentVideo.id
-                                    val customHtml = """
-                                        <!DOCTYPE html>
-                                        <html>
-                                        <head>
-                                            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-                                            <style>
-                                                * { margin: 0; padding: 0; box-sizing: border-box; }
-                                                html, body { width: 100%; height: 100%; background: #000; overflow: hidden; display: flex; align-items: center; justify-content: center; }
-                                                #player-container { width: 100vw; height: 100vh; }
-                                                iframe { width: 100% !important; height: 100% !important; border: none; }
-                                                /* Advanced CSS Ad Suppression */
-                                                .video-ads, .ytp-ad-module, .ytp-ad-overlay-container, .ytp-ad-message-container,
-                                                .ytp-ad-player-overlay, .ytp-ad-skip-button-container, .ytp-ad-overlay-slot,
-                                                .ytp-ad-preview-container, .ytp-ad-image-overlay, .ad-showing, .ad-interrupting,
-                                                .ytp-ad-action-interstitial, .ytp-ad-feedback-dialog-container, .ytp-pause-overlay {
-                                                    display: none !important;
-                                                    visibility: hidden !important;
-                                                    opacity: 0 !important;
-                                                    pointer-events: none !important;
-                                                    width: 0 !important;
-                                                    height: 0 !important;
-                                                }
-                                            </style>
-                                        </head>
-                                        <body>
-                                            <div id="player-container"><div id="player"></div></div>
-                                            <script>
-                                                try {
-                                                    Object.defineProperty(document, 'hidden', { get: function() { return false; }, configurable: true });
-                                                    Object.defineProperty(document, 'visibilityState', { get: function() { return 'visible'; }, configurable: true });
-                                                    Object.defineProperty(document, 'webkitHidden', { get: function() { return false; }, configurable: true });
-                                                    Object.defineProperty(document, 'webkitVisibilityState', { get: function() { return 'visible'; }, configurable: true });
-                                                    ['visibilitychange', 'webkitvisibilitychange', 'blur', 'pagehide'].forEach(function(evt) {
-                                                        window.addEventListener(evt, function(e) { e.stopImmediatePropagation(); }, true);
-                                                        document.addEventListener(evt, function(e) { e.stopImmediatePropagation(); }, true);
-                                                    });
-                                                } catch(e) {}
-                                            </script>
-                                            <script src="https://www.youtube-nocookie.com/iframe_api"></script>
-                                            <script>
-                                                var player;
-                                                var isIntentionallyPaused = false;
-
-                                                function triggerClick(el) {
-                                                    if (!el) return;
-                                                    try { el.click(); } catch(e) {}
-                                                    try {
-                                                        var evt = new MouseEvent('click', { bubbles: true, cancelable: true, view: window });
-                                                        el.dispatchEvent(evt);
-                                                    } catch(e) {}
-                                                }
-
-                                                // Automatic instant background Ad skipper & audio silencer
-                                                function autoSkipAds() {
-                                                    try {
-                                                        var skipButtons = document.querySelectorAll('.ytp-ad-skip-button, .ytp-ad-skip-button-modern, .ytp-skip-ad-button, .ytp-ad-skip-button-slot button, .ytp-ad-overlay-close-button, .videoAdUiSkipButton, button[class*="skip"], [id*="skip-button"]');
-                                                        for (var i = 0; i < skipButtons.length; i++) {
-                                                            triggerClick(skipButtons[i]);
-                                                        }
-                                                        var video = document.querySelector('video');
-                                                        var adBox = document.querySelector('.ad-showing, .ad-interrupting, .ytp-ad-player-overlay, .video-ads.ytp-ad-module:not(:empty)');
-                                                        if (video && adBox) {
-                                                            video.muted = true;
-                                                            video.playbackRate = 16.0;
-                                                            if (isFinite(video.duration) && video.duration > 0) {
-                                                                video.currentTime = video.duration - 0.1;
-                                                            }
-                                                        }
-                                                    } catch(e) {}
-                                                }
-                                                setInterval(autoSkipAds, 90);
-
-                                                try {
-                                                    var observer = new MutationObserver(function() { autoSkipAds(); });
-                                                    observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
-                                                } catch(e) {}
-
-                                                function onYouTubeIframeAPIReady() {
-                                                    player = new YT.Player('player', {
-                                                        videoId: '$safeVideoId',
-                                                        playerVars: {
-                                                            'autoplay': 1,
-                                                            'controls': 0,
-                                                            'playsinline': 1,
-                                                            'rel': 0,
-                                                            'modestbranding': 1,
-                                                            'enablejsapi': 1,
-                                                            'disablekb': 1,
-                                                            'fs': 0,
-                                                            'iv_load_policy': 3
-                                                        },
-                                                        events: {
-                                                            'onReady': function(e) {
-                                                                 e.target.setVolume(${ (videoVolume * 100).toInt() });
-                                                                e.target.playVideo();
-                                                            },
-                                                            'onStateChange': function(e) {
-                                                                if (e.data === 1) {
-                                                                    isIntentionallyPaused = false;
-                                                                }
-                                                                if (window.AndroidBridge && window.AndroidBridge.reportState) {
-                                                                    window.AndroidBridge.reportState(e.data);
-                                                                }
-                                                            }
-                                                        }
-                                                    });
-                                                    setInterval(function() {
-                                                        if (player && typeof player.getCurrentTime === 'function' && typeof player.getDuration === 'function') {
-                                                            if (window.AndroidBridge && window.AndroidBridge.reportTime) {
-                                                                window.AndroidBridge.reportTime(player.getCurrentTime(), player.getDuration());
-                                                            }
-                                                        }
-                                                    }, 500);
-                                                }
-                                                function playVideo() {
-                                                    isIntentionallyPaused = false;
-                                                    if (player && player.playVideo) player.playVideo();
-                                                }
-                                                function pauseVideo() {
-                                                    isIntentionallyPaused = true;
-                                                    if (player && player.pauseVideo) player.pauseVideo();
-                                                }
-                                                function seekTo(sec) { if (player && player.seekTo) player.seekTo(sec, true); }
-                                                function loadVideoById(id) {
-                                                    isIntentionallyPaused = false;
-                                                    if (player && player.loadVideoById) {
-                                                        player.loadVideoById(id, 0);
-                                                        player.playVideo();
-                                                    }
-                                                }
-                                                function setPlayerVolume(vol) { if (player && player.setVolume) player.setVolume(vol); }
-                                            </script>
-                                        </body>
-                                        </html>
-                                    """.trimIndent()
-                                    loadDataWithBaseURL("https://www.youtube-nocookie.com", customHtml, "text/html", "UTF-8", null)
-                                }
-                            },
-                            update = { webView ->
-                                webViewRef = webView
-                                val vol = (videoVolume * 100).toInt()
-                                webView.evaluateJavascript("if (typeof setPlayerVolume === 'function') { setPlayerVolume($vol); }", null)
-                            },
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    }
+                                })();
+                            """.trimIndent(), null)
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
 
                     // Balanced Centered Play/Pause Button
                     IconButton(
@@ -1511,20 +1563,21 @@ fun YouTubeRoomScreen(
                                             modifier = Modifier
                                                 .size(cameraBoxSize.sizeDp)
                                                 .clip(activeBoxShape)
-                                                .background(if (isCameraActive) Color.Black else Color(0xFFF1F5F9))
+                                                .background(if (isCameraActive) Color.Black else (if (isDark) DarkSurface else Color(0xFFF1F5F9)))
                                                 .border(
                                                     2.dp,
-                                                    if (isCameraActive) Color(0xFF2563EB) else Color(0xFFCBD5E1),
+                                                    if (isCameraActive) Color(0xFF2563EB) else (if (isDark) DarkBorder else Color(0xFFCBD5E1)),
                                                     activeBoxShape
                                                 )
                                                 .clickable {
                                                     if (isCameraActive) {
+                                                        // Clicking camera flips between front and back camera
                                                         isFrontCamera = !isFrontCamera
                                                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                                         syncSocket.broadcastCameraState(true, isFrontCamera)
                                                         Toast.makeText(
                                                             context,
-                                                            if (isFrontCamera) "كاميرا أمامية 🤳" else "كاميرا خلفية 📸",
+                                                            if (isFrontCamera) "تحويل إلى الكاميرا الأمامية 🤳" else "تحويل إلى الكاميرا الخلفية 📸",
                                                             Toast.LENGTH_SHORT
                                                         ).show()
                                                     } else {
@@ -1550,20 +1603,49 @@ fun YouTubeRoomScreen(
                                                     )
                                                 }
 
-                                                // Corner flip indicator
-                                                Box(
+                                                // Top-Start: Direct ON/OFF Button inside the box (زر إطفاء وتشغيل داخل المربع)
+                                                IconButton(
+                                                    onClick = {
+                                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                        toggleCameraWithPermission()
+                                                    },
                                                     modifier = Modifier
-                                                        .size(20.dp)
+                                                        .align(Alignment.TopStart)
+                                                        .padding(3.dp)
+                                                        .size(24.dp)
+                                                        .background(Color(0xD9DC2626), CircleShape)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.VideocamOff,
+                                                        contentDescription = "إطفاء الكاميرا",
+                                                        tint = Color.White,
+                                                        modifier = Modifier.size(13.dp)
+                                                    )
+                                                }
+
+                                                // Top-End: Flip indicator/button (تبديل أمامية / خلفية)
+                                                IconButton(
+                                                    onClick = {
+                                                        isFrontCamera = !isFrontCamera
+                                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                        syncSocket.broadcastCameraState(true, isFrontCamera)
+                                                        Toast.makeText(
+                                                            context,
+                                                            if (isFrontCamera) "تحويل إلى الكاميرا الأمامية 🤳" else "تحويل إلى الكاميرا الخلفية 📸",
+                                                            Toast.LENGTH_SHORT
+                                                        ).show()
+                                                    },
+                                                    modifier = Modifier
                                                         .align(Alignment.TopEnd)
-                                                        .padding(2.dp)
-                                                        .background(Color(0xAA000000), CircleShape),
-                                                    contentAlignment = Alignment.Center
+                                                        .padding(3.dp)
+                                                        .size(24.dp)
+                                                        .background(Color(0xB3000000), CircleShape)
                                                 ) {
                                                     Icon(
                                                         imageVector = Icons.Default.FlipCameraAndroid,
-                                                        contentDescription = "تبديل",
+                                                        contentDescription = "تبديل الكاميرا",
                                                         tint = Color.White,
-                                                        modifier = Modifier.size(11.dp)
+                                                        modifier = Modifier.size(13.dp)
                                                     )
                                                 }
 
@@ -1576,7 +1658,7 @@ fun YouTubeRoomScreen(
                                                         .padding(bottom = 3.dp)
                                                 ) {
                                                     Text(
-                                                        text = "أنت 👤",
+                                                        text = if (isFrontCamera) "أنت (أمامي) 🤳" else "أنت (خلفي) 📸",
                                                         fontSize = 8.sp,
                                                         fontWeight = FontWeight.Bold,
                                                         color = Color.White,
@@ -1584,22 +1666,33 @@ fun YouTubeRoomScreen(
                                                     )
                                                 }
                                             } else {
+                                                // When Camera is OFF: Sleek ON Button right inside the box
                                                 Column(
                                                     horizontalAlignment = Alignment.CenterHorizontally,
-                                                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                                                    verticalArrangement = Arrangement.spacedBy(3.dp),
+                                                    modifier = Modifier.padding(4.dp)
                                                 ) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.CameraAlt,
-                                                        contentDescription = null,
-                                                        tint = Color(0xFF64748B),
-                                                        modifier = Modifier.size(20.dp)
-                                                    )
+                                                    Surface(
+                                                        onClick = { toggleCameraWithPermission() },
+                                                        shape = CircleShape,
+                                                        color = Color(0xFF10B981),
+                                                        modifier = Modifier.size(30.dp)
+                                                    ) {
+                                                        Box(contentAlignment = Alignment.Center) {
+                                                            Icon(
+                                                                imageVector = Icons.Default.Videocam,
+                                                                contentDescription = "تشغيل الكاميرا",
+                                                                tint = Color.White,
+                                                                modifier = Modifier.size(16.dp)
+                                                            )
+                                                        }
+                                                    }
                                                     Text(
-                                                        text = "كاميرتك",
+                                                        text = "تشغيل الكاميرا",
                                                         fontSize = 9.sp,
                                                         fontFamily = TajawalFontFamily,
                                                         fontWeight = FontWeight.Bold,
-                                                        color = Color(0xFF475569)
+                                                        color = if (isDark) DarkTextPrimary else Color(0xFF475569)
                                                     )
                                                 }
                                             }
