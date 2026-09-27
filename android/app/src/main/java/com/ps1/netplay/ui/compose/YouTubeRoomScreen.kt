@@ -348,83 +348,6 @@ fun YouTubeRoomScreen(
         }
     }
 
-    // Permission launchers
-    val cameraPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        if (isGranted) {
-            isCameraActive = true
-            syncSocket.broadcastCameraState(true, isFrontCamera)
-            Toast.makeText(context, "تم تفعيل الكاميرا 📹", Toast.LENGTH_SHORT).show()
-        } else {
-            Toast.makeText(context, "يرجى منح إذن الكاميرا للمتابعة 🔒", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    val audioPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        if (isGranted) {
-            isIntercomTalking = true
-            ZegoCallManager.setMicrophoneMute(false)
-            ZegoCallManager.setSpeakerEnabled(context, true)
-            syncSocket.broadcastVoiceState(true)
-            Toast.makeText(context, "تم تفعيل الميكروفون 🎙️", Toast.LENGTH_SHORT).show()
-        } else {
-            Toast.makeText(context, "يرجى منح إذن الميكروفون للمتابعة 🔒", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    val imagePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        if (uri != null) {
-            val msg = YouTubeChatMessage(
-                id = System.currentTimeMillis().toString(),
-                sender = currentUserName,
-                text = "📷 صورة",
-                time = "الآن",
-                isMe = true,
-                imageUrl = uri.toString()
-            )
-            chatMessages.add(msg)
-            syncSocket.broadcastChatMessage("[IMAGE]:$uri")
-        }
-    }
-
-    fun toggleCameraWithPermission() {
-        if (isCameraActive) {
-            isCameraActive = false
-            syncSocket.broadcastCameraState(false, isFrontCamera)
-        } else {
-            val hasPerm = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
-            if (hasPerm) {
-                isCameraActive = true
-                syncSocket.broadcastCameraState(true, isFrontCamera)
-            } else {
-                cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
-            }
-        }
-    }
-
-    fun toggleIntercomWithPermission() {
-        if (isIntercomTalking) {
-            isIntercomTalking = false
-            ZegoCallManager.setMicrophoneMute(true)
-            syncSocket.broadcastVoiceState(false)
-        } else {
-            val hasPerm = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-            if (hasPerm) {
-                isIntercomTalking = true
-                ZegoCallManager.setMicrophoneMute(false)
-                ZegoCallManager.setSpeakerEnabled(context, true)
-                syncSocket.broadcastVoiceState(true)
-            } else {
-                audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-            }
-        }
-    }
-
     // REAL-TIME WEBSOCKET SYNCHRONIZATION CLIENT
     val syncSocket = remember(roomId) {
         YouTubeSyncWebSocket(
@@ -518,6 +441,83 @@ fun YouTubeRoomScreen(
                 }
             }
         )
+    }
+
+    // Permission launchers
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            isCameraActive = true
+            syncSocket.broadcastCameraState(true, isFrontCamera)
+            Toast.makeText(context, "تم تفعيل الكاميرا 📹", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(context, "يرجى منح إذن الكاميرا للمتابعة 🔒", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    val audioPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            isIntercomTalking = true
+            ZegoCallManager.setMicrophoneMute(false)
+            ZegoCallManager.setSpeakerEnabled(context, true)
+            syncSocket.broadcastVoiceState(true)
+            Toast.makeText(context, "تم تفعيل الميكروفون 🎙️", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(context, "يرجى منح إذن الميكروفون للمتابعة 🔒", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    val imagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            val msg = YouTubeChatMessage(
+                id = System.currentTimeMillis().toString(),
+                sender = currentUserName,
+                text = "📷 صورة",
+                time = "الآن",
+                isMe = true,
+                imageUrl = uri.toString()
+            )
+            chatMessages.add(msg)
+            syncSocket.broadcastChatMessage("[IMAGE]:$uri")
+        }
+    }
+
+    fun toggleCameraWithPermission() {
+        if (isCameraActive) {
+            isCameraActive = false
+            syncSocket.broadcastCameraState(false, isFrontCamera)
+        } else {
+            val hasPerm = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+            if (hasPerm) {
+                isCameraActive = true
+                syncSocket.broadcastCameraState(true, isFrontCamera)
+            } else {
+                cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+            }
+        }
+    }
+
+    fun toggleIntercomWithPermission() {
+        if (isIntercomTalking) {
+            isIntercomTalking = false
+            ZegoCallManager.setMicrophoneMute(true)
+            syncSocket.broadcastVoiceState(false)
+        } else {
+            val hasPerm = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+            if (hasPerm) {
+                isIntercomTalking = true
+                ZegoCallManager.setMicrophoneMute(false)
+                ZegoCallManager.setSpeakerEnabled(context, true)
+                syncSocket.broadcastVoiceState(true)
+            } else {
+                audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            }
+        }
     }
 
     // Connect WebSocket and fetch authoritative initial state
