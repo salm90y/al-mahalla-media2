@@ -35,6 +35,7 @@ jobs:
           SDKMANAGER=$(which sdkmanager || echo "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager")
           if [ -x "$SDKMANAGER" ]; then
             yes | $SDKMANAGER --licenses || true
+            $SDKMANAGER --install "cmake;3.22.1" || true
           fi
           echo "=== Pre-installed NDK versions ==="
           ls -la "$ANDROID_HOME/ndk" 2>/dev/null || true
@@ -78,6 +79,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: AlMahalla-v1.1.0-APK
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 14

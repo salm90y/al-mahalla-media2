@@ -615,17 +615,16 @@ fun YouTubeRoomScreen(
         isSearchModalOpen = false
         isDropdownOpen = false
 
-        // 1. Direct Webview playback update
+        // 1. Direct Webview playback update with multiple fallback strategies
         val jsCmd = """
             (function() {
                 window.currentVideoId = '$cleanId';
+                window.pendingVideoId = '$cleanId';
                 if (typeof loadVideoById === 'function') {
                     loadVideoById('$cleanId');
                 } else if (window.player && typeof window.player.loadVideoById === 'function') {
-                    window.player.loadVideoById('$cleanId', 0);
+                    window.player.loadVideoById({ videoId: '$cleanId', startSeconds: 0 });
                     window.player.playVideo();
-                } else {
-                    window.pendingVideoId = '$cleanId';
                 }
             })();
         """.trimIndent()
@@ -729,8 +728,8 @@ fun YouTubeRoomScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 10.dp, bottom = 8.dp)
-                        .height(240.dp)
+                        .padding(top = 16.dp, start = 4.dp, end = 4.dp, bottom = 8.dp)
+                        .height(218.dp)
                         .clip(RoundedCornerShape(16.dp))
                         .background(Color.Black)
                         .border(1.5.dp, if (isDark) DarkBorder else Color(0xFFCBD5E1), RoundedCornerShape(16.dp)),
@@ -804,7 +803,7 @@ fun YouTubeRoomScreen(
                                         <style>
                                             * { margin: 0; padding: 0; box-sizing: border-box; }
                                             html, body { width: 100%; height: 100%; background: #000; overflow: hidden; display: flex; align-items: center; justify-content: center; }
-                                            #player-container { width: 100vw; height: 100vh; }
+                                            #player-container { width: 100%; height: 100%; position: absolute; top: 0; left: 0; right: 0; bottom: 0; }
                                             iframe { width: 100% !important; height: 100% !important; border: none; }
                                             /* Advanced CSS Ad Suppression */
                                             .video-ads, .ytp-ad-module, .ytp-ad-overlay-container, .ytp-ad-message-container,
@@ -834,11 +833,13 @@ fun YouTubeRoomScreen(
                                                 });
                                             } catch(e) {}
                                         </script>
-                                        <script src="https://www.youtube.com/iframe_api"></script>
+                                        <script src="https://www.youtube-nocookie.com/iframe_api"></script>
                                         <script>
                                             var player;
                                             var isIntentionallyPaused = false;
+                                            var isPlayerReady = false;
                                             window.currentVideoId = '$initialId';
+                                            window.pendingVideoId = '$initialId';
 
                                             function triggerClick(el) {
                                                 if (!el) return;
@@ -874,7 +875,7 @@ fun YouTubeRoomScreen(
                                                 window.currentVideoId = vid;
                                                 player = new YT.Player('player', {
                                                     videoId: vid,
-                                                    host: 'https://www.youtube.com',
+                                                    host: 'https://www.youtube-nocookie.com',
                                                     playerVars: {
                                                         'autoplay': 1,
                                                         'controls': 0,
@@ -885,10 +886,11 @@ fun YouTubeRoomScreen(
                                                         'disablekb': 1,
                                                         'fs': 0,
                                                         'iv_load_policy': 3,
-                                                        'origin': 'https://www.youtube.com'
+                                                        'origin': 'https://www.youtube-nocookie.com'
                                                     },
                                                     events: {
                                                         'onReady': function(e) {
+                                                            isPlayerReady = true;
                                                             e.target.setVolume(${ (videoVolume * 100).toInt() });
                                                             e.target.playVideo();
                                                             if (window.pendingVideoId && window.pendingVideoId !== vid) {
@@ -923,13 +925,13 @@ fun YouTubeRoomScreen(
                                             }
                                             function seekTo(sec) { if (player && player.seekTo) player.seekTo(sec, true); }
                                             function loadVideoById(id) {
+                                                if (!id) return;
                                                 isIntentionallyPaused = false;
                                                 window.currentVideoId = id;
+                                                window.pendingVideoId = id;
                                                 if (player && typeof player.loadVideoById === 'function') {
-                                                    player.loadVideoById(id, 0);
+                                                    player.loadVideoById({ videoId: id, startSeconds: 0 });
                                                     player.playVideo();
-                                                } else {
-                                                    window.pendingVideoId = id;
                                                 }
                                             }
                                             function setPlayerVolume(vol) { if (player && player.setVolume) player.setVolume(vol); }
@@ -937,7 +939,7 @@ fun YouTubeRoomScreen(
                                     </body>
                                     </html>
                                 """.trimIndent()
-                                loadDataWithBaseURL("https://www.youtube.com", customHtml, "text/html", "UTF-8", null)
+                                loadDataWithBaseURL("https://www.youtube-nocookie.com", customHtml, "text/html", "UTF-8", null)
                             }
                         },
                         update = { webView ->
@@ -951,13 +953,12 @@ fun YouTubeRoomScreen(
                                     }
                                     if (window.currentVideoId !== '$targetId') {
                                         window.currentVideoId = '$targetId';
+                                        window.pendingVideoId = '$targetId';
                                         if (typeof loadVideoById === 'function') {
                                             loadVideoById('$targetId');
                                         } else if (window.player && typeof window.player.loadVideoById === 'function') {
-                                            window.player.loadVideoById('$targetId', 0);
+                                            window.player.loadVideoById({ videoId: '$targetId', startSeconds: 0 });
                                             window.player.playVideo();
-                                        } else {
-                                            window.pendingVideoId = '$targetId';
                                         }
                                     }
                                 })();
