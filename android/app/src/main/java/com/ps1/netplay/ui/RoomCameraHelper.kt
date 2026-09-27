@@ -109,10 +109,29 @@ override fun onError(camera: CameraDevice, error: Int) {
     }
 private fun createCameraPreviewSession(camera: CameraDevice, textureView: TextureView) {
         try {
+            captureSession?.close()
+            captureSession = null
+
             val surfaceTexture = textureView.surfaceTexture ?: return
-            surfaceTexture.setDefaultBufferSize(320, 240) // Lightweight low-res buffer for gaming cams
+            var chosenWidth = 640
+            var chosenHeight = 480
+            val manager = context.getSystemService(Context.CAMERA_SERVICE) as? CameraManager
+            if (manager != null) {
+                try {
+                    val characteristics = manager.getCameraCharacteristics(camera.id)
+                    val map = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
+                    val supportedSizes = map?.getOutputSizes(SurfaceTexture::class.java)
+                    if (!supportedSizes.isNullOrEmpty()) {
+                        val ideal = supportedSizes.firstOrNull { it.width <= 640 && it.height <= 480 }
+                            ?: supportedSizes.last()
+                        chosenWidth = ideal.width
+                        chosenHeight = ideal.height
+                    }
+                } catch (_: Exception) {}
+            }
+            surfaceTexture.setDefaultBufferSize(chosenWidth, chosenHeight)
             val surface = Surface(surfaceTexture)
-val previewRequestBuilder = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
+            val previewRequestBuilder = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
                 addTarget(surface)
                 set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
             }
@@ -126,7 +145,7 @@ val previewRequestBuilder = camera.createCaptureRequest(CameraDevice.TEMPLATE_PR
                         Log.e(TAG, "Capture session repeating request error: ${e.message}")
                     }
                 }
-override fun onConfigureFailed(session: CameraCaptureSession) {
+                override fun onConfigureFailed(session: CameraCaptureSession) {
                     Log.e(TAG, "Camera capture session configuration failed")
                 }
             }, backgroundHandler)
