@@ -18,9 +18,7 @@ import androidx.compose.foundation.*
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -79,22 +77,15 @@ enum class YouTubeRoomSubTab {
 }
 
 enum class CameraBoxSize(val sizeDp: androidx.compose.ui.unit.Dp, val label: String) {
-    SMALL(105.dp, "صغير"),
-    MEDIUM(145.dp, "متوسط"),
-    LARGE(190.dp, "كبير")
+    SMALL(92.dp, "صغير"),
+    MEDIUM(130.dp, "متوسط"),
+    LARGE(170.dp, "كبير")
 }
 
 enum class CameraBoxShape(val label: String) {
-    ROUNDED("حواف مستديرة"),
+    ROUNDED("مستدير"),
     SQUARE("مربع"),
     CIRCLE("دائري")
-}
-
-enum class RoomPrivacyMode {
-    PUBLIC,
-    FRIENDS,
-    INVITE_ONLY,
-    ONLY_ME
 }
 
 data class YouTubeVideoItem(
@@ -127,20 +118,14 @@ data class YouTubeRoomUser(
     val isOnline: Boolean = true,
     val isSpeaking: Boolean = false,
     val hasCameraActive: Boolean = false,
+    val isFrontCamera: Boolean = true,
     val avatarBg: Color = Color(0xFF2563EB),
-    val canChangeVideo: Boolean = false,
+    val canChangeVideo: Boolean = true,
     val isMutedVoice: Boolean = false,
     val isMutedChat: Boolean = false
 )
 
-data class VideoChangeRequest(
-    val requesterId: String,
-    val requesterName: String,
-    val videoId: String,
-    val videoTitle: String
-)
-
-// Initial catalog
+// Initial library
 val INITIAL_YOUTUBE_CATALOG = listOf(
     YouTubeVideoItem(
         id = "yK4U4XkMhFk",
@@ -188,7 +173,6 @@ val INITIAL_YOUTUBE_CATALOG = listOf(
     )
 )
 
-// Helper function to format seconds as MM:SS
 private fun formatTime(seconds: Float): String {
     val totalSec = seconds.toInt().coerceAtLeast(0)
     val mins = totalSec / 60
@@ -262,18 +246,16 @@ fun YouTubeRoomScreen(
     var totalDurationSec by remember { mutableFloatStateOf(100f) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
 
-    // Walkie-Talkie Intercom State (Real Zego Engine)
+    // Walkie-Talkie Intercom State (Real Zego Engine + Loudspeaker)
     var isIntercomTalking by remember { mutableStateOf(false) }
 
-    // Cameras Configuration & State
+    // Cameras Configuration & State: Small by default as requested!
     var isCameraActive by remember { mutableStateOf(false) }
     var isFrontCamera by remember { mutableStateOf(true) }
-    var cameraBoxSize by remember { mutableStateOf(CameraBoxSize.MEDIUM) }
+    var cameraBoxSize by remember { mutableStateOf(CameraBoxSize.SMALL) }
     var cameraBoxShape by remember { mutableStateOf(CameraBoxShape.ROUNDED) }
-    var isCameraSettingsExpanded by remember { mutableStateOf(false) }
 
     // Dialog & Permission States
-    var pendingVideoChangeRequest by remember { mutableStateOf<VideoChangeRequest?>(null) }
     var selectedUserForPermissions by remember { mutableStateOf<YouTubeRoomUser?>(null) }
 
     // Room Participants state
@@ -289,8 +271,9 @@ fun YouTubeRoomScreen(
                         isOnline = true,
                         isSpeaking = false,
                         hasCameraActive = false,
+                        isFrontCamera = true,
                         avatarBg = Color(0xFF2563EB),
-                        canChangeVideo = isHost || isAppOwner
+                        canChangeVideo = true
                     )
                 )
             }
@@ -303,6 +286,7 @@ fun YouTubeRoomScreen(
                     isOnline = true,
                     isSpeaking = false,
                     hasCameraActive = true,
+                    isFrontCamera = true,
                     avatarBg = Color(0xFF10B981),
                     canChangeVideo = true
                 )
@@ -316,18 +300,19 @@ fun YouTubeRoomScreen(
                     isOnline = true,
                     isSpeaking = false,
                     hasCameraActive = false,
+                    isFrontCamera = true,
                     avatarBg = Color(0xFF8B5CF6),
-                    canChangeVideo = false
+                    canChangeVideo = true
                 )
             )
         }
     }
 
-    // Keep camera status in roomUsers updated
-    LaunchedEffect(isCameraActive) {
+    // Keep camera status in roomUsers updated for local user
+    LaunchedEffect(isCameraActive, isFrontCamera) {
         val idx = roomUsers.indexOfFirst { it.id == currentUserId }
         if (idx >= 0) {
-            roomUsers[idx] = roomUsers[idx].copy(hasCameraActive = isCameraActive)
+            roomUsers[idx] = roomUsers[idx].copy(hasCameraActive = isCameraActive, isFrontCamera = isFrontCamera)
         }
     }
 
@@ -340,7 +325,6 @@ fun YouTubeRoomScreen(
     val chatListState = rememberLazyListState()
     var chatInputText by remember { mutableStateOf("") }
 
-    // Auto-scroll chat to bottom on new message
     LaunchedEffect(chatMessages.size) {
         if (chatMessages.isNotEmpty()) {
             chatListState.animateScrollToItem(chatMessages.size - 1)
@@ -365,6 +349,11 @@ fun YouTubeRoomScreen(
                 )
                 isPlaying = true
                 currentPositionSec = 0f
+                // Execute instant video load on WebView for all clients including room owner
+                webViewRef?.evaluateJavascript(
+                    "if (typeof loadVideoById === 'function') { loadVideoById('$vId'); } else if (player && player.loadVideoById) { player.loadVideoById('$vId', 0); player.playVideo(); }",
+                    null
+                )
                 Toast.makeText(context, "تم تغيير الفيديو للغرفة: ${vTitle.take(30)} 🎬", Toast.LENGTH_SHORT).show()
             },
             onPlaybackStateReceived = { playState, pos ->
@@ -383,17 +372,8 @@ fun YouTubeRoomScreen(
                 chatMessages.add(newMsg)
             },
             onStateRequested = { client ->
-                // When newcomer joins, reply with current video and playback state
                 client.broadcastVideoChange(currentVideo.id, currentVideo.title)
                 client.broadcastPlaybackState(isPlaying, currentPositionSec)
-            },
-            onVideoChangeRequested = { reqId, reqName, vId, vTitle ->
-                if (isHost || isAppOwner) {
-                    pendingVideoChangeRequest = VideoChangeRequest(reqId, reqName, vId, vTitle)
-                }
-            },
-            onVideoChangeRequestRejected = {
-                Toast.makeText(context, "تم رفض طلب تغيير الفيديو من قبل مضيف الغرفة ❌", Toast.LENGTH_SHORT).show()
             },
             onMemberActionReceived = { targetId, action ->
                 if (targetId == currentUserId) {
@@ -431,6 +411,12 @@ fun YouTubeRoomScreen(
                 if (idx >= 0) {
                     roomUsers[idx] = roomUsers[idx].copy(isSpeaking = isTalking)
                 }
+            },
+            onCameraStateReceived = { uId, _, isCamActive, isFront ->
+                val idx = roomUsers.indexOfFirst { it.id == uId }
+                if (idx >= 0) {
+                    roomUsers[idx] = roomUsers[idx].copy(hasCameraActive = isCamActive, isFrontCamera = isFront)
+                }
             }
         )
     }
@@ -453,18 +439,26 @@ fun YouTubeRoomScreen(
         }
     }
 
-    // REAL ZEGO WALKIE-TALKIE AUDIO ROOM INITIALIZATION
-    val zegoAudioRoomId = remember(roomId) { "yt_audio_${roomId.replace(Regex("[^a-zA-Z0-9_]"), "_").take(30)}" }
+    // REAL ZEGO WALKIE-TALKIE AUDIO ROOM INITIALIZATION WITH LOUDSPEAKER ROUTING
+    val zegoAudioRoomId = remember(roomId) { "yt_room_${roomId.replace(Regex("[^a-zA-Z0-9_]"), "_").take(30)}" }
     LaunchedEffect(zegoAudioRoomId) {
+        // Enforce Loudspeaker on Android AudioManager immediately
+        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+        try {
+            audioManager?.mode = AudioManager.MODE_IN_COMMUNICATION
+            audioManager?.isSpeakerphoneOn = true
+        } catch (_: Exception) {}
+
         ZegoCallManager.startCall(
             context = context,
             roomId = zegoAudioRoomId,
             userId = currentUserId,
             userName = currentUserName,
-            isVideo = false,
+            isVideo = true,
             isOutgoing = true,
             onConnected = {
                 ZegoCallManager.setMicrophoneMute(true)
+                ZegoCallManager.setSpeakerEnabled(context, true)
             }
         )
     }
@@ -494,7 +488,7 @@ fun YouTubeRoomScreen(
         val myUser = roomUsers.find { it.id == currentUserId }
         val canControl = isHost || isAppOwner || (myUser?.canChangeVideo == true)
         if (!canControl) {
-            Toast.makeText(context, "التحكم في تقديم وإيقاف الفيديو مخصص لمضيف الغرفة والمشرفين 🔒", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "التحكم في تقديم وإيقاف الفيديو مخصص للمشرفين 🔒", Toast.LENGTH_SHORT).show()
             return
         }
         val safeTarget = targetSeconds.coerceIn(0f, totalDurationSec.coerceAtLeast(1f))
@@ -507,7 +501,7 @@ fun YouTubeRoomScreen(
         val myUser = roomUsers.find { it.id == currentUserId }
         val canControl = isHost || isAppOwner || (myUser?.canChangeVideo == true)
         if (!canControl) {
-            Toast.makeText(context, "التحكم في تشغيل وإيقاف الفيديو مخصص لمضيف الغرفة والمشرفين 🔒", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "التحكم في تشغيل وإيقاف الفيديو مخصص للمشرفين 🔒", Toast.LENGTH_SHORT).show()
             return
         }
         val nextPlay = !isPlaying
@@ -518,6 +512,28 @@ fun YouTubeRoomScreen(
             webViewRef?.evaluateJavascript("if (typeof pauseVideo === 'function') { pauseVideo(); }", null)
         }
         syncSocket.broadcastPlaybackState(nextPlay, currentPositionSec)
+    }
+
+    // Direct, Instant Video Change that IMMEDIATELY updates on Room Owner & All Users
+    fun playSelectedVideo(video: YouTubeVideoItem) {
+        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+        currentVideo = video
+        isPlaying = true
+        currentPositionSec = 0f
+        isSearchModalOpen = false
+        isDropdownOpen = false
+
+        // 1. Direct Webview playback update
+        webViewRef?.evaluateJavascript(
+            "if (typeof loadVideoById === 'function') { loadVideoById('${video.id}'); } else if (player && player.loadVideoById) { player.loadVideoById('${video.id}', 0); player.playVideo(); }",
+            null
+        )
+
+        // 2. Broadcast to room owner and all participants
+        YouTubeRoomManager.updateRoomVideo(context, roomId, video.id, video.title)
+        syncSocket.broadcastVideoChange(video.id, video.title)
+        syncSocket.broadcastPlaybackState(true, 0f)
+        Toast.makeText(context, "جاري تشغيل: ${video.title.take(35)}... 🎬", Toast.LENGTH_SHORT).show()
     }
 
     // Search Bar States
@@ -543,29 +559,6 @@ fun YouTubeRoomScreen(
         } else {
             liveSearchSuggestions.clear()
         }
-    }
-
-    fun playSelectedVideo(video: YouTubeVideoItem) {
-        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-        val myUser = roomUsers.find { it.id == currentUserId }
-        val canChangeDirectly = isHost || isAppOwner || (myUser?.canChangeVideo == true)
-
-        if (!canChangeDirectly) {
-            syncSocket.requestVideoChange(video.id, video.title)
-            Toast.makeText(context, "تم إرسال طلب تشغيل الفيديو إلى مضيف الغرفة للموافقة... ⏳", Toast.LENGTH_LONG).show()
-            isSearchModalOpen = false
-            isDropdownOpen = false
-            return
-        }
-
-        currentVideo = video
-        isPlaying = true
-        currentPositionSec = 0f
-        isSearchModalOpen = false
-        isDropdownOpen = false
-        YouTubeRoomManager.updateRoomVideo(context, roomId, video.id, video.title)
-        syncSocket.broadcastVideoChange(video.id, video.title)
-        Toast.makeText(context, "جاري تشغيل: ${video.title.take(35)}... 🎬", Toast.LENGTH_SHORT).show()
     }
 
     fun executeSearch(query: String) {
@@ -596,8 +589,8 @@ fun YouTubeRoomScreen(
 
     // Camera box shape converter
     val activeBoxShape = when (cameraBoxShape) {
-        CameraBoxShape.ROUNDED -> RoundedCornerShape(16.dp)
-        CameraBoxShape.SQUARE -> RoundedCornerShape(4.dp)
+        CameraBoxShape.ROUNDED -> RoundedCornerShape(12.dp)
+        CameraBoxShape.SQUARE -> RoundedCornerShape(2.dp)
         CameraBoxShape.CIRCLE -> CircleShape
     }
 
@@ -875,7 +868,6 @@ fun YouTubeRoomScreen(
                                     webViewClient = object : WebViewClient() {
                                         override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean = false
                                     }
-                                    // Register Bridge for synchronized playback tracking
                                     addJavascriptInterface(
                                         object {
                                             @JavascriptInterface
@@ -886,7 +878,6 @@ fun YouTubeRoomScreen(
 
                                             @JavascriptInterface
                                             fun reportState(state: Int) {
-                                                // 1 = playing, 2 = paused
                                                 if (state == 1) isPlaying = true
                                                 else if (state == 2) isPlaying = false
                                             }
@@ -950,6 +941,7 @@ fun YouTubeRoomScreen(
                                                 function playVideo() { if (player && player.playVideo) player.playVideo(); }
                                                 function pauseVideo() { if (player && player.pauseVideo) player.pauseVideo(); }
                                                 function seekTo(sec) { if (player && player.seekTo) player.seekTo(sec, true); }
+                                                function loadVideoById(id) { if (player && player.loadVideoById) { player.loadVideoById(id, 0); player.playVideo(); } }
                                                 function setPlayerVolume(vol) { if (player && player.setVolume) player.setVolume(vol); }
                                             </script>
                                         </body>
@@ -999,7 +991,7 @@ fun YouTubeRoomScreen(
                             isActive = activeSubTab == YouTubeRoomSubTab.CHAT,
                             onClick = { activeSubTab = YouTubeRoomSubTab.CHAT }
                         )
-                        // 3. CAMERAS (Replaces broadcast sync)
+                        // 3. CAMERAS (Side-by-side free layout)
                         YouTubeDockIconButton(
                             icon = Icons.Default.Videocam,
                             isActive = activeSubTab == YouTubeRoomSubTab.CAMERAS,
@@ -1208,76 +1200,83 @@ fun YouTubeRoomScreen(
                         }
 
                         // ----------------------------------------------------
-                        // 4C. CAMERAS SUB-VIEW (مربعات الكاميرات المباشرة للأطراف + ضبط الحجم والشكل)
+                        // 4C. CAMERAS SUB-VIEW (كل الكاميرات حجم صغير وجنباً إلى جنب بشكل حر بدون شرح وتعليقات)
                         // ----------------------------------------------------
                         YouTubeRoomSubTab.CAMERAS -> {
                             Column(
                                 modifier = Modifier.fillMaxSize(),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                // Top Action & Customization Bar
+                                // Sleek Header Strip
                                 Surface(
-                                    shape = RoundedCornerShape(14.dp),
+                                    shape = RoundedCornerShape(12.dp),
                                     color = Color.White,
                                     border = BorderStroke(1.dp, Color(0xFFE2EAFD)),
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Column(modifier = Modifier.padding(10.dp)) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
                                         Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                                         ) {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            Icon(
+                                                imageVector = Icons.Default.Videocam,
+                                                contentDescription = null,
+                                                tint = Color(0xFF2563EB),
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Text(
+                                                text = "الكاميرات المباشرة",
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                fontFamily = TajawalFontFamily,
+                                                color = Color(0xFF1E3A8A)
+                                            )
+                                        }
+
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            // Shape Switcher Icon
+                                            IconButton(
+                                                onClick = {
+                                                    cameraBoxShape = when (cameraBoxShape) {
+                                                        CameraBoxShape.ROUNDED -> CameraBoxShape.SQUARE
+                                                        CameraBoxShape.SQUARE -> CameraBoxShape.CIRCLE
+                                                        CameraBoxShape.CIRCLE -> CameraBoxShape.ROUNDED
+                                                    }
+                                                },
+                                                modifier = Modifier.size(28.dp).background(Color(0xFFF1F5F9), CircleShape)
                                             ) {
                                                 Icon(
-                                                    imageVector = Icons.Default.Videocam,
-                                                    contentDescription = null,
+                                                    imageVector = Icons.Default.CropSquare,
+                                                    contentDescription = "شكل الكاميرات",
                                                     tint = Color(0xFF2563EB),
-                                                    modifier = Modifier.size(18.dp)
-                                                )
-                                                Text(
-                                                    text = "كاميرات الغرفة المباشرة",
-                                                    fontSize = 12.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    fontFamily = TajawalFontFamily,
-                                                    color = Color(0xFF1E3A8A)
+                                                    modifier = Modifier.size(14.dp)
                                                 )
                                             }
 
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            // Toggle Camera Button
+                                            Surface(
+                                                onClick = {
+                                                    val nextCam = !isCameraActive
+                                                    isCameraActive = nextCam
+                                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                    ZegoCallManager.setCameraEnabled(nextCam)
+                                                    syncSocket.broadcastCameraState(nextCam, isFrontCamera)
+                                                },
+                                                shape = RoundedCornerShape(10.dp),
+                                                color = if (isCameraActive) Color(0xFFEF4444) else Color(0xFF10B981)
                                             ) {
-                                                // Settings toggle button
-                                                IconButton(
-                                                    onClick = { isCameraSettingsExpanded = !isCameraSettingsExpanded },
-                                                    modifier = Modifier
-                                                        .size(30.dp)
-                                                        .background(if (isCameraSettingsExpanded) Color(0xFFEEF2FF) else Color(0xFFF1F5F9), CircleShape)
-                                                ) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.Tune,
-                                                        contentDescription = "ضبط الكاميرات",
-                                                        tint = Color(0xFF2563EB),
-                                                        modifier = Modifier.size(15.dp)
-                                                    )
-                                                }
-
-                                                // Toggle my camera button
-                                                Button(
-                                                    onClick = {
-                                                        isCameraActive = !isCameraActive
-                                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                    },
-                                                    colors = ButtonDefaults.buttonColors(
-                                                        containerColor = if (isCameraActive) Color(0xFFEF4444) else Color(0xFF10B981)
-                                                    ),
-                                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                                                    shape = RoundedCornerShape(10.dp),
-                                                    modifier = Modifier.height(30.dp)
+                                                Row(
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                                                 ) {
                                                     Icon(
                                                         imageVector = if (isCameraActive) Icons.Default.VideocamOff else Icons.Default.Videocam,
@@ -1285,9 +1284,8 @@ fun YouTubeRoomScreen(
                                                         tint = Color.White,
                                                         modifier = Modifier.size(14.dp)
                                                     )
-                                                    Spacer(modifier = Modifier.width(4.dp))
                                                     Text(
-                                                        text = if (isCameraActive) "إيقاف كاميرتي" else "تشغيل كاميرتي",
+                                                        text = if (isCameraActive) "إيقاف كاميرتي" else "فتح كاميرتي",
                                                         fontSize = 10.sp,
                                                         fontFamily = TajawalFontFamily,
                                                         fontWeight = FontWeight.Bold,
@@ -1296,372 +1294,208 @@ fun YouTubeRoomScreen(
                                                 }
                                             }
                                         }
-
-                                        // Expandable Camera Appearance Settings
-                                        AnimatedVisibility(visible = isCameraSettingsExpanded) {
-                                            Column(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .padding(top = 8.dp)
-                                            ) {
-                                                HorizontalDivider(color = Color(0xFFF1F5F9), thickness = 1.dp)
-                                                Spacer(modifier = Modifier.height(6.dp))
-
-                                                // Size Selection
-                                                Text(
-                                                    text = "حجم مربع الكاميرا:",
-                                                    fontSize = 10.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    fontFamily = TajawalFontFamily,
-                                                    color = Color(0xFF64748B)
-                                                )
-                                                Row(
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .padding(vertical = 4.dp),
-                                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                                ) {
-                                                    CameraBoxSize.values().forEach { size ->
-                                                        val selected = cameraBoxSize == size
-                                                        Surface(
-                                                            onClick = { cameraBoxSize = size },
-                                                            shape = RoundedCornerShape(8.dp),
-                                                            color = if (selected) Color(0xFF2563EB) else Color(0xFFF8FAFC),
-                                                            border = BorderStroke(1.dp, if (selected) Color(0xFF2563EB) else Color(0xFFE2E8F0)),
-                                                            modifier = Modifier.weight(1f)
-                                                        ) {
-                                                            Text(
-                                                                text = size.label,
-                                                                fontSize = 10.sp,
-                                                                fontWeight = FontWeight.Bold,
-                                                                fontFamily = TajawalFontFamily,
-                                                                color = if (selected) Color.White else Color(0xFF334155),
-                                                                textAlign = TextAlign.Center,
-                                                                modifier = Modifier.padding(vertical = 4.dp)
-                                                            )
-                                                        }
-                                                    }
-                                                }
-
-                                                Spacer(modifier = Modifier.height(4.dp))
-
-                                                // Shape Selection
-                                                Text(
-                                                    text = "شكل مربع الكاميرا:",
-                                                    fontSize = 10.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    fontFamily = TajawalFontFamily,
-                                                    color = Color(0xFF64748B)
-                                                )
-                                                Row(
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .padding(vertical = 4.dp),
-                                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                                ) {
-                                                    CameraBoxShape.values().forEach { shape ->
-                                                        val selected = cameraBoxShape == shape
-                                                        Surface(
-                                                            onClick = { cameraBoxShape = shape },
-                                                            shape = RoundedCornerShape(8.dp),
-                                                            color = if (selected) Color(0xFF2563EB) else Color(0xFFF8FAFC),
-                                                            border = BorderStroke(1.dp, if (selected) Color(0xFF2563EB) else Color(0xFFE2E8F0)),
-                                                            modifier = Modifier.weight(1f)
-                                                        ) {
-                                                            Text(
-                                                                text = shape.label,
-                                                                fontSize = 10.sp,
-                                                                fontWeight = FontWeight.Bold,
-                                                                fontFamily = TajawalFontFamily,
-                                                                color = if (selected) Color.White else Color(0xFF334155),
-                                                                textAlign = TextAlign.Center,
-                                                                modifier = Modifier.padding(vertical = 4.dp)
-                                                            )
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
                                     }
                                 }
 
-                                // Camera Boxes Grid
-                                LazyColumn(
-                                    modifier = Modifier.fillMaxSize(),
-                                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                                // Side-by-side Free Cameras Grid / Row (كامرة بجانب كامرة بدون عزل أو شروحات)
+                                LazyRow(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    // Row 1: Local User's Camera Box
+                                    // 1. Local User's Camera Box (Small 92dp)
                                     item {
-                                        Surface(
-                                            shape = RoundedCornerShape(14.dp),
-                                            color = Color.White,
-                                            border = BorderStroke(1.dp, Color(0xFFE2EAFD)),
-                                            modifier = Modifier.fillMaxWidth()
+                                        Box(
+                                            modifier = Modifier
+                                                .size(cameraBoxSize.sizeDp)
+                                                .clip(activeBoxShape)
+                                                .background(if (isCameraActive) Color.Black else Color(0xFFF1F5F9))
+                                                .border(
+                                                    2.dp,
+                                                    if (isCameraActive) Color(0xFF2563EB) else Color(0xFFCBD5E1),
+                                                    activeBoxShape
+                                                )
+                                                .clickable {
+                                                    if (isCameraActive) {
+                                                        isFrontCamera = !isFrontCamera
+                                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                        ZegoCallManager.switchCamera()
+                                                        syncSocket.broadcastCameraState(true, isFrontCamera)
+                                                        Toast.makeText(
+                                                            context,
+                                                            if (isFrontCamera) "كاميرا أمامية 🤳" else "كاميرا خلفية 📸",
+                                                            Toast.LENGTH_SHORT
+                                                        ).show()
+                                                    } else {
+                                                        isCameraActive = true
+                                                        ZegoCallManager.setCameraEnabled(true)
+                                                        syncSocket.broadcastCameraState(true, isFrontCamera)
+                                                    }
+                                                },
+                                            contentAlignment = Alignment.Center
                                         ) {
-                                            Column(
-                                                modifier = Modifier.padding(10.dp),
-                                                horizontalAlignment = Alignment.CenterHorizontally
-                                            ) {
-                                                Row(
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                                    verticalAlignment = Alignment.CenterVertically
-                                                ) {
-                                                    Text(
-                                                        text = "كاميرتك ($currentUserName) 👤",
-                                                        fontSize = 11.sp,
-                                                        fontWeight = FontWeight.Bold,
-                                                        fontFamily = TajawalFontFamily,
-                                                        color = Color(0xFF1E3A8A)
-                                                    )
-                                                    Text(
-                                                        text = if (isCameraActive) "انقر على المربع لقلب الكاميرا 🔄" else "الكاميرا متوقفة",
-                                                        fontSize = 10.sp,
-                                                        fontFamily = TajawalFontFamily,
-                                                        color = if (isCameraActive) Color(0xFF10B981) else Color(0xFF94A3B8)
+                                            if (isCameraActive) {
+                                                key(isFrontCamera) {
+                                                    AndroidView(
+                                                        factory = { ctx ->
+                                                            TextureView(ctx).apply {
+                                                                val camHelper = RoomCameraHelper(ctx)
+                                                                camHelper.startCamera(this, front = isFrontCamera)
+                                                                this.tag = camHelper
+                                                            }
+                                                        },
+                                                        modifier = Modifier.fillMaxSize()
                                                     )
                                                 }
 
-                                                Spacer(modifier = Modifier.height(8.dp))
-
-                                                // The Camera Frame
+                                                // Corner flip indicator
                                                 Box(
                                                     modifier = Modifier
-                                                        .size(cameraBoxSize.sizeDp)
-                                                        .clip(activeBoxShape)
-                                                        .background(if (isCameraActive) Color.Black else Color(0xFFF1F5F9))
-                                                        .border(
-                                                            2.dp,
-                                                            if (isCameraActive) Color(0xFF2563EB) else Color(0xFFCBD5E1),
-                                                            activeBoxShape
-                                                        )
-                                                        .clickable {
-                                                            if (isCameraActive) {
-                                                                isFrontCamera = !isFrontCamera
-                                                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                                Toast.makeText(
-                                                                    context,
-                                                                    if (isFrontCamera) "تم التحويل للكاميرا الأمامية 🤳" else "تم التحويل للكاميرا الخلفية 📸",
-                                                                    Toast.LENGTH_SHORT
-                                                                ).show()
-                                                            } else {
-                                                                isCameraActive = true
-                                                            }
-                                                        },
+                                                        .size(20.dp)
+                                                        .align(Alignment.TopEnd)
+                                                        .padding(2.dp)
+                                                        .background(Color(0xAA000000), CircleShape),
                                                     contentAlignment = Alignment.Center
                                                 ) {
-                                                    if (isCameraActive) {
-                                                        key(isFrontCamera) {
-                                                            AndroidView(
-                                                                factory = { ctx ->
-                                                                    TextureView(ctx).apply {
-                                                                        val camHelper = RoomCameraHelper(ctx)
-                                                                        camHelper.startCamera(this, front = isFrontCamera)
-                                                                        this.tag = camHelper
-                                                                    }
-                                                                },
-                                                                modifier = Modifier.fillMaxSize()
-                                                            )
-                                                        }
+                                                    Icon(
+                                                        imageVector = Icons.Default.FlipCameraAndroid,
+                                                        contentDescription = "تبديل",
+                                                        tint = Color.White,
+                                                        modifier = Modifier.size(11.dp)
+                                                    )
+                                                }
 
-                                                        // Overlay buttons for Quick Flip & Quick Close
-                                                        Row(
-                                                            modifier = Modifier
-                                                                .fillMaxWidth()
-                                                                .align(Alignment.TopCenter)
-                                                                .padding(4.dp),
-                                                            horizontalArrangement = Arrangement.SpaceBetween
-                                                        ) {
-                                                            // Flip button
-                                                            IconButton(
-                                                                onClick = {
-                                                                    isFrontCamera = !isFrontCamera
-                                                                },
-                                                                modifier = Modifier
-                                                                    .size(26.dp)
-                                                                    .background(Color(0x99000000), CircleShape)
-                                                            ) {
-                                                                Icon(
-                                                                    imageVector = Icons.Default.FlipCameraAndroid,
-                                                                    contentDescription = "تبديل",
-                                                                    tint = Color.White,
-                                                                    modifier = Modifier.size(14.dp)
-                                                                )
-                                                            }
-
-                                                            // Turn off button
-                                                            IconButton(
-                                                                onClick = { isCameraActive = false },
-                                                                modifier = Modifier
-                                                                    .size(26.dp)
-                                                                    .background(Color(0x99000000), CircleShape)
-                                                            ) {
-                                                                Icon(
-                                                                    imageVector = Icons.Default.Close,
-                                                                    contentDescription = "إيقاف",
-                                                                    tint = Color.White,
-                                                                    modifier = Modifier.size(14.dp)
-                                                                )
-                                                            }
-                                                        }
-
-                                                        // Bottom Tag
-                                                        Surface(
-                                                            shape = RoundedCornerShape(8.dp),
-                                                            color = Color(0xAA000000),
-                                                            modifier = Modifier
-                                                                .align(Alignment.BottomCenter)
-                                                                .padding(bottom = 4.dp)
-                                                        ) {
-                                                            Text(
-                                                                text = if (isFrontCamera) "أمامية 🤳" else "خلفية 📸",
-                                                                fontSize = 9.sp,
-                                                                color = Color.White,
-                                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                                            )
-                                                        }
-                                                    } else {
-                                                        Column(
-                                                            horizontalAlignment = Alignment.CenterHorizontally,
-                                                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                                                        ) {
-                                                            Icon(
-                                                                imageVector = Icons.Default.CameraAlt,
-                                                                contentDescription = null,
-                                                                tint = Color(0xFF94A3B8),
-                                                                modifier = Modifier.size(24.dp)
-                                                            )
-                                                            Text(
-                                                                text = "اضغط للتشغيل",
-                                                                fontSize = 10.sp,
-                                                                fontFamily = TajawalFontFamily,
-                                                                color = Color(0xFF64748B)
-                                                            )
-                                                        }
-                                                    }
+                                                // Bottom name tag
+                                                Surface(
+                                                    shape = RoundedCornerShape(4.dp),
+                                                    color = Color(0xCC000000),
+                                                    modifier = Modifier
+                                                        .align(Alignment.BottomCenter)
+                                                        .padding(bottom = 3.dp)
+                                                ) {
+                                                    Text(
+                                                        text = "أنت 👤",
+                                                        fontSize = 8.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = Color.White,
+                                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                                    )
+                                                }
+                                            } else {
+                                                Column(
+                                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.CameraAlt,
+                                                        contentDescription = null,
+                                                        tint = Color(0xFF64748B),
+                                                        modifier = Modifier.size(20.dp)
+                                                    )
+                                                    Text(
+                                                        text = "كاميرتك",
+                                                        fontSize = 9.sp,
+                                                        fontFamily = TajawalFontFamily,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = Color(0xFF475569)
+                                                    )
                                                 }
                                             }
                                         }
                                     }
 
-                                    // Other Participants' Camera Boxes
-                                    item {
-                                        Text(
-                                            text = "كاميرات بقية المتواجدين (${roomUsers.filter { it.id != currentUserId }.size})",
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            fontFamily = TajawalFontFamily,
-                                            color = Color(0xFF1E3A8A),
-                                            modifier = Modifier.padding(horizontal = 4.dp)
-                                        )
-                                    }
-
+                                    // 2. All Other Room Participants' Cameras Side-by-Side (Free Row)
                                     items(roomUsers.filter { it.id != currentUserId }) { participant ->
-                                        Surface(
-                                            shape = RoundedCornerShape(14.dp),
-                                            color = Color.White,
-                                            border = BorderStroke(1.dp, Color(0xFFE2EAFD)),
-                                            modifier = Modifier.fillMaxWidth()
+                                        Box(
+                                            modifier = Modifier
+                                                .size(cameraBoxSize.sizeDp)
+                                                .clip(activeBoxShape)
+                                                .background(if (participant.hasCameraActive) Color(0xFF0F172A) else Color(0xFFF8FAFC))
+                                                .border(
+                                                    2.dp,
+                                                    if (participant.isSpeaking) Color(0xFF10B981) else if (participant.hasCameraActive) Color(0xFF38BDF8) else Color(0xFFE2E8F0),
+                                                    activeBoxShape
+                                                ),
+                                            contentAlignment = Alignment.Center
                                         ) {
-                                            Row(
-                                                modifier = Modifier.padding(10.dp),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                            ) {
-                                                // Participant Camera Card
+                                            if (participant.hasCameraActive) {
                                                 Box(
                                                     modifier = Modifier
-                                                        .size(cameraBoxSize.sizeDp)
-                                                        .clip(activeBoxShape)
-                                                        .background(if (participant.hasCameraActive) Color(0xFF0F172A) else Color(0xFFF1F5F9))
-                                                        .border(
-                                                            2.dp,
-                                                            if (participant.isSpeaking) Color(0xFF10B981) else Color(0xFFE2E8F0),
-                                                            activeBoxShape
+                                                        .fillMaxSize()
+                                                        .background(
+                                                            Brush.linearGradient(
+                                                                listOf(Color(0xFF1E293B), Color(0xFF0F172A))
+                                                            )
                                                         ),
                                                     contentAlignment = Alignment.Center
                                                 ) {
-                                                    if (participant.hasCameraActive) {
-                                                        // Simulated video feed with pulsing live activity
-                                                        Box(
-                                                            modifier = Modifier
-                                                                .fillMaxSize()
-                                                                .background(
-                                                                    Brush.linearGradient(
-                                                                        listOf(Color(0xFF1E293B), Color(0xFF0F172A))
-                                                                    )
-                                                                ),
-                                                            contentAlignment = Alignment.Center
-                                                        ) {
-                                                            Box(
-                                                                modifier = Modifier
-                                                                    .size(40.dp)
-                                                                    .background(participant.avatarBg, CircleShape),
-                                                                contentAlignment = Alignment.Center
-                                                            ) {
-                                                                Text(
-                                                                    text = participant.name.take(1),
-                                                                    color = Color.White,
-                                                                    fontWeight = FontWeight.Bold
-                                                                )
-                                                            }
-                                                            Surface(
-                                                                shape = RoundedCornerShape(6.dp),
-                                                                color = Color(0xCC10B981),
-                                                                modifier = Modifier
-                                                                    .align(Alignment.TopEnd)
-                                                                    .padding(4.dp)
-                                                                ) {
-                                                                Text(
-                                                                    text = "مباشر 🔴",
-                                                                    fontSize = 8.sp,
-                                                                    color = Color.White,
-                                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                                                                )
-                                                            }
-                                                        }
-                                                    } else {
-                                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                                            Icon(
-                                                                imageVector = Icons.Default.VideocamOff,
-                                                                contentDescription = null,
-                                                                tint = Color(0xFF94A3B8),
-                                                                modifier = Modifier.size(22.dp)
-                                                            )
-                                                            Text(
-                                                                text = "الكاميرا مغلقة",
-                                                                fontSize = 9.sp,
-                                                                color = Color(0xFF94A3B8),
-                                                                fontFamily = TajawalFontFamily
-                                                            )
-                                                        }
-                                                    }
-                                                }
-
-                                                // Info details
-                                                Column(modifier = Modifier.weight(1f)) {
-                                                    Text(
-                                                        text = participant.name,
-                                                        fontSize = 12.sp,
-                                                        fontWeight = FontWeight.Bold,
-                                                        fontFamily = TajawalFontFamily,
-                                                        color = Color(0xFF0F172A)
-                                                    )
-                                                    Text(
-                                                        text = participant.role,
-                                                        fontSize = 10.sp,
-                                                        color = Color(0xFF64748B),
-                                                        fontFamily = TajawalFontFamily
-                                                    )
-                                                    if (participant.isSpeaking) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(34.dp)
+                                                            .background(participant.avatarBg, CircleShape),
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
                                                         Text(
-                                                            text = "🎙️ يتحدث الآن في الهوكي توكي",
-                                                            fontSize = 10.sp,
-                                                            color = Color(0xFF10B981),
-                                                            fontWeight = FontWeight.Bold
+                                                            text = participant.name.take(1),
+                                                            color = Color.White,
+                                                            fontWeight = FontWeight.Bold,
+                                                            fontSize = 13.sp
                                                         )
                                                     }
+                                                    // Live dot
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(7.dp)
+                                                            .align(Alignment.TopEnd)
+                                                            .padding(2.dp)
+                                                            .background(Color(0xFF10B981), CircleShape)
+                                                    )
                                                 }
+                                            } else {
+                                                Column(
+                                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                                                ) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(28.dp)
+                                                            .background(participant.avatarBg.copy(alpha = 0.2f), CircleShape),
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        Text(
+                                                            text = participant.name.take(1),
+                                                            color = participant.avatarBg,
+                                                            fontWeight = FontWeight.Bold,
+                                                            fontSize = 11.sp
+                                                        )
+                                                    }
+                                                    Text(
+                                                        text = "مغلقة",
+                                                        fontSize = 8.sp,
+                                                        color = Color(0xFF94A3B8),
+                                                        fontFamily = TajawalFontFamily
+                                                    )
+                                                }
+                                            }
+
+                                            // Name Tag at bottom
+                                            Surface(
+                                                shape = RoundedCornerShape(4.dp),
+                                                color = Color(0xCC000000),
+                                                modifier = Modifier
+                                                    .align(Alignment.BottomCenter)
+                                                    .padding(bottom = 3.dp)
+                                            ) {
+                                                Text(
+                                                    text = participant.name,
+                                                    fontSize = 8.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = Color.White,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                                )
                                             }
                                         }
                                     }
@@ -1670,7 +1504,7 @@ fun YouTubeRoomScreen(
                         }
 
                         // ----------------------------------------------------
-                        // 4D. INTERCOM / WALKIE-TALKIE SUB-VIEW (تفعيل حقيقي بالصوت عبر Zego)
+                        // 4D. INTERCOM / WALKIE-TALKIE SUB-VIEW (تفعيل حقيقي بالصوت عبر Zego + مكبر صوت خارجي)
                         // ----------------------------------------------------
                         YouTubeRoomSubTab.INTERCOM -> {
                             Column(
@@ -1697,10 +1531,12 @@ fun YouTubeRoomScreen(
                                             }
                                             isIntercomTalking = !isIntercomTalking
                                             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                            // REAL ZEGO AUDIO UNMUTE / MUTE
+                                            // REAL ZEGO AUDIO UNMUTE / MUTE WITH LOUDSPEAKER ROUTING
                                             ZegoCallManager.setMicrophoneMute(!isIntercomTalking)
+                                            ZegoCallManager.setSpeakerEnabled(context, true)
                                             RealVoipEngine.ensureAudioCaptureStarted(context)
                                             RealVoipEngine.setMute(!isIntercomTalking)
+                                            RealVoipEngine.setSpeaker(context, true)
                                             syncSocket.broadcastVoiceState(isIntercomTalking)
                                         },
                                     contentAlignment = Alignment.Center
@@ -1714,15 +1550,15 @@ fun YouTubeRoomScreen(
                                 }
                                 Spacer(modifier = Modifier.height(14.dp))
                                 Text(
-                                    text = if (isMutedByMod) "المايك مكتوم من قبل المشرف 🔇" else if (isIntercomTalking) "ميكروفون Zego مفتوح - الصوت مباشر لجميع الأعضاء 🎙️" else "اضغط للتحدث في الهوكي توكي الصوتي المباشر",
+                                    text = if (isMutedByMod) "المايك مكتوم من قبل المشرف 🔇" else if (isIntercomTalking) "الميكروفون مفتوح - البث مباشر لجميع الأعضاء 🎙️" else "اضغط للتحدث في الهوكي توكي الصوتي المباشر",
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold,
                                     fontFamily = TajawalFontFamily,
                                     color = if (isIntercomTalking) Color(0xFF10B981) else Color(0xFF1E3A8A)
                                 )
-                                Spacer(modifier = Modifier.height(6.dp))
+                                Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    text = "بث صوتي فائق الدقة بدون تأخير (Zego Express Engine)",
+                                    text = "الصوت مباشر من السماعة الخارجية لجميع المتواجدين (Zego Audio Engine)",
                                     fontSize = 10.sp,
                                     color = Color(0xFF64748B),
                                     fontFamily = TajawalFontFamily
@@ -1731,14 +1567,14 @@ fun YouTubeRoomScreen(
                         }
 
                         // ----------------------------------------------------
-                        // 4E. USERS SUB-VIEW (الصلاحيات والإدارة وإظهار العدد والمنسدلة)
+                        // 4E. USERS SUB-VIEW (واجهة الصلاحيات مدمجة داخل مربع العضو بنظام أنيق وخفيف)
                         // ----------------------------------------------------
                         YouTubeRoomSubTab.USERS -> {
                             Column(
                                 modifier = Modifier.fillMaxSize(),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                // Header showing count clearly
+                                // Header showing count
                                 Surface(
                                     shape = RoundedCornerShape(12.dp),
                                     color = Color.White,
@@ -1746,7 +1582,7 @@ fun YouTubeRoomScreen(
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Row(
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
@@ -1768,7 +1604,7 @@ fun YouTubeRoomScreen(
                                             )
                                         }
                                         Text(
-                                            text = "انقر على أي عضو للإدارة",
+                                            text = "انقر على أي عضو لفتح الصلاحيات",
                                             fontSize = 10.sp,
                                             color = Color(0xFF2563EB),
                                             fontFamily = TajawalFontFamily
@@ -1778,61 +1614,225 @@ fun YouTubeRoomScreen(
 
                                 LazyColumn(
                                     modifier = Modifier.fillMaxSize(),
-                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
                                     items(roomUsers, key = { it.id }) { user ->
+                                        val isSelected = selectedUserForPermissions?.id == user.id
+                                        val isMe = user.id == currentUserId
+                                        val canManage = (isHost || isAppOwner) && !isMe
+
                                         Surface(
                                             onClick = {
-                                                // Unconditionally open permissions & user management dialog
-                                                selectedUserForPermissions = user
+                                                selectedUserForPermissions = if (isSelected) null else user
                                             },
                                             shape = RoundedCornerShape(14.dp),
                                             color = Color.White,
-                                            border = BorderStroke(1.dp, Color(0xFFE2EAFD)),
+                                            border = BorderStroke(1.dp, if (isSelected) Color(0xFF2563EB) else Color(0xFFE2EAFD)),
                                             modifier = Modifier.fillMaxWidth()
                                         ) {
-                                            Row(
-                                                modifier = Modifier.padding(10.dp),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.SpaceBetween
-                                            ) {
+                                            Column(modifier = Modifier.padding(10.dp)) {
+                                                // Member row
                                                 Row(
+                                                    modifier = Modifier.fillMaxWidth(),
                                                     verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                                    horizontalArrangement = Arrangement.SpaceBetween
                                                 ) {
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .size(38.dp)
-                                                            .background(user.avatarBg, CircleShape),
-                                                        contentAlignment = Alignment.Center
+                                                    Row(
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                                                     ) {
-                                                        Text(text = user.name.take(1), color = Color.White, fontWeight = FontWeight.Bold)
-                                                    }
-                                                    Column {
-                                                        Row(
-                                                            verticalAlignment = Alignment.CenterVertically,
-                                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .size(36.dp)
+                                                                .background(user.avatarBg, CircleShape),
+                                                            contentAlignment = Alignment.Center
                                                         ) {
-                                                            Text(text = user.name, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = TajawalFontFamily)
-                                                            if (user.isSpeaking) {
-                                                                Text(text = "🎙️ يتحدث", fontSize = 10.sp, color = Color(0xFF10B981), fontWeight = FontWeight.Bold)
-                                                            }
+                                                            Text(text = user.name.take(1), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                                                         }
-                                                        Text(text = user.role, fontSize = 10.sp, color = Color(0xFF64748B))
+                                                        Column {
+                                                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                                Text(text = user.name, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = TajawalFontFamily)
+                                                                if (user.isSpeaking) {
+                                                                    Text(text = "🎙️ يتحدث", fontSize = 9.sp, color = Color(0xFF10B981), fontWeight = FontWeight.Bold)
+                                                                }
+                                                            }
+                                                            Text(text = user.role, fontSize = 10.sp, color = Color(0xFF64748B), fontFamily = TajawalFontFamily)
+                                                        }
+                                                    }
+
+                                                    Row(
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                    ) {
+                                                        if (user.isMutedVoice) {
+                                                            Icon(Icons.Default.MicOff, contentDescription = null, tint = Color(0xFFDC2626), modifier = Modifier.size(15.dp))
+                                                        }
+                                                        if (user.canChangeVideo) {
+                                                            Icon(Icons.Default.SmartDisplay, contentDescription = null, tint = Color(0xFF2563EB), modifier = Modifier.size(15.dp))
+                                                        }
+                                                        Icon(
+                                                            imageVector = if (isSelected) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                                            contentDescription = "خيارات",
+                                                            tint = Color(0xFF2563EB),
+                                                            modifier = Modifier.size(18.dp)
+                                                        )
                                                     }
                                                 }
 
-                                                Row(
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                                ) {
-                                                    if (user.isMutedVoice) {
-                                                        Icon(Icons.Default.MicOff, contentDescription = "مكتوم", tint = Color(0xFFDC2626), modifier = Modifier.size(16.dp))
+                                                // ELEGANT INLINE PERMISSIONS INTERFACE INSIDE THE MEMBER'S CARD
+                                                AnimatedVisibility(visible = isSelected) {
+                                                    Column(
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .padding(top = 8.dp)
+                                                            .background(Color(0xFFF8FAFC), RoundedCornerShape(10.dp))
+                                                            .border(1.dp, Color(0xFFE2EAFD), RoundedCornerShape(10.dp))
+                                                            .padding(8.dp),
+                                                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                                                    ) {
+                                                        if (canManage) {
+                                                            Text(
+                                                                text = "صلاحيات وتحكم المشرف ⚙️",
+                                                                fontSize = 11.sp,
+                                                                fontWeight = FontWeight.Bold,
+                                                                fontFamily = TajawalFontFamily,
+                                                                color = Color(0xFF1E3A8A)
+                                                            )
+
+                                                            Row(
+                                                                modifier = Modifier.fillMaxWidth(),
+                                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                            ) {
+                                                                // 1. Moderator toggle
+                                                                InlinePermissionChip(
+                                                                    label = if (user.role.contains("مشرف")) "إلغاء الإشراف" else "ترقية لمشرف 🛡️",
+                                                                    icon = Icons.Default.Shield,
+                                                                    color = Color(0xFF2563EB),
+                                                                    modifier = Modifier.weight(1f),
+                                                                    onClick = {
+                                                                        val newRole = if (user.role.contains("مشرف")) "مشاهد" else "مشرف 🛡️"
+                                                                        val updated = user.copy(role = newRole)
+                                                                        val idx = roomUsers.indexOfFirst { it.id == user.id }
+                                                                        if (idx >= 0) roomUsers[idx] = updated
+                                                                        syncSocket.broadcastMemberAction(user.id, if (newRole.contains("مشرف")) "SET_MODERATOR" else "DEMOTE")
+                                                                        Toast.makeText(context, "تم تعديل رتبة ${user.name}", Toast.LENGTH_SHORT).show()
+                                                                    }
+                                                                )
+
+                                                                // 2. Video change permission
+                                                                InlinePermissionChip(
+                                                                    label = if (user.canChangeVideo) "منع الفيديو 🔒" else "سماح بالفيديو 🎬",
+                                                                    icon = Icons.Default.SmartDisplay,
+                                                                    color = if (user.canChangeVideo) Color(0xFFDC2626) else Color(0xFF10B981),
+                                                                    modifier = Modifier.weight(1f),
+                                                                    onClick = {
+                                                                        val updated = user.copy(canChangeVideo = !user.canChangeVideo)
+                                                                        val idx = roomUsers.indexOfFirst { it.id == user.id }
+                                                                        if (idx >= 0) roomUsers[idx] = updated
+                                                                        syncSocket.broadcastMemberAction(user.id, if (updated.canChangeVideo) "ALLOW_VIDEO" else "RESTRICT_VIDEO")
+                                                                        Toast.makeText(context, "تم تعديل صلاحية الفيديو لـ ${user.name}", Toast.LENGTH_SHORT).show()
+                                                                    }
+                                                                )
+                                                            }
+
+                                                            Row(
+                                                                modifier = Modifier.fillMaxWidth(),
+                                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                            ) {
+                                                                // 3. Mute Mic
+                                                                InlinePermissionChip(
+                                                                    label = if (user.isMutedVoice) "تشغيل المايك 🎙️" else "كتم المايك 🔇",
+                                                                    icon = if (user.isMutedVoice) Icons.Default.Mic else Icons.Default.MicOff,
+                                                                    color = Color(0xFFD97706),
+                                                                    modifier = Modifier.weight(1f),
+                                                                    onClick = {
+                                                                        val updated = user.copy(isMutedVoice = !user.isMutedVoice)
+                                                                        val idx = roomUsers.indexOfFirst { it.id == user.id }
+                                                                        if (idx >= 0) roomUsers[idx] = updated
+                                                                        syncSocket.broadcastMemberAction(user.id, if (updated.isMutedVoice) "MUTE_VOICE" else "UNMUTE_VOICE")
+                                                                        Toast.makeText(context, "تم تغيير حالة المايكروفون", Toast.LENGTH_SHORT).show()
+                                                                    }
+                                                                )
+
+                                                                // 4. Mute Chat
+                                                                InlinePermissionChip(
+                                                                    label = if (user.isMutedChat) "سماح بالدردشة 💬" else "حظر الدردشة 🚫",
+                                                                    icon = Icons.Default.ChatBubbleOutline,
+                                                                    color = Color(0xFF9333EA),
+                                                                    modifier = Modifier.weight(1f),
+                                                                    onClick = {
+                                                                        val updated = user.copy(isMutedChat = !user.isMutedChat)
+                                                                        val idx = roomUsers.indexOfFirst { it.id == user.id }
+                                                                        if (idx >= 0) roomUsers[idx] = updated
+                                                                        syncSocket.broadcastMemberAction(user.id, if (updated.isMutedChat) "MUTE_CHAT" else "UNMUTE_CHAT")
+                                                                        Toast.makeText(context, "تم تعديل صلاحية الدردشة", Toast.LENGTH_SHORT).show()
+                                                                    }
+                                                                )
+                                                            }
+
+                                                            // 5. Kick from room
+                                                            Surface(
+                                                                onClick = {
+                                                                    roomUsers.removeAll { it.id == user.id }
+                                                                    syncSocket.broadcastMemberAction(user.id, "KICK")
+                                                                    selectedUserForPermissions = null
+                                                                    Toast.makeText(context, "تم طرد ${user.name} من الغرفة", Toast.LENGTH_SHORT).show()
+                                                                },
+                                                                shape = RoundedCornerShape(8.dp),
+                                                                color = Color(0xFFFEF2F2),
+                                                                border = BorderStroke(1.dp, Color(0xFFFCA5A5)),
+                                                                modifier = Modifier.fillMaxWidth()
+                                                            ) {
+                                                                Row(
+                                                                    modifier = Modifier.padding(vertical = 5.dp),
+                                                                    horizontalArrangement = Arrangement.Center,
+                                                                    verticalAlignment = Alignment.CenterVertically
+                                                                ) {
+                                                                    Icon(Icons.Default.ExitToApp, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(14.dp))
+                                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                                    Text(
+                                                                        text = "طرد العضو من الغرفة 🚪",
+                                                                        fontSize = 10.sp,
+                                                                        fontWeight = FontWeight.Bold,
+                                                                        fontFamily = TajawalFontFamily,
+                                                                        color = Color(0xFFEF4444)
+                                                                    )
+                                                                }
+                                                            }
+                                                        } else if (isMe) {
+                                                            Surface(
+                                                                onClick = { onBack() },
+                                                                shape = RoundedCornerShape(8.dp),
+                                                                color = Color(0xFFFEF2F2),
+                                                                border = BorderStroke(1.dp, Color(0xFFFCA5A5)),
+                                                                modifier = Modifier.fillMaxWidth()
+                                                            ) {
+                                                                Row(
+                                                                    modifier = Modifier.padding(vertical = 5.dp),
+                                                                    horizontalArrangement = Arrangement.Center,
+                                                                    verticalAlignment = Alignment.CenterVertically
+                                                                ) {
+                                                                    Icon(Icons.Default.Logout, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(14.dp))
+                                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                                    Text("مغادرة الغرفة 🚪", fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = TajawalFontFamily, color = Color(0xFFEF4444))
+                                                                }
+                                                            }
+                                                        } else {
+                                                            InlinePermissionChip(
+                                                                label = "إرسال تحية 👋",
+                                                                icon = Icons.Default.WavingHand,
+                                                                color = Color(0xFF2563EB),
+                                                                modifier = Modifier.fillMaxWidth(),
+                                                                onClick = {
+                                                                    val text = "مرحباً يا ${user.name}! 👋"
+                                                                    chatMessages.add(YouTubeChatMessage(System.currentTimeMillis().toString(), currentUserName, text, "الآن", true))
+                                                                    syncSocket.broadcastChatMessage(text)
+                                                                    selectedUserForPermissions = null
+                                                                    Toast.makeText(context, "تم إرسال التحية بنجاح", Toast.LENGTH_SHORT).show()
+                                                                }
+                                                            )
+                                                        }
                                                     }
-                                                    if (user.canChangeVideo) {
-                                                        Icon(Icons.Default.SmartDisplay, contentDescription = "صلاحية الفيديو", tint = Color(0xFF2563EB), modifier = Modifier.size(16.dp))
-                                                    }
-                                                    Icon(Icons.Default.MoreVert, contentDescription = "إدارة", tint = Color(0xFF94A3B8), modifier = Modifier.size(18.dp))
                                                 }
                                             }
                                         }
@@ -1842,7 +1842,7 @@ fun YouTubeRoomScreen(
                         }
 
                         // ----------------------------------------------------
-                        // 4F. SETTINGS SUB-VIEW (تحكم كامل في الصوت + مؤشر التقديم والتأخير والإيقاف)
+                        // 4F. SETTINGS SUB-VIEW (مؤشر التقديم والتأخير والإيقاف أسفل شريط الصوت)
                         // ----------------------------------------------------
                         YouTubeRoomSubTab.SETTINGS -> {
                             Column(
@@ -2025,292 +2025,6 @@ fun YouTubeRoomScreen(
                 }
             }
 
-            // User Permissions & Management Dialog
-            if (selectedUserForPermissions != null) {
-                val targetUser = selectedUserForPermissions!!
-                val isMe = targetUser.id == currentUserId
-                val canManage = (isHost || isAppOwner) && !isMe
-
-                Dialog(
-                    onDismissRequest = { selectedUserForPermissions = null },
-                    properties = DialogProperties(usePlatformDefaultWidth = false)
-                ) {
-                    Surface(
-                        shape = RoundedCornerShape(24.dp),
-                        color = Color(0xFF0F172A),
-                        border = BorderStroke(1.dp, Color(0xFF334155)),
-                        shadowElevation = 16.dp,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp)
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(20.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(44.dp)
-                                            .background(targetUser.avatarBg, CircleShape)
-                                            .border(2.dp, Color(0xFF38BDF8), CircleShape),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(text = targetUser.name.take(1), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                                    }
-                                    Column {
-                                        Text(text = targetUser.name, fontSize = 15.sp, fontWeight = FontWeight.Bold, fontFamily = TajawalFontFamily, color = Color.White)
-                                        Text(text = "الرتبة: ${targetUser.role}", fontSize = 11.sp, color = Color(0xFF38BDF8))
-                                    }
-                                }
-                                IconButton(onClick = { selectedUserForPermissions = null }) {
-                                    Icon(Icons.Default.Close, contentDescription = "إغلاق", tint = Color(0xFF94A3B8))
-                                }
-                            }
-
-                            HorizontalDivider(color = Color(0xFF1E293B))
-
-                            if (canManage) {
-                                Text(
-                                    text = "لوحة إدارة الصلاحيات والتحكم ⚙️",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = TajawalFontFamily,
-                                    color = Color(0xFF38BDF8)
-                                )
-
-                                // 1. Promote to Moderator
-                                PermissionActionRow(
-                                    title = if (targetUser.role.contains("مشرف")) "إلغاء صفة المشرف" else "ترقية إلى مشرف الغرفة 🛡️",
-                                    subtitle = "يمنح المستخدم صلاحيات إدارة الغرفة والتحكم",
-                                    icon = Icons.Default.Shield,
-                                    iconColor = Color(0xFF38BDF8),
-                                    onClick = {
-                                        val newRole = if (targetUser.role.contains("مشرف")) "مشاهد" else "مشرف الغرفة 🛡️"
-                                        val updated = targetUser.copy(role = newRole)
-                                        val idx = roomUsers.indexOfFirst { it.id == targetUser.id }
-                                        if (idx >= 0) roomUsers[idx] = updated
-                                        syncSocket.broadcastMemberAction(targetUser.id, if (newRole.contains("مشرف")) "SET_MODERATOR" else "DEMOTE")
-                                        selectedUserForPermissions = null
-                                        Toast.makeText(context, "تم تحديث رتبة ${targetUser.name}", Toast.LENGTH_SHORT).show()
-                                    }
-                                )
-
-                                // 2. Allow/Restrict Video Control
-                                PermissionActionRow(
-                                    title = if (targetUser.canChangeVideo) "منع التحكم بالفيديو 🔒" else "منح صلاحية التحكم بالفيديو 🎬",
-                                    subtitle = if (targetUser.canChangeVideo) "يلزم موافقة المضيف للتقديم أو تغيير الفيديو" else "يستطيع تشغيل وتقديم وتأخير الفيديو للجميع",
-                                    icon = Icons.Default.SmartDisplay,
-                                    iconColor = Color(0xFFEF4444),
-                                    onClick = {
-                                        val updated = targetUser.copy(canChangeVideo = !targetUser.canChangeVideo)
-                                        val idx = roomUsers.indexOfFirst { it.id == targetUser.id }
-                                        if (idx >= 0) roomUsers[idx] = updated
-                                        syncSocket.broadcastMemberAction(targetUser.id, if (updated.canChangeVideo) "ALLOW_VIDEO" else "RESTRICT_VIDEO")
-                                        selectedUserForPermissions = null
-                                        Toast.makeText(context, "تم تعديل صلاحية الفيديو لـ ${targetUser.name}", Toast.LENGTH_SHORT).show()
-                                    }
-                                )
-
-                                // 3. Mute Mic (Walkie-Talkie)
-                                PermissionActionRow(
-                                    title = if (targetUser.isMutedVoice) "إلغاء كتم المايكروفون 🎙️" else "كتم المايكروفون (إسكات الصوت) 🔇",
-                                    subtitle = "تعطيل أو تمكين خاصية التحدث في الهوكي توكي",
-                                    icon = if (targetUser.isMutedVoice) Icons.Default.Mic else Icons.Default.MicOff,
-                                    iconColor = Color(0xFFF59E0B),
-                                    onClick = {
-                                        val updated = targetUser.copy(isMutedVoice = !targetUser.isMutedVoice)
-                                        val idx = roomUsers.indexOfFirst { it.id == targetUser.id }
-                                        if (idx >= 0) roomUsers[idx] = updated
-                                        syncSocket.broadcastMemberAction(targetUser.id, if (updated.isMutedVoice) "MUTE_VOICE" else "UNMUTE_VOICE")
-                                        selectedUserForPermissions = null
-                                        Toast.makeText(context, "تم تغيير حالة كتم المايك", Toast.LENGTH_SHORT).show()
-                                    }
-                                )
-
-                                // 4. Mute Chat
-                                PermissionActionRow(
-                                    title = if (targetUser.isMutedChat) "إلغاء حظر الدردشة 💬" else "إسكات من الدردشة (منع الكتابة) 🚫",
-                                    subtitle = "تعطيل إرسال الرسائل في محادثة الغرفة",
-                                    icon = Icons.Default.ChatBubbleOutline,
-                                    iconColor = Color(0xFFA855F7),
-                                    onClick = {
-                                        val updated = targetUser.copy(isMutedChat = !targetUser.isMutedChat)
-                                        val idx = roomUsers.indexOfFirst { it.id == targetUser.id }
-                                        if (idx >= 0) roomUsers[idx] = updated
-                                        syncSocket.broadcastMemberAction(targetUser.id, if (updated.isMutedChat) "MUTE_CHAT" else "UNMUTE_CHAT")
-                                        selectedUserForPermissions = null
-                                        Toast.makeText(context, "تم تحديث صلاحية الدردشة", Toast.LENGTH_SHORT).show()
-                                    }
-                                )
-
-                                // 5. Kick from room
-                                PermissionActionRow(
-                                    title = "طرد المستخدم من الغرفة 🚪",
-                                    subtitle = "إخراج المستخدم فوراً من جلسة المشاهدة",
-                                    icon = Icons.Default.ExitToApp,
-                                    iconColor = Color(0xFFEF4444),
-                                    onClick = {
-                                        roomUsers.removeAll { it.id == targetUser.id }
-                                        syncSocket.broadcastMemberAction(targetUser.id, "KICK")
-                                        selectedUserForPermissions = null
-                                        Toast.makeText(context, "تم طرد ${targetUser.name} من الغرفة", Toast.LENGTH_SHORT).show()
-                                    }
-                                )
-                            } else if (isMe) {
-                                Text(
-                                    text = "إعدادات حسابك الشخصي 👤",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = TajawalFontFamily,
-                                    color = Color(0xFF38BDF8)
-                                )
-                                PermissionActionRow(
-                                    title = "مغادرة الغرفة 🚪",
-                                    subtitle = "الخروج من جلسة المشاهدة والعودة للرئيسية",
-                                    icon = Icons.Default.Logout,
-                                    iconColor = Color(0xFFEF4444),
-                                    onClick = {
-                                        selectedUserForPermissions = null
-                                        onBack()
-                                    }
-                                )
-                            } else {
-                                Text(
-                                    text = "خيارات التفاعل مع العضو 💬",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = TajawalFontFamily,
-                                    color = Color(0xFF38BDF8)
-                                )
-                                PermissionActionRow(
-                                    title = "إرسال تحية 👋",
-                                    subtitle = "إرسال إشعار ترحيبي في الدردشة",
-                                    icon = Icons.Default.WavingHand,
-                                    iconColor = Color(0xFF38BDF8),
-                                    onClick = {
-                                        chatMessages.add(
-                                            YouTubeChatMessage(
-                                                id = System.currentTimeMillis().toString(),
-                                                sender = currentUserName,
-                                                text = "مرحباً يا ${targetUser.name}! 👋",
-                                                time = "الآن",
-                                                isMe = true
-                                            )
-                                        )
-                                        syncSocket.broadcastChatMessage("مرحباً يا ${targetUser.name}! 👋")
-                                        selectedUserForPermissions = null
-                                        Toast.makeText(context, "تم إرسال التحية بنجاح", Toast.LENGTH_SHORT).show()
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Host Video Change Request Approval Dialog
-            if (pendingVideoChangeRequest != null) {
-                val req = pendingVideoChangeRequest!!
-                Dialog(
-                    onDismissRequest = {},
-                    properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false)
-                ) {
-                    Surface(
-                        shape = RoundedCornerShape(22.dp),
-                        color = Color(0xFF0F172A),
-                        border = BorderStroke(1.dp, Color(0xFF334155)),
-                        shadowElevation = 16.dp,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp)
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(20.dp),
-                            verticalArrangement = Arrangement.spacedBy(14.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(50.dp)
-                                    .background(Color(0xFF1E293B), CircleShape)
-                                    .border(1.5.dp, Color(0xFFEF4444), CircleShape),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(Icons.Default.SmartDisplay, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(26.dp))
-                            }
-                            Text(
-                                text = "طلب تشغيل فيديو جديد 🎬",
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = TajawalFontFamily,
-                                color = Color.White
-                            )
-                            Text(
-                                text = "يريد \"${req.requesterName}\" تغيير الفيديو المشغل إلى:\n\"${req.videoTitle}\"\n\nهل توافق على تغيير الفيديو للجميع؟",
-                                fontSize = 12.sp,
-                                fontFamily = TajawalFontFamily,
-                                color = Color(0xFFCBD5E1),
-                                textAlign = TextAlign.Center
-                            )
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                Button(
-                                    onClick = {
-                                        val vid = YouTubeVideoItem(
-                                            id = req.videoId,
-                                            title = req.videoTitle,
-                                            channelTitle = "مشاهدة متزامنة",
-                                            duration = "مباشر",
-                                            viewCount = "متزامن",
-                                            publishedTime = "الآن",
-                                            thumbnailUrl = "https://img.youtube.com/vi/${req.videoId}/hqdefault.jpg"
-                                        )
-                                        currentVideo = vid
-                                        isPlaying = true
-                                        currentPositionSec = 0f
-                                        YouTubeRoomManager.updateRoomVideo(context, roomId, req.videoId, req.videoTitle)
-                                        syncSocket.broadcastVideoChange(req.videoId, req.videoTitle)
-                                        pendingVideoChangeRequest = null
-                                        Toast.makeText(context, "تمت الموافقة وتغيير الفيديو للغرفة 🎬", Toast.LENGTH_SHORT).show()
-                                    },
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .height(44.dp),
-                                    shape = RoundedCornerShape(12.dp),
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981))
-                                ) {
-                                    Text("موافق ✅", fontFamily = TajawalFontFamily, fontWeight = FontWeight.Bold, color = Color.White)
-                                }
-
-                                OutlinedButton(
-                                    onClick = {
-                                        syncSocket.rejectVideoChange(req.requesterId)
-                                        pendingVideoChangeRequest = null
-                                        Toast.makeText(context, "تم رفض طلب تغيير الفيديو", Toast.LENGTH_SHORT).show()
-                                    },
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .height(44.dp),
-                                    shape = RoundedCornerShape(12.dp),
-                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFEF4444)),
-                                    border = BorderStroke(1.dp, Color(0xFFEF4444))
-                                ) {
-                                    Text("رفض ❌", fontFamily = TajawalFontFamily, fontWeight = FontWeight.Bold)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
             // Real YouTube Search Results Modal
             if (isSearchModalOpen) {
                 Dialog(
@@ -2439,6 +2153,39 @@ fun YouTubeRoomScreen(
 // HELPER COMPOSABLE SUB-COMPONENTS
 // ----------------------------------------------------
 @Composable
+private fun InlinePermissionChip(
+    label: String,
+    icon: ImageVector,
+    color: Color,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(8.dp),
+        color = color.copy(alpha = 0.08f),
+        border = BorderStroke(1.dp, color.copy(alpha = 0.3f)),
+        modifier = modifier
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Icon(imageVector = icon, contentDescription = null, tint = color, modifier = Modifier.size(13.dp))
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = label,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = TajawalFontFamily,
+                color = color
+            )
+        }
+    }
+}
+
+@Composable
 private fun YouTubeDockIconButton(
     icon: ImageVector,
     isActive: Boolean,
@@ -2513,42 +2260,5 @@ private fun PlaybackControlButton(
             fontFamily = TajawalFontFamily,
             color = Color(0xFF64748B)
         )
-    }
-}
-
-@Composable
-private fun PermissionActionRow(
-    title: String,
-    subtitle: String,
-    icon: ImageVector,
-    iconColor: Color,
-    onClick: () -> Unit
-) {
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(14.dp),
-        color = Color(0xFF1E293B),
-        border = BorderStroke(1.dp, Color(0xFF334155)),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(36.dp)
-                    .background(iconColor.copy(alpha = 0.15f), CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(imageVector = icon, contentDescription = null, tint = iconColor, modifier = Modifier.size(18.dp))
-            }
-            Column(modifier = Modifier.weight(1f)) {
-                Text(text = title, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = TajawalFontFamily, color = Color.White)
-                Text(text = subtitle, fontSize = 10.sp, color = Color(0xFF94A3B8), fontFamily = TajawalFontFamily)
-            }
-            Icon(Icons.Default.ChevronLeft, contentDescription = null, tint = Color(0xFF64748B), modifier = Modifier.size(16.dp))
-        }
     }
 }

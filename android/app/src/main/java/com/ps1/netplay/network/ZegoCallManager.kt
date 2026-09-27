@@ -146,9 +146,14 @@ object ZegoCallManager {
                     isUserStatusNotify = true
                 }
 
-                // 1. Audio routing
-                engine.setAudioRouteToSpeaker(isVideo)
-                isSpeakerOn.set(isVideo)
+                // 1. Audio routing: Ensure loudspeaker is enabled by default for watch party / intercom
+                engine.setAudioRouteToSpeaker(true)
+                isSpeakerOn.set(true)
+                val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
+                try {
+                    audioManager?.mode = android.media.AudioManager.MODE_IN_COMMUNICATION
+                    audioManager?.isSpeakerphoneOn = true
+                } catch (_: Exception) {}
 
                 // 2. Microphone
                 engine.muteMicrophone(false)
@@ -193,6 +198,9 @@ object ZegoCallManager {
         isSpeakerOn.set(enabled)
         try {
             zegoEngine?.setAudioRouteToSpeaker(enabled)
+            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
+            audioManager?.mode = android.media.AudioManager.MODE_IN_COMMUNICATION
+            audioManager?.isSpeakerphoneOn = enabled
         } catch (e: Exception) {
             Log.w(TAG, "setSpeakerEnabled error: ${e.message}")
         }

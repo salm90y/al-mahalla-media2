@@ -23,7 +23,7 @@ object RealVoipEngine {
         context: Context,
         roomId: String,
         isOutgoing: Boolean,
-        speakerOn: Boolean = false
+        speakerOn: Boolean = true
     ) {
         currentRoomId = roomId
         isSpeaker.set(speakerOn)
@@ -32,7 +32,7 @@ object RealVoipEngine {
         val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
         try {
             audioManager?.mode = AudioManager.MODE_IN_COMMUNICATION
-            audioManager?.isSpeakerphoneOn = speakerOn
+            audioManager?.isSpeakerphoneOn = true
             audioManager?.isMicrophoneMute = false
         } catch (e: Exception) {
             Log.w(TAG, "Failed setting audio manager mode: ${e.message}")

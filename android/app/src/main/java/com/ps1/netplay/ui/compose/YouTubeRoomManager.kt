@@ -526,7 +526,8 @@ class YouTubeSyncWebSocket(
     private val onVideoChangeRequested: ((requesterId: String, requesterName: String, videoId: String, videoTitle: String) -> Unit)? = null,
     private val onVideoChangeRequestRejected: (() -> Unit)? = null,
     private val onMemberActionReceived: ((targetUserId: String, actionType: String) -> Unit)? = null,
-    private val onVoiceStateReceived: ((userId: String, username: String, isTalking: Boolean) -> Unit)? = null
+    private val onVoiceStateReceived: ((userId: String, username: String, isTalking: Boolean) -> Unit)? = null,
+    private val onCameraStateReceived: ((userId: String, username: String, isCameraActive: Boolean, isFront: Boolean) -> Unit)? = null
 ) {
     private var webSocket: WebSocket? = null
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -618,6 +619,13 @@ class YouTubeSyncWebSocket(
                             val isTalking = obj.optBoolean("isTalking", false)
                             mainHandler.post { onVoiceStateReceived?.invoke(uId, uName, isTalking) }
                         }
+                        "yt_camera_state" -> {
+                            val uId = obj.optString("userId")
+                            val uName = obj.optString("username")
+                            val isCam = obj.optBoolean("isCameraActive", false)
+                            val isFront = obj.optBoolean("isFront", true)
+                            mainHandler.post { onCameraStateReceived?.invoke(uId, uName, isCam, isFront) }
+                        }
                     }
                 } catch (e: Exception) {
                     Log.w("YTSync", "Failed parsing sync event: ${e.message}")
@@ -701,6 +709,17 @@ class YouTubeSyncWebSocket(
         val payload = JSONObject().apply {
             put("type", "yt_voice_state")
             put("isTalking", isTalking)
+            put("userId", CloudflareClient.getCurrentUserId(context))
+            put("username", CloudflareClient.getCurrentUsername(context))
+        }
+        webSocket?.send(payload.toString())
+    }
+
+    fun broadcastCameraState(isCameraActive: Boolean, isFront: Boolean) {
+        val payload = JSONObject().apply {
+            put("type", "yt_camera_state")
+            put("isCameraActive", isCameraActive)
+            put("isFront", isFront)
             put("userId", CloudflareClient.getCurrentUserId(context))
             put("username", CloudflareClient.getCurrentUsername(context))
         }
