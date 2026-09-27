@@ -1,6 +1,3 @@
-import java.net.URL
-import java.util.zip.ZipInputStream
-import java.io.FileOutputStream
 import java.io.File
 
 plugins {
@@ -134,29 +131,6 @@ android {
     }
 }
 
-tasks.register("downloadPs1Core") {
-    val targetDir = file("src/main/assets/cores/arm64-v8a")
-    val targetFile = file("src/main/assets/cores/arm64-v8a/pcsx_rearmed_libretro_android.so")
-    outputs.file(targetFile)
-    doLast {
-        if (!targetFile.exists()) {
-            targetDir.mkdirs()
-            println("Downloading pcsx_rearmed_libretro_android.so...")
-            val url = URL("https://buildbot.libretro.com/nightly/android/latest/arm64-v8a/pcsx_rearmed_libretro_android.so.zip")
-            val connection = url.openConnection()
-            ZipInputStream(connection.getInputStream()).use { zis ->
-                var entry = zis.nextEntry
-                while (entry != null) {
-                    if (entry.name.endsWith(".so")) {
-                        FileOutputStream(targetFile).use { out -> zis.copyTo(out) }
-                        break
-                    }
-                    entry = zis.nextEntry
-                }
-            }
-        }
-    }
-}
 // Cores and BIOS are downloaded on-demand by CoreManager inside the app
 
 

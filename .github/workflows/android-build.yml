@@ -68,17 +68,16 @@ jobs:
         working-directory: ./android
         run: |
           ./gradlew :app:assembleDebug --no-daemon --stacktrace
-          ./gradlew :app:assembleRelease --no-daemon --stacktrace || true
 
-      - name: Verify Generated APKs
+      - name: Verify Generated APK
         run: |
-          echo "=== Generated APK Files ==="
-          find android/app/build/outputs/apk/ -name "*.apk" -ls || true
+          echo "=== Generated Single APK File ==="
+          ls -lh android/app/build/outputs/apk/debug/app-debug.apk || true
 
-      - name: Upload APK Artifacts
+      - name: Upload Single APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: AlMahalla-App-v1.1.0
-          path: android/app/build/outputs/apk/**/*.apk
+          name: AlMahalla-v1.1.0-APK
+          path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
