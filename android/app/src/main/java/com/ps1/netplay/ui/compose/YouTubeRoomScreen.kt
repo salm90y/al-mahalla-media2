@@ -99,11 +99,11 @@ enum class CameraBoxShape(val label: String) {
 data class YouTubeVideoItem(
     val id: String,
     val title: String,
-    val channelTitle: String,
-    val duration: String,
-    val viewCount: String,
-    val publishedTime: String,
-    val thumbnailUrl: String,
+    val channelTitle: String = "يوتيوب",
+    val duration: String = "مباشر",
+    val viewCount: String = "متزامن",
+    val publishedTime: String = "الآن",
+    val thumbnailUrl: String = "",
     val category: String = "يوتيوب",
     val isLive: Boolean = false,
     val is4K: Boolean = true
@@ -670,6 +670,8 @@ fun YouTubeRoomScreen(
                     title = "فيديو يوتيوب مخصص",
                     channelTitle = "رابط مباشر",
                     duration = "مباشر",
+                    viewCount = "مباشر",
+                    publishedTime = "الآن",
                     thumbnailUrl = "https://img.youtube.com/vi/$directId/hqdefault.jpg"
                 )
                 videoCatalog.removeAll { it.id == directId }
