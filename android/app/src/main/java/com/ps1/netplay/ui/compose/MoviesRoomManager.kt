@@ -350,7 +350,11 @@ class MoviesSyncWebSocket(
     private val isStealthMode: Boolean = false,
     private val onMovieChangeReceived: (streamUrl: String, title: String, posterUrl: String) -> Unit,
     private val onPlaybackStateReceived: (isPlaying: Boolean, positionSec: Float) -> Unit,
-    private val onChatMessageReceived: (MoviesChatMessage) -> Unit
+    private val onChatMessageReceived: (MoviesChatMessage) -> Unit,
+    private val onStateRequested: ((MoviesSyncWebSocket) -> Unit)? = null,
+    private val onMemberActionReceived: ((targetId: String, action: String) -> Unit)? = null,
+    private val onVoiceStateReceived: ((userId: String, userName: String, isTalking: Boolean) -> Unit)? = null,
+    private val onCameraStateReceived: ((userId: String, userName: String, isCamActive: Boolean, isFront: Boolean) -> Unit)? = null
 ) {
     private var webSocket: WebSocket? = null
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -408,6 +412,27 @@ class MoviesSyncWebSocket(
                             )
                             mainHandler.post { onChatMessageReceived(msg) }
                         }
+                        "request_state" -> {
+                            mainHandler.post { onStateRequested?.invoke(this@MoviesSyncWebSocket) }
+                        }
+                        "member_action" -> {
+                            val targetId = obj.optString("targetId", "")
+                            val action = obj.optString("action", "")
+                            mainHandler.post { onMemberActionReceived?.invoke(targetId, action) }
+                        }
+                        "voice_state" -> {
+                            val uId = obj.optString("userId", senderId)
+                            val uName = obj.optString("userName", "")
+                            val isTalking = obj.optBoolean("isTalking", false)
+                            mainHandler.post { onVoiceStateReceived?.invoke(uId, uName, isTalking) }
+                        }
+                        "camera_state" -> {
+                            val uId = obj.optString("userId", senderId)
+                            val uName = obj.optString("userName", "")
+                            val isCamActive = obj.optBoolean("isCamActive", false)
+                            val isFront = obj.optBoolean("isFront", true)
+                            mainHandler.post { onCameraStateReceived?.invoke(uId, uName, isCamActive, isFront) }
+                        }
                     }
                 } catch (e: Exception) {
                     Log.w("MoviesSync", "Failed parsing sync event: ${e.message}")
@@ -448,6 +473,39 @@ class MoviesSyncWebSocket(
             put("senderName", CloudflareClient.getCurrentUsername(context))
             put("senderId", CloudflareClient.getCurrentUserId(context))
             put("time", "الآن")
+        }
+        webSocket?.send(payload.toString())
+    }
+
+    fun broadcastVoiceState(isTalking: Boolean) {
+        val payload = JSONObject().apply {
+            put("type", "voice_state")
+            put("userId", CloudflareClient.getCurrentUserId(context))
+            put("userName", CloudflareClient.getCurrentUsername(context))
+            put("isTalking", isTalking)
+            put("senderId", CloudflareClient.getCurrentUserId(context))
+        }
+        webSocket?.send(payload.toString())
+    }
+
+    fun broadcastCameraState(isCamActive: Boolean, isFront: Boolean) {
+        val payload = JSONObject().apply {
+            put("type", "camera_state")
+            put("userId", CloudflareClient.getCurrentUserId(context))
+            put("userName", CloudflareClient.getCurrentUsername(context))
+            put("isCamActive", isCamActive)
+            put("isFront", isFront)
+            put("senderId", CloudflareClient.getCurrentUserId(context))
+        }
+        webSocket?.send(payload.toString())
+    }
+
+    fun broadcastMemberAction(targetUserId: String, action: String) {
+        val payload = JSONObject().apply {
+            put("type", "member_action")
+            put("targetId", targetUserId)
+            put("action", action)
+            put("senderId", CloudflareClient.getCurrentUserId(context))
         }
         webSocket?.send(payload.toString())
     }
