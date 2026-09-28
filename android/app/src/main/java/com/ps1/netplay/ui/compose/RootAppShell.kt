@@ -264,6 +264,77 @@ fun RootAppShell() {
                         onBack = { navController.popBackStack() }
                     )
                 }
+                composable("movies_lobby") {
+                    MoviesLobbyScreen(
+                        onBack = { navController.popBackStack() },
+                        onEnterRoom = { roomId, streamUrl, roomTitle, roomCode, isStealth ->
+                            val encUrl = try { java.net.URLEncoder.encode(streamUrl, "UTF-8") } catch (_: Exception) { "stream" }
+                            val encTitle = try { java.net.URLEncoder.encode(roomTitle, "UTF-8") } catch (_: Exception) { "room" }
+                            val encCode = try { java.net.URLEncoder.encode(roomCode, "UTF-8") } catch (_: Exception) { "code" }
+                            navController.navigate("movies_room/$roomId/$encUrl/$encTitle/$encCode?stealth=$isStealth")
+                        }
+                    )
+                }
+                composable(
+                    route = "movies_room/{roomId}/{streamUrl}/{roomTitle}/{roomCode}?stealth={stealth}",
+                    arguments = listOf(
+                        androidx.navigation.navArgument("roomId") { type = androidx.navigation.NavType.StringType },
+                        androidx.navigation.navArgument("streamUrl") { type = androidx.navigation.NavType.StringType },
+                        androidx.navigation.navArgument("roomTitle") { type = androidx.navigation.NavType.StringType },
+                        androidx.navigation.navArgument("roomCode") { type = androidx.navigation.NavType.StringType },
+                        androidx.navigation.navArgument("stealth") {
+                            type = androidx.navigation.NavType.BoolType
+                            defaultValue = false
+                        }
+                    )
+                ) { backStackEntry ->
+                    val rId = backStackEntry.arguments?.getString("roomId") ?: "mov_room_default"
+                    val rawUrl = backStackEntry.arguments?.getString("streamUrl") ?: ""
+                    val rawTitle = backStackEntry.arguments?.getString("roomTitle") ?: "سينما الأفلام والمسلسلات"
+                    val rawCode = backStackEntry.arguments?.getString("roomCode") ?: "#MOV-9024"
+                    val isStealth = backStackEntry.arguments?.getBoolean("stealth") ?: false
+                    val streamUrl = try { java.net.URLDecoder.decode(rawUrl, "UTF-8") } catch (_: Exception) { rawUrl }
+                    val rTitle = try { java.net.URLDecoder.decode(rawTitle, "UTF-8") } catch (_: Exception) { rawTitle }
+                    val rCode = try { java.net.URLDecoder.decode(rawCode, "UTF-8") } catch (_: Exception) { rawCode }
+                    MoviesRoomScreen(
+                        roomId = rId,
+                        initialStreamUrl = streamUrl,
+                        roomTitle = rTitle,
+                        roomCode = rCode,
+                        isStealthMode = isStealth,
+                        onBack = { navController.popBackStack() }
+                    )
+                }
+                composable(
+                    route = "movies_room/{roomId}/{streamUrl}/{roomTitle}/{roomCode}",
+                    arguments = listOf(
+                        androidx.navigation.navArgument("roomId") { type = androidx.navigation.NavType.StringType },
+                        androidx.navigation.navArgument("streamUrl") { type = androidx.navigation.NavType.StringType },
+                        androidx.navigation.navArgument("roomTitle") { type = androidx.navigation.NavType.StringType },
+                        androidx.navigation.navArgument("roomCode") { type = androidx.navigation.NavType.StringType }
+                    )
+                ) { backStackEntry ->
+                    val rId = backStackEntry.arguments?.getString("roomId") ?: "mov_room_default"
+                    val rawUrl = backStackEntry.arguments?.getString("streamUrl") ?: ""
+                    val rawTitle = backStackEntry.arguments?.getString("roomTitle") ?: "سينما الأفلام والمسلسلات"
+                    val rawCode = backStackEntry.arguments?.getString("roomCode") ?: "#MOV-9024"
+                    val streamUrl = try { java.net.URLDecoder.decode(rawUrl, "UTF-8") } catch (_: Exception) { rawUrl }
+                    val rTitle = try { java.net.URLDecoder.decode(rawTitle, "UTF-8") } catch (_: Exception) { rawTitle }
+                    val rCode = try { java.net.URLDecoder.decode(rawCode, "UTF-8") } catch (_: Exception) { rawCode }
+                    MoviesRoomScreen(
+                        roomId = rId,
+                        initialStreamUrl = streamUrl,
+                        roomTitle = rTitle,
+                        roomCode = rCode,
+                        isStealthMode = false,
+                        onBack = { navController.popBackStack() }
+                    )
+                }
+                composable("movies_room") {
+                    MoviesRoomScreen(
+                        onBack = { navController.popBackStack() }
+                    )
+                }
                 composable("admin_dashboard") {
                     AdminDashboardScreen(navController = navController)
                 }

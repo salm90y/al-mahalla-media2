@@ -179,6 +179,11 @@ fun RoomsScreen(
                 navController.navigate("youtube_room")
                 return
             }
+            RoomType.MOVIES_SERIES -> {
+                selectedRoomForExperience = null
+                navController.navigate("movies_lobby")
+                return
+            }
             RoomType.GAMES -> {
                 GamesRoomScreen(
                     onBack = { selectedRoomForExperience = null },
@@ -289,6 +294,8 @@ fun RoomsScreen(
                                 navController.navigate("quran_home")
                             } else if (room.type == RoomType.YOUTUBE) {
                                 navController.navigate("youtube_lobby")
+                            } else if (room.type == RoomType.MOVIES_SERIES) {
+                                navController.navigate("movies_lobby")
                             } else {
                                 selectedRoomForExperience = room.type
                             }
