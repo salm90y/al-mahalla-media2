@@ -225,8 +225,7 @@ fun YouTubeRoomScreen(
         roomTitle.contains(currentUserName) ||
         YouTubeRoomManager.activeRealRooms.find { it.roomId == roomId }?.let {
             it.hostId == currentUserId || it.hostName == currentUserName
-        } == true ||
-        roomUsers.none { it.role.contains("مضيف") || it.role.contains("مالك") }
+        } == true
     }
 
     // Sub-tab selection (PLAYER default)

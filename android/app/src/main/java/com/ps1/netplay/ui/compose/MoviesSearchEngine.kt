@@ -90,7 +90,7 @@ object MoviesSearchEngine {
             poster = "https://images.unsplash.com/photo-1440404653325-ab127d49abc1?w=600&auto=format&fit=crop&q=80",
             streamUrl = "http://maxshowplayer.site:2052/movie/13968296781874/20098269331298/103.mp4",
             duration = "3:00:22",
-            year: "2023",
+            year = "2023",
             isSeries = false,
             rating = "9.1"
         ),
@@ -138,7 +138,7 @@ object MoviesSearchEngine {
             poster = "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=600&auto=format&fit=crop&q=80",
             streamUrl = "http://maxshowplayer.site:2052/series/13968296781874/20098269331298/203.mp4",
             duration = "الحلقة 1 - 44:00",
-            year: "2023",
+            year = "2023",
             isSeries = true,
             rating = "8.5"
         ),
@@ -174,7 +174,7 @@ object MoviesSearchEngine {
             poster = "https://images.unsplash.com/photo-1509281373149-e957c6296406?w=600&auto=format&fit=crop&q=80",
             streamUrl = "http://maxshowplayer.site:2052/series/13968296781874/20098269331298/204.mp4",
             duration = "الحلقة 1 - 58:00",
-            year: "2020",
+            year = "2020",
             isSeries = true,
             rating = "9.5"
         )

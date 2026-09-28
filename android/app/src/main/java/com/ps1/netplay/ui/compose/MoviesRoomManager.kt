@@ -343,3 +343,117 @@ object MoviesRoomManager {
         )
     }
 }
+
+class MoviesSyncWebSocket(
+    private val context: Context,
+    private val roomId: String,
+    private val isStealthMode: Boolean = false,
+    private val onMovieChangeReceived: (streamUrl: String, title: String, posterUrl: String) -> Unit,
+    private val onPlaybackStateReceived: (isPlaying: Boolean, positionSec: Float) -> Unit,
+    private val onChatMessageReceived: (MoviesChatMessage) -> Unit
+) {
+    private var webSocket: WebSocket? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val client = OkHttpClient.Builder()
+        .pingInterval(20, TimeUnit.SECONDS)
+        .build()
+
+    fun connect() {
+        val baseUrl = CloudflareClient.getBaseUrl(context)
+        val wsBase = baseUrl.replace("https://", "wss://").replace("http://", "ws://")
+        val userId = if (isStealthMode) "stealth_${System.currentTimeMillis()}" else CloudflareClient.getCurrentUserId(context)
+        val username = if (isStealthMode) "مجهول" else CloudflareClient.getCurrentUsername(context)
+        val cleanRoomId = roomId.ifBlank { "global_movies_lobby" }
+
+        val wsUrl = "$wsBase/ws/$cleanRoomId?userId=$userId&username=$username&stealth=$isStealthMode"
+        val request = Request.Builder().url(wsUrl).build()
+
+        webSocket = client.newWebSocket(request, object : WebSocketListener() {
+            override fun onOpen(webSocket: WebSocket, response: Response) {
+                Log.i("MoviesSync", "Connected to movies room: $cleanRoomId")
+            }
+
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                try {
+                    val obj = JSONObject(text)
+                    val senderId = obj.optString("senderId", "")
+                    val myId = CloudflareClient.getCurrentUserId(context)
+                    if (senderId == myId) return
+
+                    when (obj.optString("type")) {
+                        "movie_change" -> {
+                            val stream = obj.optString("streamUrl")
+                            val title = obj.optString("title")
+                            val poster = obj.optString("posterUrl")
+                            if (stream.isNotEmpty()) {
+                                mainHandler.post { onMovieChangeReceived(stream, title, poster) }
+                            }
+                        }
+                        "movie_playback_state" -> {
+                            val isPlaying = obj.optBoolean("isPlaying", true)
+                            val pos = obj.optDouble("positionSec", 0.0).toFloat()
+                            mainHandler.post { onPlaybackStateReceived(isPlaying, pos) }
+                        }
+                        "movie_chat_message" -> {
+                            val msgText = obj.optString("text", "")
+                            val sName = obj.optString("senderName", "مشاهد")
+                            val time = obj.optString("time", "الآن")
+                            val msg = MoviesChatMessage(
+                                id = obj.optString("id", "${System.currentTimeMillis()}"),
+                                sender = sName,
+                                text = msgText,
+                                time = time,
+                                isMe = false,
+                                avatarColor = Color(0xFF2563EB)
+                            )
+                            mainHandler.post { onChatMessageReceived(msg) }
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w("MoviesSync", "Failed parsing sync event: ${e.message}")
+                }
+            }
+
+            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                Log.w("MoviesSync", "WebSocket error: ${t.message}")
+            }
+        })
+    }
+
+    fun broadcastMovieChange(streamUrl: String, title: String, posterUrl: String) {
+        val payload = JSONObject().apply {
+            put("type", "movie_change")
+            put("streamUrl", streamUrl)
+            put("title", title)
+            put("posterUrl", posterUrl)
+            put("senderId", CloudflareClient.getCurrentUserId(context))
+        }
+        webSocket?.send(payload.toString())
+    }
+
+    fun broadcastPlaybackState(isPlaying: Boolean, positionSec: Float) {
+        val payload = JSONObject().apply {
+            put("type", "movie_playback_state")
+            put("isPlaying", isPlaying)
+            put("positionSec", positionSec.toDouble())
+            put("senderId", CloudflareClient.getCurrentUserId(context))
+        }
+        webSocket?.send(payload.toString())
+    }
+
+    fun broadcastChatMessage(text: String) {
+        val payload = JSONObject().apply {
+            put("type", "movie_chat_message")
+            put("text", text)
+            put("senderName", CloudflareClient.getCurrentUsername(context))
+            put("senderId", CloudflareClient.getCurrentUserId(context))
+            put("time", "الآن")
+        }
+        webSocket?.send(payload.toString())
+    }
+
+    fun disconnect() {
+        webSocket?.close(1000, "Leaving room")
+        webSocket = null
+    }
+}

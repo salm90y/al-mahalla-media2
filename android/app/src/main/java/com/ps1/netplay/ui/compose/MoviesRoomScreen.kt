@@ -230,6 +230,57 @@ fun MoviesRoomScreen(
         )
     }
 
+    // REAL-TIME WEBSOCKET SYNCHRONIZATION CLIENT
+    val syncSocket = remember(roomId) {
+        MoviesSyncWebSocket(
+            context = context,
+            roomId = roomId,
+            isStealthMode = isStealthMode,
+            onMovieChangeReceived = { stream, title, poster ->
+                if (stream.isNotBlank()) {
+                    currentMovie = MovieItem(
+                        id = "synced_${System.currentTimeMillis()}",
+                        title = title,
+                        name = title,
+                        poster = poster,
+                        streamUrl = stream,
+                        category = "سينما متزامنة"
+                    )
+                    webViewRef?.evaluateJavascript(
+                        "if (typeof loadStreamUrl === 'function') { loadStreamUrl('$stream'); }",
+                        null
+                    )
+                }
+            },
+            onPlaybackStateReceived = { playState, pos ->
+                if (pos >= 0f && kotlin.math.abs(currentPlayheadSec - pos) > 2.0f) {
+                    currentPlayheadSec = pos
+                    webViewRef?.evaluateJavascript("if (typeof seekTo === 'function') { seekTo($pos); }", null)
+                }
+                if (playState && !isVideoPlaying) {
+                    isVideoPlaying = true
+                    webViewRef?.evaluateJavascript("if (typeof playVideo === 'function') { playVideo(); }", null)
+                } else if (!playState && isVideoPlaying) {
+                    isVideoPlaying = false
+                    webViewRef?.evaluateJavascript("if (typeof pauseVideo === 'function') { pauseVideo(); }", null)
+                }
+            },
+            onChatMessageReceived = { newMsg ->
+                chatMessages.add(newMsg)
+            }
+        )
+    }
+
+    LaunchedEffect(roomId) {
+        syncSocket.connect()
+    }
+
+    DisposableEffect(roomId) {
+        onDispose {
+            syncSocket.disconnect()
+        }
+    }
+
     // Function to trigger movies search and open popup
     fun performMoviesSearch(q: String) {
         isSearchingMovies = true
@@ -249,9 +300,7 @@ fun MoviesRoomScreen(
             "if (typeof seekTo === 'function') { seekTo($target); }",
             null
         )
-
-        val wsPayload = """{"type":"movie_playback_state","isPlaying":$isVideoPlaying,"positionSec":$target,"roomId":"$roomId"}"""
-        CloudflareClient.sendRealtimeSignalingMessage(context, wsPayload)
+        syncSocket.broadcastPlaybackState(isVideoPlaying, target)
     }
 
     fun togglePlayback() {
@@ -263,9 +312,7 @@ fun MoviesRoomScreen(
         } else {
             webViewRef?.evaluateJavascript("if (typeof pauseVideo === 'function') { pauseVideo(); }", null)
         }
-
-        val wsPayload = """{"type":"movie_playback_state","isPlaying":$nextPlay,"positionSec":$currentPlayheadSec,"roomId":"$roomId"}"""
-        CloudflareClient.sendRealtimeSignalingMessage(context, wsPayload)
+        syncSocket.broadcastPlaybackState(nextPlay, currentPlayheadSec)
     }
 
     fun playSelectedMovie(movie: MovieItem) {
@@ -287,77 +334,10 @@ fun MoviesRoomScreen(
             null
         )
 
-        val wsChange = """{"type":"movie_change","streamUrl":"${movie.streamUrl}","title":"${movie.title}","posterUrl":"${movie.poster}","roomId":"$roomId"}"""
-        CloudflareClient.sendRealtimeSignalingMessage(context, wsChange)
-
-        val wsPlay = """{"type":"movie_playback_state","isPlaying":true,"positionSec":0,"roomId":"$roomId"}"""
-        CloudflareClient.sendRealtimeSignalingMessage(context, wsPlay)
+        syncSocket.broadcastMovieChange(movie.streamUrl, movie.title, movie.poster)
+        syncSocket.broadcastPlaybackState(true, 0f)
 
         Toast.makeText(context, "تم تشغيل: ${movie.title}", Toast.LENGTH_SHORT).show()
-    }
-
-    // Listen to real-time sync WebSocket events
-    DisposableEffect(roomId) {
-        val wsListener: (String) -> Unit = { rawJson ->
-            try {
-                val obj = org.json.JSONObject(rawJson)
-                when (obj.optString("type")) {
-                    "movie_change" -> {
-                        val stream = obj.optString("streamUrl", "")
-                        val title = obj.optString("title", "فلم متزامن")
-                        val poster = obj.optString("posterUrl", "")
-                        if (stream.isNotBlank()) {
-                            currentMovie = MovieItem(
-                                id = "synced_${System.currentTimeMillis()}",
-                                title = title,
-                                name = title,
-                                poster = poster,
-                                streamUrl = stream,
-                                category = "سينما متزامنة"
-                            )
-                            webViewRef?.evaluateJavascript(
-                                "if (typeof loadStreamUrl === 'function') { loadStreamUrl('$stream'); }",
-                                null
-                            )
-                        }
-                    }
-                    "movie_playback_state" -> {
-                        val play = obj.optBoolean("isPlaying", isVideoPlaying)
-                        val pos = obj.optDouble("positionSec", currentPlayheadSec.toDouble()).toFloat()
-                        isVideoPlaying = play
-                        currentPlayheadSec = pos
-
-                        if (play) {
-                            webViewRef?.evaluateJavascript("if (typeof playVideo === 'function') { playVideo(); }", null)
-                        } else {
-                            webViewRef?.evaluateJavascript("if (typeof pauseVideo === 'function') { pauseVideo(); }", null)
-                        }
-                        webViewRef?.evaluateJavascript("if (typeof seekTo === 'function') { seekTo($pos); }", null)
-                    }
-                    "chat" -> {
-                        val text = obj.optString("text")
-                        val sender = obj.optString("senderName", "مستخدم")
-                        val senderId = obj.optString("senderId")
-                        if (senderId != currentUserId && text.isNotBlank()) {
-                            chatMessages.add(
-                                MoviesChatMessage(
-                                    id = "msg_${System.currentTimeMillis()}",
-                                    sender = sender,
-                                    text = text,
-                                    time = "الآن",
-                                    isMe = false
-                                )
-                            )
-                        }
-                    }
-                }
-            } catch (_: Exception) {}
-        }
-
-        CloudflareClient.addSignalingListener(wsListener)
-        onDispose {
-            CloudflareClient.removeSignalingListener(wsListener)
-        }
     }
 
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
@@ -1024,8 +1004,7 @@ fun MoviesRoomScreen(
                                                         isMe = true
                                                     )
                                                 )
-                                                val wsPayload = """{"type":"chat","text":"$t","senderName":"$currentUserName","senderId":"$currentUserId","roomId":"$roomId"}"""
-                                                CloudflareClient.sendRealtimeSignalingMessage(context, wsPayload)
+                                                syncSocket.broadcastChatMessage(t)
                                                 chatInputText = ""
                                             }
                                         },
