@@ -345,27 +345,29 @@ fun YouTubeRoomScreen(
                 )
                 isPlaying = true
                 currentPositionSec = 0f
-                // Execute instant direct URL load on WebView for all clients including room owner
-                val targetUrl = "https://www.youtube.com/embed/$vId?autoplay=1&enablejsapi=1&playsinline=1&controls=1&fs=0&rel=0&modestbranding=1"
-                webViewRef?.loadUrl(targetUrl)
+                // Execute instant video load on WebView for all clients including room owner
+                webViewRef?.evaluateJavascript(
+                    "if (typeof loadVideoById === 'function') { loadVideoById('$vId'); } else { var ifr = document.getElementById('player'); if (ifr) { ifr.src = 'https://www.youtube-nocookie.com/embed/$vId?autoplay=1&enablejsapi=1&playsinline=1&controls=1&rel=0&modestbranding=1'; } }",
+                    null
+                )
                 Toast.makeText(context, "تم تغيير الفيديو للغرفة: ${vTitle.take(30)} 🎬", Toast.LENGTH_SHORT).show()
             },
             onPlaybackStateReceived = { playState, pos ->
                 // Smooth synchronization: only seek if playhead drift exceeds 2.5 seconds to avoid buffer stutter
                 if (pos >= 0f && kotlin.math.abs(currentPositionSec - pos) > 2.5f) {
                     currentPositionSec = pos
-                    webViewRef?.evaluateJavascript("var v = document.querySelector('video'); if (v) { v.currentTime = $pos; }", null)
+                    webViewRef?.evaluateJavascript("if (typeof seekTo === 'function') { seekTo($pos); } else if (typeof sendCommand === 'function') { sendCommand('seekTo', [$pos, true]); }", null)
                 }
                 if (playState && !isPlaying) {
                     isPlaying = true
                     webViewRef?.evaluateJavascript(
-                        "var v = document.querySelector('video'); if (v) { v.play(); } var b = document.querySelector('.ytp-play-button'); if (b) { b.click(); }",
+                        "if (typeof playVideo === 'function') { playVideo(); } else if (typeof sendCommand === 'function') { sendCommand('playVideo'); }",
                         null
                     )
                 } else if (!playState && isPlaying) {
                     isPlaying = false
                     webViewRef?.evaluateJavascript(
-                        "var v = document.querySelector('video'); if (v) { v.pause(); } var b = document.querySelector('.ytp-play-button'); if (b) { b.click(); }",
+                        "if (typeof pauseVideo === 'function') { pauseVideo(); } else if (typeof sendCommand === 'function') { sendCommand('pauseVideo'); }",
                         null
                     )
                 }
@@ -577,7 +579,7 @@ fun YouTubeRoomScreen(
         }
         val safeTarget = targetSeconds.coerceIn(0f, totalDurationSec.coerceAtLeast(1f))
         currentPositionSec = safeTarget
-        webViewRef?.evaluateJavascript("if (typeof seekTo === 'function') { seekTo($safeTarget); }", null)
+        webViewRef?.evaluateJavascript("if (typeof seekTo === 'function') { seekTo($safeTarget); } else if (typeof sendCommand === 'function') { sendCommand('seekTo', [$safeTarget, true]); }", null)
         syncSocket.broadcastPlaybackState(isPlaying, safeTarget)
     }
 
@@ -592,12 +594,12 @@ fun YouTubeRoomScreen(
         isPlaying = nextPlay
         if (nextPlay) {
             webViewRef?.evaluateJavascript(
-                "var v = document.querySelector('video'); if (v) { v.play(); } var b = document.querySelector('.ytp-play-button'); if (b) { b.click(); }",
+                "if (typeof playVideo === 'function') { playVideo(); } else if (typeof sendCommand === 'function') { sendCommand('playVideo'); }",
                 null
             )
         } else {
             webViewRef?.evaluateJavascript(
-                "var v = document.querySelector('video'); if (v) { v.pause(); } var b = document.querySelector('.ytp-play-button'); if (b) { b.click(); }",
+                "if (typeof pauseVideo === 'function') { pauseVideo(); } else if (typeof sendCommand === 'function') { sendCommand('pauseVideo'); }",
                 null
             )
         }
@@ -625,9 +627,20 @@ fun YouTubeRoomScreen(
         isSearchModalOpen = false
         isDropdownOpen = false
 
-        // Direct Webview navigation to new video embed
-        val targetUrl = "https://www.youtube.com/embed/$cleanId?autoplay=1&enablejsapi=1&playsinline=1&controls=1&fs=0&rel=0&modestbranding=1"
-        webViewRef?.loadUrl(targetUrl)
+        // Instant update via JavaScript loadVideoById to preserve referrer and avoid Error 153
+        val jsCmd = """
+            (function() {
+                if (typeof loadVideoById === 'function') {
+                    loadVideoById('$cleanId');
+                } else {
+                    var ifr = document.getElementById('player');
+                    if (ifr) {
+                        ifr.src = "https://www.youtube-nocookie.com/embed/$cleanId?autoplay=1&enablejsapi=1&playsinline=1&controls=1&rel=0&modestbranding=1";
+                    }
+                }
+            })();
+        """.trimIndent()
+        webViewRef?.evaluateJavascript(jsCmd, null)
 
         // Broadcast to room owner and all participants
         YouTubeRoomManager.updateRoomVideo(context, roomId, cleanId, video.title)
@@ -794,34 +807,107 @@ fun YouTubeRoomScreen(
                                 webViewRef = this
 
                                 val initialId = currentVideo.id.ifBlank { "dQw4w9WgXcQ" }
-                                val directEmbedUrl = "https://www.youtube.com/embed/$initialId?autoplay=1&enablejsapi=1&playsinline=1&controls=1&fs=0&rel=0&modestbranding=1"
-                                loadUrl(directEmbedUrl)
+                                val playerHtml = """
+                                    <!DOCTYPE html>
+                                    <html lang="ar">
+                                    <head>
+                                        <meta charset="utf-8">
+                                        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+                                        <meta name="referrer" content="strict-origin-when-cross-origin">
+                                        <style>
+                                            * { margin: 0; padding: 0; box-sizing: border-box; }
+                                            html, body { width: 100%; height: 100%; background: #000000; overflow: hidden; }
+                                            #player { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none; }
+                                        </style>
+                                    </head>
+                                    <body>
+                                        <iframe id="player"
+                                            src="https://www.youtube-nocookie.com/embed/$initialId?autoplay=1&enablejsapi=1&playsinline=1&controls=1&rel=0&modestbranding=1"
+                                            width="100%"
+                                            height="100%"
+                                            frameborder="0"
+                                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                                            referrerpolicy="strict-origin-when-cross-origin"
+                                            allowfullscreen>
+                                        </iframe>
+                                        <script>
+                                            var playerIframe = document.getElementById('player');
+                                            function loadVideoById(vid) {
+                                                if (!vid) return;
+                                                if (playerIframe) {
+                                                    playerIframe.src = "https://www.youtube-nocookie.com/embed/" + vid + "?autoplay=1&enablejsapi=1&playsinline=1&controls=1&rel=0&modestbranding=1";
+                                                }
+                                            }
+                                            function sendCommand(func, args) {
+                                                try {
+                                                    if (playerIframe && playerIframe.contentWindow) {
+                                                        playerIframe.contentWindow.postMessage(JSON.stringify({
+                                                            "event": "command",
+                                                            "func": func,
+                                                            "args": args || []
+                                                        }), "*");
+                                                    }
+                                                } catch(e) {}
+                                            }
+                                            function playVideo() { sendCommand("playVideo"); }
+                                            function pauseVideo() { sendCommand("pauseVideo"); }
+                                            function seekTo(sec) { sendCommand("seekTo", [sec, true]); }
+                                            function setPlayerVolume(vol) { sendCommand("setVolume", [vol]); }
+                                            
+                                            window.addEventListener("message", function(event) {
+                                                try {
+                                                    var data = typeof event.data === "string" ? JSON.parse(event.data) : event.data;
+                                                    if (data && data.event === "onStateChange" && window.AndroidBridge) {
+                                                        window.AndroidBridge.reportState(data.info);
+                                                    }
+                                                    if (data && data.info && typeof data.info.currentTime === 'number' && window.AndroidBridge) {
+                                                        window.AndroidBridge.reportTime(data.info.currentTime, data.info.duration || 0);
+                                                    }
+                                                } catch(e) {}
+                                            });
+                                        </script>
+                                    </body>
+                                    </html>
+                                """.trimIndent()
+                                loadDataWithBaseURL("https://www.youtube-nocookie.com", playerHtml, "text/html", "UTF-8", null)
                             }
                         },
                         update = { webView ->
                             webViewRef = webView
                             val targetId = currentVideo.id.trim()
-                            if (targetId.isNotEmpty() && webView.url?.contains(targetId) != true) {
-                                val targetUrl = "https://www.youtube.com/embed/$targetId?autoplay=1&enablejsapi=1&playsinline=1&controls=1&fs=0&rel=0&modestbranding=1"
-                                webView.loadUrl(targetUrl)
+                            if (targetId.isNotEmpty()) {
+                                webView.evaluateJavascript("""
+                                    (function() {
+                                        var ifr = document.getElementById('player');
+                                        if (ifr && ifr.src && !ifr.src.includes('$targetId')) {
+                                            if (typeof loadVideoById === 'function') {
+                                                loadVideoById('$targetId');
+                                            } else {
+                                                ifr.src = 'https://www.youtube-nocookie.com/embed/$targetId?autoplay=1&enablejsapi=1&playsinline=1&controls=1&rel=0&modestbranding=1';
+                                            }
+                                        }
+                                    })();
+                                """.trimIndent(), null)
                             }
                         },
                         modifier = Modifier.fillMaxSize()
                     )
 
-                    // Balanced Centered Play/Pause Button
+                    // Quick Play/Pause Control Button in Corner (leaves video area uncluttered)
                     IconButton(
                         onClick = { togglePlayback() },
                         modifier = Modifier
-                            .size(46.dp)
-                            .background(Color(0x80000000), CircleShape)
+                            .align(Alignment.BottomEnd)
+                            .padding(8.dp)
+                            .size(36.dp)
+                            .background(Color(0xB3000000), CircleShape)
                             .border(1.dp, Color(0x33FFFFFF), CircleShape)
                     ) {
                         Icon(
                             imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                             contentDescription = if (isPlaying) "إيقاف مؤقت" else "تشغيل",
                             tint = Color.White,
-                            modifier = Modifier.size(26.dp)
+                            modifier = Modifier.size(20.dp)
                         )
                     }
                 }
