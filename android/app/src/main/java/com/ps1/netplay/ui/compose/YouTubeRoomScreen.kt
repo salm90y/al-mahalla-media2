@@ -345,25 +345,29 @@ fun YouTubeRoomScreen(
                 )
                 isPlaying = true
                 currentPositionSec = 0f
-                // Execute instant video load on WebView for all clients including room owner
-                webViewRef?.evaluateJavascript(
-                    "if (typeof loadVideoById === 'function') { loadVideoById('$vId'); } else { var ifr = document.getElementById('player'); if (ifr) { ifr.src = 'https://www.youtube.com/embed/$vId?autoplay=1&enablejsapi=1&playsinline=1&controls=0&fs=0&rel=0&modestbranding=1'; } }",
-                    null
-                )
+                // Execute instant direct URL load on WebView for all clients including room owner
+                val targetUrl = "https://www.youtube.com/embed/$vId?autoplay=1&enablejsapi=1&playsinline=1&controls=1&fs=0&rel=0&modestbranding=1"
+                webViewRef?.loadUrl(targetUrl)
                 Toast.makeText(context, "تم تغيير الفيديو للغرفة: ${vTitle.take(30)} 🎬", Toast.LENGTH_SHORT).show()
             },
             onPlaybackStateReceived = { playState, pos ->
                 // Smooth synchronization: only seek if playhead drift exceeds 2.5 seconds to avoid buffer stutter
                 if (pos >= 0f && kotlin.math.abs(currentPositionSec - pos) > 2.5f) {
                     currentPositionSec = pos
-                    webViewRef?.evaluateJavascript("if (typeof seekTo === 'function') { seekTo($pos); }", null)
+                    webViewRef?.evaluateJavascript("var v = document.querySelector('video'); if (v) { v.currentTime = $pos; }", null)
                 }
                 if (playState && !isPlaying) {
                     isPlaying = true
-                    webViewRef?.evaluateJavascript("if (typeof playVideo === 'function') { playVideo(); }", null)
+                    webViewRef?.evaluateJavascript(
+                        "var v = document.querySelector('video'); if (v) { v.play(); } var b = document.querySelector('.ytp-play-button'); if (b) { b.click(); }",
+                        null
+                    )
                 } else if (!playState && isPlaying) {
                     isPlaying = false
-                    webViewRef?.evaluateJavascript("if (typeof pauseVideo === 'function') { pauseVideo(); }", null)
+                    webViewRef?.evaluateJavascript(
+                        "var v = document.querySelector('video'); if (v) { v.pause(); } var b = document.querySelector('.ytp-play-button'); if (b) { b.click(); }",
+                        null
+                    )
                 }
             },
             onChatMessageReceived = { newMsg ->
@@ -587,9 +591,15 @@ fun YouTubeRoomScreen(
         val nextPlay = !isPlaying
         isPlaying = nextPlay
         if (nextPlay) {
-            webViewRef?.evaluateJavascript("if (typeof playVideo === 'function') { playVideo(); }", null)
+            webViewRef?.evaluateJavascript(
+                "var v = document.querySelector('video'); if (v) { v.play(); } var b = document.querySelector('.ytp-play-button'); if (b) { b.click(); }",
+                null
+            )
         } else {
-            webViewRef?.evaluateJavascript("if (typeof pauseVideo === 'function') { pauseVideo(); }", null)
+            webViewRef?.evaluateJavascript(
+                "var v = document.querySelector('video'); if (v) { v.pause(); } var b = document.querySelector('.ytp-play-button'); if (b) { b.click(); }",
+                null
+            )
         }
         syncSocket.broadcastPlaybackState(nextPlay, currentPositionSec)
     }
@@ -615,22 +625,11 @@ fun YouTubeRoomScreen(
         isSearchModalOpen = false
         isDropdownOpen = false
 
-        // 1. Direct Webview playback update with instant iframe load
-        val jsCmd = """
-            (function() {
-                if (typeof loadVideoById === 'function') {
-                    loadVideoById('$cleanId');
-                } else {
-                    var ifr = document.getElementById('player');
-                    if (ifr) {
-                        ifr.src = "https://www.youtube.com/embed/$cleanId?autoplay=1&enablejsapi=1&playsinline=1&controls=0&fs=0&rel=0&modestbranding=1";
-                    }
-                }
-            })();
-        """.trimIndent()
-        webViewRef?.evaluateJavascript(jsCmd, null)
+        // Direct Webview navigation to new video embed
+        val targetUrl = "https://www.youtube.com/embed/$cleanId?autoplay=1&enablejsapi=1&playsinline=1&controls=1&fs=0&rel=0&modestbranding=1"
+        webViewRef?.loadUrl(targetUrl)
 
-        // 2. Broadcast to room owner and all participants
+        // Broadcast to room owner and all participants
         YouTubeRoomManager.updateRoomVideo(context, roomId, cleanId, video.title)
         syncSocket.broadcastVideoChange(cleanId, video.title)
         syncSocket.broadcastPlaybackState(true, 0f)
@@ -745,6 +744,7 @@ fun YouTubeRoomScreen(
                                     super.onWindowVisibilityChanged(View.VISIBLE)
                                 }
                             }.apply {
+                                setLayerType(View.LAYER_TYPE_HARDWARE, null)
                                 cookieMgr.setAcceptThirdPartyCookies(this, true)
                                 layoutParams = ViewGroup.LayoutParams(
                                     ViewGroup.LayoutParams.MATCH_PARENT,
@@ -760,11 +760,20 @@ fun YouTubeRoomScreen(
                                     allowContentAccess = true
                                     allowFileAccess = true
                                     mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                                    cacheMode = WebSettings.LOAD_DEFAULT
                                     userAgentString = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36"
                                 }
                                 webChromeClient = WebChromeClient()
                                 webViewClient = object : WebViewClient() {
                                     override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean = false
+                                    override fun onPageFinished(view: WebView?, url: String?) {
+                                        super.onPageFinished(view, url)
+                                        // Auto-start playback as soon as the embed player page finishes loading
+                                        view?.evaluateJavascript(
+                                            "var v = document.querySelector('video'); if (v) { v.play(); } var b = document.querySelector('.ytp-large-play-button'); if (b) { b.click(); }",
+                                            null
+                                        )
+                                    }
                                 }
                                 addJavascriptInterface(
                                     object {
@@ -785,100 +794,17 @@ fun YouTubeRoomScreen(
                                 webViewRef = this
 
                                 val initialId = currentVideo.id.ifBlank { "dQw4w9WgXcQ" }
-                                val customHtml = """
-                                    <!DOCTYPE html>
-                                    <html>
-                                    <head>
-                                        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-                                        <style>
-                                            * { margin: 0; padding: 0; box-sizing: border-box; }
-                                            html, body { width: 100%; height: 100%; background: #000; overflow: hidden; display: flex; align-items: center; justify-content: center; }
-                                            #player-container { width: 100%; height: 100%; position: absolute; top: 0; left: 0; right: 0; bottom: 0; }
-                                            iframe { width: 100% !important; height: 100% !important; border: none; }
-                                        </style>
-                                    </head>
-                                    <body>
-                                        <div id="player-container">
-                                            <iframe id="player"
-                                                type="text/html"
-                                                src="https://www.youtube.com/embed/$initialId?autoplay=1&enablejsapi=1&playsinline=1&controls=0&fs=0&rel=0&modestbranding=1"
-                                                frameborder="0"
-                                                allow="autoplay; encrypted-media; picture-in-picture"
-                                                allowfullscreen>
-                                            </iframe>
-                                        </div>
-                                        <script>
-                                            var playerIframe = document.getElementById('player');
-                                            var currentVid = '$initialId';
-
-                                            function sendCommand(func, args) {
-                                                try {
-                                                    if (playerIframe && playerIframe.contentWindow) {
-                                                        playerIframe.contentWindow.postMessage(JSON.stringify({
-                                                            "event": "command",
-                                                            "func": func,
-                                                            "args": args || []
-                                                        }), "*");
-                                                    }
-                                                } catch(e) {}
-                                            }
-
-                                            function playVideo() {
-                                                sendCommand("playVideo");
-                                            }
-
-                                            function pauseVideo() {
-                                                sendCommand("pauseVideo");
-                                            }
-
-                                            function seekTo(seconds) {
-                                                sendCommand("seekTo", [seconds, true]);
-                                            }
-
-                                            function setPlayerVolume(volume) {
-                                                sendCommand("setVolume", [volume]);
-                                            }
-
-                                            function loadVideoById(videoId) {
-                                                if (!videoId) return;
-                                                currentVid = videoId;
-                                                if (playerIframe) {
-                                                    playerIframe.src = "https://www.youtube.com/embed/" + videoId + "?autoplay=1&enablejsapi=1&playsinline=1&controls=0&fs=0&rel=0&modestbranding=1";
-                                                }
-                                            }
-
-                                            window.addEventListener("message", function(event) {
-                                                try {
-                                                    var data = typeof event.data === "string" ? JSON.parse(event.data) : event.data;
-                                                    if (data && data.event === "onStateChange" && window.AndroidBridge) {
-                                                        window.AndroidBridge.reportState(data.info);
-                                                    }
-                                                    if (data && data.info && typeof data.info.currentTime === 'number' && window.AndroidBridge) {
-                                                        window.AndroidBridge.reportTime(data.info.currentTime, data.info.duration || 0);
-                                                    }
-                                                } catch(e) {}
-                                            });
-                                        </script>
-                                    </body>
-                                    </html>
-                                """.trimIndent()
-                                loadDataWithBaseURL("https://www.youtube.com", customHtml, "text/html", "UTF-8", null)
+                                val directEmbedUrl = "https://www.youtube.com/embed/$initialId?autoplay=1&enablejsapi=1&playsinline=1&controls=1&fs=0&rel=0&modestbranding=1"
+                                loadUrl(directEmbedUrl)
                             }
                         },
                         update = { webView ->
                             webViewRef = webView
                             val targetId = currentVideo.id.trim()
-                            val vol = (videoVolume * 100).toInt()
-                            webView.evaluateJavascript("""
-                                (function() {
-                                    if (typeof setPlayerVolume === 'function') {
-                                        setPlayerVolume($vol);
-                                    }
-                                    if (typeof currentVid !== 'undefined' && currentVid !== '$targetId') {
-                                        loadVideoById('$targetId');
-                                    }
-                                })();
-                            """.trimIndent(), null)
+                            if (targetId.isNotEmpty() && webView.url?.contains(targetId) != true) {
+                                val targetUrl = "https://www.youtube.com/embed/$targetId?autoplay=1&enablejsapi=1&playsinline=1&controls=1&fs=0&rel=0&modestbranding=1"
+                                webView.loadUrl(targetUrl)
+                            }
                         },
                         modifier = Modifier.fillMaxSize()
                     )
