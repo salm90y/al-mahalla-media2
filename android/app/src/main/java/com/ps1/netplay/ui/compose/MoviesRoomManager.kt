@@ -257,6 +257,14 @@ object MoviesRoomManager {
         })
     }
 
+    fun getRoomLatest(context: Context, roomId: String, onComplete: (PublicMoviesRoom?) -> Unit) {
+        getRoomByCodeOrId(context, roomId, onComplete)
+    }
+
+    fun deleteRoomLocally(context: Context, roomId: String) {
+        deleteRoom(context, roomId)
+    }
+
     fun deleteRoom(context: Context, roomId: String, onComplete: () -> Unit = {}) {
         activeRealRooms.removeAll { it.roomId == roomId }
         val currentLocal = loadRoomsLocally(context).filter { it.roomId != roomId }

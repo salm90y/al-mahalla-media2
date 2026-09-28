@@ -456,7 +456,7 @@ fun MoviesRoomScreen(
     // Connect WebSocket and fetch authoritative initial state
     LaunchedEffect(roomId) {
         syncSocket.connect()
-        MoviesRoomManager.getRoomLatest(context, roomId) { latestRoom ->
+        MoviesRoomManager.getRoomLatest(context, roomId) { latestRoom: PublicMoviesRoom? ->
             if (latestRoom != null && latestRoom.streamUrl.isNotBlank()) {
                 currentMovie = MovieItem(
                     id = "synced_${System.currentTimeMillis()}",
